@@ -1,0 +1,33 @@
+name = "opencode-go"
+addendum = "opencode-go.md"
+
+[models.worker]
+model = "opencode-go/deepseek-v4-flash"
+
+[models.worker-complex]
+model = "zai-coding-plan/glm-5.3"
+
+[models.validator]
+model = "opencode-go/deepseek-v4-flash"
+
+[models.debugger]
+model = "zai-coding-plan/glm-5.3"
+
+[models.explorer]
+model = "opencode-go/deepseek-v4-flash"
+variant = "high"
+
+[models.planner]
+model = "zai-coding-plan/glm-5.3"
+
+[models.spec-writer]
+model = "opencode-go/deepseek-v4-flash"
+
+[models.design-partner]
+model = "opencode-go/deepseek-v4-flash"
+
+[models.reviewer]
+model = "zai-coding-plan/glm-5.3"
+
+[models.ux-critic]
+model = "opencode-go/deepseek-v4-flash"

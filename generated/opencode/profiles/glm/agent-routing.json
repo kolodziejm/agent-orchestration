@@ -1,0 +1,35 @@
+{
+  "agent": {
+    "debugger": {
+      "model": "zai-coding-plan/glm-5.3"
+    },
+    "design-partner": {
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "explorer": {
+      "model": "deepseek/deepseek-v4-flash",
+      "variant": "high"
+    },
+    "planner": {
+      "model": "zai-coding-plan/glm-5.3"
+    },
+    "reviewer": {
+      "model": "zai-coding-plan/glm-5.3"
+    },
+    "spec-writer": {
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "ux-critic": {
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "validator": {
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "worker": {
+      "model": "deepseek/deepseek-v4-flash"
+    },
+    "worker-complex": {
+      "model": "zai-coding-plan/glm-5.3"
+    }
+  }
+}

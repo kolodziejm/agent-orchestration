@@ -1,0 +1,71 @@
+version = 1
+
+[roles.worker]
+description = "Routine implementation worker for sufficiently specified changes"
+mode = "subagent"
+edit = "allow"
+bash = "allow"
+delegates = ["vision-*"]
+
+[roles.worker-complex]
+description = "Complex implementation worker for difficult but sufficiently specified changes"
+mode = "subagent"
+edit = "allow"
+bash = "allow"
+delegates = ["vision-*"]
+
+[roles.validator]
+description = "Independent mechanical validation agent"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = []
+
+[roles.debugger]
+description = "Read-only root-cause diagnosis agent"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = []
+
+[roles.explorer]
+description = "Read-only repository evidence gathering agent"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = []
+
+[roles.planner]
+description = "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
+mode = "subagent"
+edit = "allow"
+bash = "ask"
+delegates = ["explorer", "spec-writer"]
+
+[roles.spec-writer]
+description = "Mechanical writer of planner-authorized planning artifacts"
+mode = "subagent"
+edit = "allow"
+bash = "ask"
+delegates = []
+
+[roles.design-partner]
+description = "Human-in-the-loop product flow designer and prototype author"
+mode = "subagent"
+edit = "allow"
+bash = "allow"
+delegates = []
+
+[roles.reviewer]
+description = "Senior read-only reviewer and reasoning principal"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = ["explorer"]
+
+[roles.ux-critic]
+description = "Evidence-based UX, accessibility, platform-fit, and parity auditor"
+mode = "subagent"
+edit = "allow"
+bash = "allow"
+delegates = []

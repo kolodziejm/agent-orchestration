@@ -1,0 +1,33 @@
+name = "glm"
+addendum = "glm.md"
+
+[models.worker]
+model = "deepseek/deepseek-v4-flash"
+
+[models.worker-complex]
+model = "zai-coding-plan/glm-5.3"
+
+[models.validator]
+model = "deepseek/deepseek-v4-flash"
+
+[models.debugger]
+model = "zai-coding-plan/glm-5.3"
+
+[models.explorer]
+model = "deepseek/deepseek-v4-flash"
+variant = "high"
+
+[models.planner]
+model = "zai-coding-plan/glm-5.3"
+
+[models.spec-writer]
+model = "deepseek/deepseek-v4-flash"
+
+[models.design-partner]
+model = "deepseek/deepseek-v4-flash"
+
+[models.reviewer]
+model = "zai-coding-plan/glm-5.3"
+
+[models.ux-critic]
+model = "deepseek/deepseek-v4-flash"

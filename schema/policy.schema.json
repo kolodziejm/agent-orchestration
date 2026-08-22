@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kolodziejm/agent-orchestration/schema/policy.schema.json",
+  "title": "Agent orchestration routing policy",
+  "type": "object",
+  "required": ["version", "roles"],
+  "properties": {
+    "version": {"type": "integer", "minimum": 1},
+    "roles": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description", "mode", "edit", "bash", "delegates"],
+        "properties": {
+          "description": {"type": "string", "minLength": 1},
+          "mode": {"enum": ["primary", "subagent"]},
+          "edit": {"enum": ["allow", "ask", "deny"]},
+          "bash": {"enum": ["allow", "ask", "deny"]},
+          "delegates": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

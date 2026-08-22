@@ -1,0 +1,20 @@
+{
+  "format_version": 1,
+  "roles": [
+    "debugger",
+    "design-partner",
+    "explorer",
+    "planner",
+    "reviewer",
+    "spec-writer",
+    "ux-critic",
+    "validator",
+    "worker",
+    "worker-complex"
+  ],
+  "profiles": [
+    "glm",
+    "openai",
+    "opencode-go"
+  ]
+}

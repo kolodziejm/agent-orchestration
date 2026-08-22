@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+python3.11 -m unittest discover -s "$ROOT/tests" -v
+python3.11 "$ROOT/adapters/opencode/render.py" --output "$TMP/opencode"
+diff -ruN "$ROOT/generated/opencode" "$TMP/opencode"
