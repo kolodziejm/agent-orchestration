@@ -9,7 +9,7 @@ policy + role contracts + logical model profiles
                     ↓
              harness adapter
                     ↓
-        OpenCode / future harnesses
+      OpenCode / Claude Code / future harnesses
 ```
 
 ## Source of truth
@@ -73,18 +73,55 @@ The installer merges generated agent routing into existing profile `opencode.jso
 
 The local `.agent-orchestration.manifest.json` records exactly which roles and profiles are managed. This allows later policy versions to remove obsolete generated agents without deleting unrelated user-defined agents or instructions.
 
-Backups are written under:
+Backups are written under, namespaced per adapter:
 
 ```text
-~/.local/state/agent-orchestration/backups/
+~/.local/state/agent-orchestration/backups/<timestamp>/opencode/
+~/.local/state/agent-orchestration/backups/<timestamp>/claude-code/
 ```
+
+## Claude Code adapter
+
+Render committed snapshots (also renders the OpenCode snapshot):
+
+```bash
+./scripts/render
+```
+
+Run contract tests and ensure snapshots are current:
+
+```bash
+./scripts/check
+```
+
+Preview installation against the active Claude Code configuration:
+
+```bash
+./scripts/install-claude-code --dry-run
+```
+
+Install and back up changed files:
+
+```bash
+./scripts/install-claude-code
+```
+
+The installer copies each rendered `agents/<role>.md` subagent file into `<target>/agents/`, and merges the shared orchestration policy into `<target>/CLAUDE.md` by replacing only the section between the `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers (or appending it if absent). Content outside the markers is preserved untouched. The default target is `~/.claude`, overridable with `--target`.
+
+Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. Only one profile may declare `harness = "claude-code"` (currently `profiles/claude.toml`); the OpenCode renderer ignores it via the same `harness` field (profiles without a `harness` field default to `"opencode"` for backward compatibility).
+
+### Claude Code permission degradation
+
+Claude Code has no per-subagent equivalent of OpenCode's `bash = "ask"` permission; prompts are configured at the session level, not per agent file. `Bash` is therefore granted to every rendered agent, including read-only roles, since they still need it for investigation. Delegation (`delegates` in `policy/routing.toml`) is expressed as `Agent(<target>)` entries in the agent's `tools` frontmatter field. `vision-*` delegates are omitted for profiles that declare `[capabilities] native_vision = true`, since all current Claude models are natively multimodal.
+
+The local `.agent-orchestration.manifest.json` under the target directory tracks managed roles the same way as the OpenCode adapter, so obsolete generated agents are removed without deleting unrelated agents or CLAUDE.md content.
 
 ## Generated snapshots
 
-`generated/opencode/` is committed intentionally. A policy change should show both:
+`generated/opencode/` and `generated/claude-code/` are committed intentionally. A policy change should show both:
 
 1. the harness-agnostic semantic change;
-2. its exact OpenCode output.
+2. its exact per-harness output.
 
 CI rerenders snapshots and fails on drift.
 
@@ -99,6 +136,8 @@ CI rerenders snapshots and fails on drift.
 ## Adding another harness
 
 Create an adapter under `adapters/<harness>/` that consumes only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the adapter, not in role contracts.
+
+Currently supported: OpenCode (`adapters/opencode/`) and Claude Code (`adapters/claude-code/`).
 
 ## Security
 

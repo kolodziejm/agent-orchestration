@@ -264,7 +264,10 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
     def test_keyboard_interrupt_during_mutation_rolls_back_all_files(self):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / "target"
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir(parents=True)
+            target = root / "target"
             originals = {}
             for name in ("openai", "glm", "opencode-go"):
                 profile = target / "profiles" / name
@@ -284,13 +287,20 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
                 return original_write_text(path, data, *args, **kwargs)
 
             with mock.patch.object(Path, "write_text", interrupt_second_write):
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                    with self.assertRaises(KeyboardInterrupt):
-                        install.install(target, dry_run=False, validate=False)
+                with mock.patch.object(Path, "home", return_value=fake_home):
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(KeyboardInterrupt):
+                            install.install(target, dry_run=False, validate=False)
 
             for path, content in originals.items():
                 self.assertEqual(path.read_bytes(), content)
             self.assertFalse((target / install.MANIFEST_NAME).exists())
+            backups_root = fake_home / ".local" / "state" / "agent-orchestration" / "backups"
+            self.assertTrue(backups_root.exists())
+            backed_up = list(backups_root.rglob("opencode.json"))
+            self.assertEqual(len(backed_up), len(originals))
+            for path in backed_up:
+                self.assertIn("opencode", path.relative_to(backups_root).parts)
 
 
 if __name__ == "__main__":

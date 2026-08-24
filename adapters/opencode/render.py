@@ -79,6 +79,8 @@ def render_into(output: Path) -> None:
     profile_names = []
     for profile_path in sorted((ROOT / "profiles").glob("*.toml")):
         profile = load_toml(profile_path)
+        if profile.get("harness", "opencode") != "opencode":
+            continue
         name = profile["name"]
         profile_names.append(name)
         models = profile["models"]

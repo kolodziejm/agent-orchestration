@@ -188,7 +188,9 @@ def install(target: Path, dry_run: bool, validate: bool) -> int:
             assert_safe_destination(path, target)
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup_root = Path.home() / ".local" / "state" / "agent-orchestration" / "backups" / stamp
+        backup_root = (
+            Path.home() / ".local" / "state" / "agent-orchestration" / "backups" / stamp / "opencode"
+        )
         originals: dict[Path, bytes | None] = {
             path: path.read_bytes() if path.exists() else None for path in affected
         }
