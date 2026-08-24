@@ -8,3 +8,5 @@ python3.11 "$ROOT/adapters/opencode/render.py" --output "$TMP/opencode"
 diff -ruN "$ROOT/generated/opencode" "$TMP/opencode"
 python3.11 "$ROOT/adapters/codex/render.py" --output "$TMP/codex" --profile openai
 diff -ruN "$ROOT/generated/codex" "$TMP/codex"
+python3.11 "$ROOT/adapters/claude-code/render.py" --output "$TMP/claude-code"
+diff -ruN "$ROOT/generated/claude-code" "$TMP/claude-code"

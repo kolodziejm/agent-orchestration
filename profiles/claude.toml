@@ -1,0 +1,46 @@
+name = "claude"
+addendum = "claude.md"
+harness = "claude-code"
+
+[capabilities]
+native_vision = true
+
+[models.worker]
+model = "sonnet"
+variant = "high"
+
+[models.worker-complex]
+model = "opus"
+variant = "xhigh"
+
+[models.validator]
+model = "sonnet"
+variant = "medium"
+
+[models.debugger]
+model = "opus"
+variant = "high"
+
+[models.explorer]
+model = "sonnet"
+variant = "medium"
+
+[models.planner]
+model = "opus"
+variant = "high"
+
+[models.spec-writer]
+model = "sonnet"
+variant = "low"
+
+[models.reviewer]
+model = "opus"
+variant = "high"
+
+[models.design-partner]
+model = "sonnet"
+variant = "high"
+
+[models.ux-critic]
+model = "sonnet"
+variant = "high"
