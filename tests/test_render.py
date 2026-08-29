@@ -48,7 +48,7 @@ class PolicyContractTests(unittest.TestCase):
             self.assertTrue((ROLES / f"{role}.md").is_file(), role)
 
     def test_role_contracts_are_provider_agnostic(self):
-        forbidden = ("openai/", "deepseek/", "zai-coding-plan/", "opencode-go/")
+        forbidden = ("openai/", "deepseek/", "zai-coding-plan/")
         for path in ROLES.glob("*.md"):
             content = path.read_text()
             for token in forbidden:
@@ -140,6 +140,27 @@ class OpenCodeRenderTests(unittest.TestCase):
 
 
 class OpenCodeInstallPlanTests(unittest.TestCase):
+    def test_unconfigured_generated_profile_is_not_added_to_installed_manifest(self):
+        """REGRESSION CONTRACT: install only configured profiles; TEST LAYER: installer plan unit test."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
+            generated_profiles = json.loads((rendered / "manifest.json").read_text())["profiles"]
+            self.assertIn("openai", generated_profiles)
+            target.mkdir()
+            profile = target / "profiles" / "glm"
+            profile.mkdir(parents=True)
+            (profile / "opencode.json").write_text(json.dumps({}))
+            self.assertFalse((target / "profiles" / "openai" / "opencode.json").exists())
+
+            files, _ = install.desired_state(rendered, target)
+
+            installed = json.loads(files[target / install.MANIFEST_NAME])
+            self.assertEqual(installed["profiles"], ["glm"])
+
     def test_merge_preserves_unrelated_config_and_removes_stale_managed_roles(self):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
@@ -155,7 +176,7 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             previous = {
                 "format_version": 1,
                 "roles": ["worker", "obsolete-managed-role"],
-                "profiles": ["openai", "glm", "opencode-go"],
+                "profiles": ["openai", "glm", "retired-profile"],
             }
             target.mkdir()
             (target / install.MANIFEST_NAME).write_text(json.dumps(previous))
@@ -238,7 +259,7 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             secret.write_text("TOP_SECRET_SHOULD_NOT_APPEAR")
             (target / "agents").mkdir(parents=True)
             (target / "agents" / "worker.md").symlink_to(secret)
-            for name in ("openai", "glm", "opencode-go"):
+            for name in ("openai", "glm"):
                 profile = target / "profiles" / name
                 profile.mkdir(parents=True)
                 (profile / "opencode.json").write_text("{}")
@@ -266,7 +287,7 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "target"
             originals = {}
-            for name in ("openai", "glm", "opencode-go"):
+            for name in ("openai", "glm"):
                 profile = target / "profiles" / name
                 profile.mkdir(parents=True)
                 config_path = profile / "opencode.json"
@@ -291,6 +312,58 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             for path, content in originals.items():
                 self.assertEqual(path.read_bytes(), content)
             self.assertFalse((target / install.MANIFEST_NAME).exists())
+
+
+class OpenCodeInstallValidationTests(unittest.TestCase):
+    def test_validation_checks_only_locally_configured_profiles(self):
+        """REGRESSION CONTRACT: validate configured profiles only; TEST LAYER: installer integration test."""
+        install = load_install_module()
+        renderer = load_render_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
+            generated_profiles = json.loads((rendered / "manifest.json").read_text())["profiles"]
+            self.assertIn("openai", generated_profiles)
+            target.mkdir()
+            profile = target / "profiles" / "glm"
+            profile.mkdir(parents=True)
+            (profile / "opencode.json").write_text(json.dumps({}))
+            self.assertFalse((target / "profiles" / "openai" / "opencode.json").exists())
+
+            validation_calls = []
+
+            def run(command, **kwargs):
+                if command[:2] == [sys.executable, str(RENDER)]:
+                    output = Path(command[command.index("--output") + 1])
+                    renderer.render(output)
+                else:
+                    validation_calls.append((command, kwargs))
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(install.subprocess, "run", side_effect=run):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    install.install(target, dry_run=False, validate=True)
+
+            self.assertEqual(
+                [call[0] for call in validation_calls],
+                [["opencode", "debug", "config"]],
+            )
+            self.assertEqual(
+                {
+                    Path(call[1]["env"]["OPENCODE_CONFIG"]).parent.name
+                    for call in validation_calls
+                },
+                {"glm"},
+            )
+            self.assertNotIn(
+                "openai",
+                {
+                    Path(call[1]["env"]["OPENCODE_CONFIG"]).parent.name
+                    for call in validation_calls
+                },
+            )
 
 
 if __name__ == "__main__":

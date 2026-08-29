@@ -103,7 +103,7 @@ def desired_state(rendered: Path, target: Path) -> tuple[dict[Path, str], set[Pa
         if name not in current_profiles:
             deletions.add(target / "profiles" / name / "orchestration.md")
         if not config_path.exists():
-            if name in current_profiles:
+            if name in previous_profiles and name in current_profiles:
                 raise SystemExit(f"Missing target profile config: {config_path}")
             continue
 
@@ -133,7 +133,11 @@ def desired_state(rendered: Path, target: Path) -> tuple[dict[Path, str], set[Pa
 
         files[config_path] = json.dumps(config, indent=2) + "\n"
 
-    files[manifest_path] = json.dumps(current_manifest, indent=2) + "\n"
+    installed_manifest = dict(current_manifest)
+    installed_manifest["profiles"] = sorted(
+        name for name in current_profiles if (target / "profiles" / name / "opencode.json").exists()
+    )
+    files[manifest_path] = json.dumps(installed_manifest, indent=2) + "\n"
     return files, deletions - set(files)
 
 
@@ -209,7 +213,8 @@ def install(target: Path, dry_run: bool, validate: bool) -> int:
                 path.unlink()
 
             if validate:
-                for name in sorted(json.loads((rendered / "manifest.json").read_text())["profiles"]):
+                installed_manifest = json.loads(files[target / MANIFEST_NAME])
+                for name in installed_manifest["profiles"]:
                     config = target / "profiles" / name / "opencode.json"
                     env = os.environ.copy()
                     env["OPENCODE_CONFIG"] = str(config)
