@@ -9,7 +9,7 @@ policy + role contracts + logical model profiles
                     ↓
              harness adapter
                     ↓
-        OpenCode / future harnesses
+              OpenCode / Codex / future harnesses
 ```
 
 ## Source of truth
@@ -79,6 +79,17 @@ Backups are written under:
 ~/.local/state/agent-orchestration/backups/
 ```
 
+## Codex adapter
+
+The Codex adapter consumes the same canonical policy and the `openai` profile. It renders the ten role contracts as standalone Codex agent TOML files and renders the policy and profile addendum into `AGENTS.md`:
+
+```bash
+./scripts/render
+./scripts/check
+```
+
+The adapter removes the `openai/` provider prefix from model identifiers, maps the profile `variant` to Codex `model_reasoning_effort` (`max` becomes Codex's `xhigh`), and maps canonical `edit = deny` to `read-only` while writable roles use `workspace-write`. It does not write to `~/.codex`; it only generates repository snapshots. Copy or symlink `generated/codex/AGENTS.md` and `generated/codex/agents/*.toml` into the Codex locations you choose. There is no installer, deployment manager, backup, adoption, or rollback logic.
+
 ## Generated snapshots
 
 `generated/opencode/` is committed intentionally. A policy change should show both:
@@ -87,6 +98,8 @@ Backups are written under:
 2. its exact OpenCode output.
 
 CI rerenders snapshots and fails on drift.
+
+Both `generated/opencode/` and `generated/codex/` are committed snapshots. A policy or profile change must update the corresponding semantic source and its exact harness output in the same change.
 
 ## Adding a role
 

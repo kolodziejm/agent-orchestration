@@ -2,6 +2,11 @@
 
 All notable changes to the orchestration policy are documented here.
 
+## Unreleased
+
+- Add a simple Codex renderer for the ten role contracts using the OpenAI profile's model, reasoning, and sandbox mappings.
+- Render and check committed OpenCode and Codex snapshots; Codex artifacts are copied or symlinked manually without an installer.
+
 ## 0.1.0 — 2026-08-22
 
 - Establish a harness-agnostic policy and role-contract source of truth.

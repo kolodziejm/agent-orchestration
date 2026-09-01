@@ -1,3 +1,7 @@
+# Agent Orchestration for Codex
+
+Generated from the canonical policy and the active profile. Do not edit manually.
+
 # Shared orchestration policy
 
 This file is the canonical orchestration policy for all harnesses. Profile-specific instruction files may add capability constraints but must not duplicate or weaken these rules.
@@ -158,3 +162,9 @@ Use `ux-critic` for evidence-based UX, usability, accessibility, platform-fit, a
 Never reset, clean, stash, overwrite, or delete unrelated user changes. Never use destructive git or filesystem operations during orchestration, debugging, or validation.
 
 Keep progress updates sparse: start, meaningful blocker or decision, and completion. Final reports must distinguish worker self-checks from independent validation, identify whether review ran or was consciously skipped, list changed artifacts, and state residual risk honestly.
+
+# OpenAI profile orchestration
+
+- The primary agent is the orchestrator and follows the shared orchestration policy loaded before this file.
+- Native vision may be used when the active OpenAI model supports it.
+- Preserve the primary model's context for authority, decomposition, decisions, approval gates, and synthesis. Delegate mechanical repository evidence gathering to the agents defined by the shared policy.

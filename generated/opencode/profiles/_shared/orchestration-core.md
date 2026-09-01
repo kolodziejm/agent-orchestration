@@ -1,6 +1,6 @@
 # Shared orchestration policy
 
-This file is the canonical orchestration policy for all OpenCode profiles. Profile-specific instruction files may add capability constraints but must not duplicate or weaken these rules.
+This file is the canonical orchestration policy for all harnesses. Profile-specific instruction files may add capability constraints but must not duplicate or weaken these rules.
 
 ## Model ownership
 
