@@ -80,17 +80,17 @@ Both worker roles must preserve unrelated user work and remain within scope. Amb
 
 ### Behavioral test enforcement
 
-- Every new or materially changed test must name the observable regression contract, invariant, requirement, or platform boundary it protects.
-- Place the test in the least expensive sufficient layer that can observe that contract: use a cheaper layer when it is sufficient, and move to a capable layer when the current layer cannot observe the behavior.
-- Never substitute assertions about CSS classes, incidental DOM nesting, source text, component internals, or call syntax for behavior. Implementation or source-reading assertions are allowed only for a stable documented architecture, generated-artifact, security, accessibility, build, or compatibility invariant.
-- A passing suite is insufficient when a test verifies implementation instead of the stated behavior.
-- The worker owns test changes; do not create a separate test-writer role. `worker` and `worker-complex` must report `REGRESSION CONTRACT` and `TEST LAYER` for every added or materially changed test in `SELF-CHECKS` or the final handoff.
+- Test public action -> observable outcome. Do not assert implementation details such as CSS classes, DOM shape, source text, private functions, or incidental call syntax. The only exception is an explicit architecture or security contract.
+- Use the simplest, cheapest test layer that can detect the bug.
+- Do not duplicate the same evidence or contract in another test.
+
+Before adding a test, answer: `This test will fail when ...` with a concrete defect. If that sentence cannot be completed, do not add the test.
 
 ## Independent validation
 
 After implementation, give `validator` a compact handoff containing the changed scope, acceptance criteria, worker self-checks, relevant commands, and environment assumptions. Wait for its report before claiming completion.
 
-The validator must independently inspect the relevant diff and choose the smallest useful validation matrix. It must inspect every added or materially changed test, confirm that its selected layer can observe the named contract, and fail validation when implementation assertions substitute for behavior. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
+The validator must independently inspect the relevant diff and choose the smallest useful validation matrix. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
 
 If validation fails, send the exact failure to `debugger`; do not ask validator to diagnose or fix it.
 
