@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Raport wdrożeniowy konfiguracji pilota workflow wytwarzania funkcji z użyciem mindmapy, OpenSpec i bramek akceptacji.">
+  <title>Workflow rozwoju funkcji — konfiguracja pilota</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18222d;
+      --muted: #536270;
+      --paper: #f7f9fb;
+      --surface: #ffffff;
+      --line: #d8e0e8;
+      --blue: #1e5a85;
+      --blue-soft: #e8f2f9;
+      --teal: #0d6b68;
+      --teal-soft: #e5f5f2;
+      --amber: #8b5e19;
+      --amber-soft: #fff5dd;
+      --coral: #9a3d3d;
+      --coral-soft: #fdeceb;
+      --shadow: 0 14px 34px rgba(24, 34, 45, .08);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--blue); }
+    a:focus-visible, summary:focus-visible { outline: 3px solid #f0b429; outline-offset: 3px; }
+    .skip-link { position: absolute; left: -9999px; z-index: 2; padding: .6rem 1rem; background: var(--ink); color: white; }
+    .skip-link:focus { left: 1rem; top: 1rem; }
+    .shell { width: min(1160px, calc(100% - 2rem)); margin: 0 auto; }
+    .masthead {
+      padding: 4.5rem 0 3.5rem;
+      background: radial-gradient(circle at 84% 15%, rgba(90, 174, 180, .25), transparent 30%), linear-gradient(135deg, #122c43, #1d587a 58%, #0d6b68);
+      color: white;
+    }
+    .eyebrow { margin: 0 0 .7rem; color: #b9ebea; font-size: .78rem; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+    h1, h2, h3 { line-height: 1.16; letter-spacing: -.02em; }
+    h1 { max-width: 820px; margin: 0; font-size: clamp(2.3rem, 6vw, 4.8rem); }
+    .lead { max-width: 750px; margin: 1.25rem 0 0; color: #e5f2f7; font-size: clamp(1.05rem, 2vw, 1.3rem); }
+    .meta { display: flex; flex-wrap: wrap; gap: .55rem 1.5rem; margin-top: 2rem; color: #d5e5ed; font-size: .92rem; }
+    nav {
+      position: sticky; top: 0; z-index: 1;
+      border-bottom: 1px solid rgba(216, 224, 232, .9);
+      background: rgba(255, 255, 255, .94);
+      backdrop-filter: blur(10px);
+    }
+    .nav-list { display: flex; gap: .25rem; margin: 0; padding: .55rem 0; overflow-x: auto; list-style: none; }
+    .nav-list a { display: block; padding: .45rem .75rem; border-radius: 999px; color: var(--muted); font-size: .9rem; text-decoration: none; white-space: nowrap; }
+    .nav-list a:hover { background: var(--blue-soft); color: var(--blue); }
+    main { padding: 3.2rem 0 5rem; }
+    section { scroll-margin-top: 5rem; margin: 0 0 4rem; }
+    h2 { margin: 0 0 1.25rem; font-size: clamp(1.7rem, 3vw, 2.45rem); }
+    h3 { margin: 0 0 .65rem; font-size: 1.22rem; }
+    .section-intro { max-width: 760px; margin: -.5rem 0 1.5rem; color: var(--muted); font-size: 1.05rem; }
+    .card, .callout, .table-wrap { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+    .card { padding: 1.35rem; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1rem; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: 1 / -1; }
+    .card p:last-child, .card ul:last-child, .card ol:last-child { margin-bottom: 0; }
+    .card p, .card li { color: var(--muted); }
+    .card ul, .card ol { padding-left: 1.25rem; }
+    .label { display: inline-flex; align-items: center; gap: .35rem; margin-bottom: .75rem; padding: .27rem .65rem; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: .75rem; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
+    .label.teal { background: var(--teal-soft); color: var(--teal); }
+    .label.amber { background: var(--amber-soft); color: var(--amber); }
+    .label.coral { background: var(--coral-soft); color: var(--coral); }
+    .callout { margin: 1.5rem 0; padding: 1.25rem 1.4rem; border-left: 6px solid var(--teal); box-shadow: none; }
+    .callout strong { color: var(--teal); }
+    .callout p { margin: .2rem 0 0; }
+    .compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items: stretch; }
+    .compare > .card { display: flex; flex-direction: column; }
+    .compare-arrow { display: grid; place-items: center; color: var(--teal); font-size: 1.7rem; font-weight: 800; }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .7rem; margin: 1.8rem 0; }
+    .flow-step { min-width: 145px; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 12px; background: white; text-align: center; font-size: .9rem; font-weight: 700; }
+    .flow-step small { display: block; color: var(--muted); font-size: .76rem; font-weight: 500; }
+    .flow-arrow { color: var(--teal); font-size: 1.3rem; }
+    .role { border-top: 4px solid var(--blue); }
+    .role.teal-border { border-top-color: var(--teal); }
+    .role.amber-border { border-top-color: #d7992b; }
+    .role.coral-border { border-top-color: var(--coral); }
+    .table-wrap { overflow-x: auto; box-shadow: none; }
+    table { width: 100%; border-collapse: collapse; min-width: 650px; }
+    caption { padding: 1rem 1.1rem .4rem; text-align: left; color: var(--muted); font-size: .9rem; }
+    th, td { padding: .85rem 1rem; border-top: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: #f1f5f8; color: var(--ink); font-size: .82rem; letter-spacing: .04em; text-transform: uppercase; }
+    td { color: var(--muted); }
+    td:first-child { color: var(--ink); font-weight: 700; }
+    code { padding: .13rem .35rem; border-radius: 5px; background: #eef2f5; color: #254c66; font-size: .9em; }
+    .tldr { counter-reset: item; list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem 1.3rem; padding: 0; }
+    .tldr li { display: grid; grid-template-columns: 2rem 1fr; gap: .7rem; align-items: start; color: var(--muted); }
+    .tldr li::before { counter-increment: item; content: counter(item, decimal-leading-zero); display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--teal-soft); color: var(--teal); font-size: .78rem; font-weight: 800; }
+    .gate { position: relative; padding-left: 4.3rem; }
+    .gate-number { position: absolute; left: 1.3rem; top: 1.3rem; display: grid; place-items: center; width: 2.2rem; height: 2.2rem; border-radius: 50%; background: var(--ink); color: white; font-weight: 800; }
+    .gate p { color: var(--muted); }
+    .gate dl { display: grid; grid-template-columns: max-content 1fr; gap: .45rem 1rem; margin: 1rem 0 0; font-size: .93rem; }
+    .gate dt { color: var(--ink); font-weight: 750; }
+    .gate dd { margin: 0; color: var(--muted); }
+    .map { padding: 1.25rem; background: linear-gradient(180deg, #f8fbfd, #f0f6f8); }
+    .map-legend { display: flex; flex-wrap: wrap; gap: .45rem 1rem; margin: 0 0 1rem; color: var(--muted); font-size: .8rem; }
+    .legend-item { display: inline-flex; align-items: center; gap: .35rem; }
+    .legend-dot { width: .65rem; height: .65rem; border-radius: 50%; background: var(--blue); }
+    .legend-dot.decision { background: #d7992b; }
+    .legend-dot.slice { background: var(--teal); }
+    .map-root { max-width: 320px; margin: 0 auto 1.5rem; padding: 1.1rem; border: 2px solid var(--ink); border-radius: 14px; background: white; text-align: center; box-shadow: 0 8px 20px rgba(24,34,45,.08); }
+    .map-root strong { display: block; font-size: 1.1rem; }
+    .map-root span { color: var(--muted); font-size: .83rem; }
+    .map-branches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; position: relative; }
+    .map-branches::before { content: ""; position: absolute; left: 16.6%; right: 16.6%; top: -.75rem; border-top: 2px solid #acc3d0; }
+    .branch { position: relative; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    .branch::before { content: ""; position: absolute; left: 50%; top: -.8rem; height: .8rem; border-left: 2px solid #acc3d0; }
+    .branch h3 { margin-bottom: .35rem; color: var(--blue); font-size: 1rem; }
+    .branch p { margin: 0 0 .7rem; color: var(--muted); font-size: .86rem; }
+    .branch ul { margin: 0; padding-left: 1.1rem; color: var(--muted); font-size: .83rem; }
+    .branch li + li { margin-top: .3rem; }
+    .status { display: inline-block; margin: .15rem .1rem 0 0; padding: .12rem .38rem; border-radius: 4px; background: var(--teal-soft); color: var(--teal); font-size: .72rem; font-weight: 700; }
+    .status.decided { background: var(--amber-soft); color: var(--amber); }
+    .status.parked { background: #edf0f2; color: var(--muted); }
+    details { border-top: 1px solid var(--line); }
+    details:first-of-type { border-top: 0; }
+    summary { cursor: pointer; padding: 1rem 0; color: var(--ink); font-weight: 750; }
+    details p { margin: 0 0 1rem; color: var(--muted); }
+    footer { padding: 2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+    .small { color: var(--muted); font-size: .88rem; }
+
+    @media (max-width: 760px) {
+      .masthead { padding: 3.2rem 0 2.6rem; }
+      main { padding-top: 2.2rem; }
+      .grid { display: block; }
+      .card, .grid > .card { margin-bottom: 1rem; }
+      .compare { display: block; }
+      .compare-arrow { padding: .25rem 0; transform: rotate(90deg); }
+      .tldr { grid-template-columns: 1fr; }
+      .map-branches { grid-template-columns: 1fr; }
+      .map-branches::before { display: none; }
+      .branch::before { left: 1.25rem; top: -.9rem; height: .9rem; }
+      .branch + .branch { margin-top: .9rem; }
+      .meta { flex-direction: column; gap: .25rem; }
+    }
+    @media print {
+      @page { margin: 1.5cm; }
+      body { background: white; font-size: 10.5pt; }
+      nav, .skip-link { display: none; }
+      .masthead { padding: 1rem 0 1.5rem; background: white; color: var(--ink); }
+      .masthead .eyebrow, .masthead .lead, .meta { color: var(--muted); }
+      h1 { font-size: 30pt; }
+      main { padding: 1.5rem 0; }
+      section { margin-bottom: 2rem; }
+      .card, .callout, .table-wrap { box-shadow: none; break-inside: avoid; }
+      .flow { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+      .map { background: white; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#tresc">Przejdź do treści</a>
+  <header class="masthead">
+    <div class="shell">
+      <p class="eyebrow">Raport wdrożeniowy · konfiguracja pilota</p>
+      <h1>Workflow rozwoju funkcji z mindmapą i OpenSpec</h1>
+      <p class="lead">Możliwe rozszerzenie obecnego trybu pracy o trwały indeks inicjatywy, jawne punkty decyzji i krótki pakiet akceptacyjny przed implementacją.</p>
+      <div class="meta"><span>Data: 5 września 2026</span><span>Zakres: rozwój produktu</span><span>Status: decyzje D1–D4 zatwierdzone</span></div>
+    </div>
+  </header>
+
+  <nav aria-label="Spis treści">
+    <div class="shell">
+      <ul class="nav-list">
+        <li><a href="#sedno">Sedno</a></li>
+        <li><a href="#porownanie">Porównanie</a></li>
+        <li><a href="#role">Role</a></li>
+        <li><a href="#artefakty">Artefakty</a></li>
+        <li><a href="#mapa">Mindmapa</a></li>
+        <li><a href="#warianty">Warianty</a></li>
+        <li><a href="#bramki">Bramki</a></li>
+        <li><a href="#wdrozenie">Etapy</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main id="tresc" class="shell">
+    <section id="sedno" aria-labelledby="sedno-title">
+      <h2 id="sedno-title">Sedno rekomendacji</h2>
+      <div class="grid">
+        <article class="card span-8">
+          <span class="label teal">Executive summary</span>
+          <h3>Rozszerzyć proces, zachowując istniejące role</h3>
+          <p>Największą wartość daje połączenie trzech elementów: mindmapy dla dużych inicjatyw, fazy usuwania niejednoznaczności oraz bramek, w których człowiek zatwierdza decyzje przed dalszą pracą. Obecne role agentów obsługują te fazy; konfiguracja pilota nie tworzy nowych agentów, modeli ani delegacji.</p>
+          <p>Repozytorium pozostaje źródłem prawdy dla agentów. OpenSpec może opisywać wymagania i kontrakty poszczególnych zmian, a mindmapa może pełnić funkcję indeksu całej inicjatywy i prowadzić do właściwych specyfikacji.</p>
+        </article>
+        <aside class="card span-4">
+          <span class="label amber">Zasada zakresu</span>
+          <h3>Proporcjonalność</h3>
+          <p>Pełny workflow uruchamiać dla dużych lub niepewnych prac. Drobna, jednoznaczna zmiana powinna zachować krótki przepływ.</p>
+          <p class="small">Liczba historyjek 1–8 to hipoteza do pilotażu, nie dowiedziona reguła jakości.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="porownanie" aria-labelledby="porownanie-title">
+      <h2 id="porownanie-title">Obecny tryb pracy a proponowane rozszerzenie</h2>
+      <div class="compare">
+        <article class="card">
+          <span class="label">Punkt wyjścia</span>
+          <h3>Obecny model</h3>
+          <ul>
+            <li>Zdefiniowane role agentów i zasady delegowania.</li>
+            <li>OpenSpec używany w projektach jako część procesu.</li>
+            <li>Walidacja i review uruchamiane zgodnie z polityką oraz zakresem ryzyka.</li>
+            <li>Brak założenia o konkretnej lokalnej konwencji raportów lub mindmap.</li>
+          </ul>
+        </article>
+        <div class="compare-arrow" aria-hidden="true">→</div>
+        <article class="card">
+          <span class="label teal">Propozycja</span>
+          <h3>Model rozszerzony</h3>
+          <ul>
+            <li>Triage skali i niepewności przed wyborem ceremonii.</li>
+            <li>Mindmapa jako trwały indeks dużej inicjatywy.</li>
+            <li>Building blocks oraz decyzje jawne przed specyfikacją.</li>
+            <li>TL;DR do 10 punktów i macierz wykonania przed implementacją.</li>
+            <li>Aktualizacja mapy po istotnych bramkach procesu.</li>
+          </ul>
+        </article>
+      </div>
+      <div class="callout"><strong>Konfiguracja pilota:</strong> propozycja porządkuje momenty, w których człowiek podejmuje decyzję. Orchestrator dobiera ceremonię proporcjonalnie do skali i niepewności; mała, jednoznaczna zmiana zachowuje krótki przepływ.</div>
+    </section>
+
+    <section id="role" aria-labelledby="role-title">
+      <h2 id="role-title">Mapowanie istniejących ról</h2>
+      <p class="section-intro">Poniższe przypisanie wynika z opisanego podziału odpowiedzialności. Jest propozycją użycia ról w nowym przebiegu, a nie zmianą ich definicji.</p>
+      <div class="grid">
+        <article class="card role span-4">
+          <span class="label">Fakty</span>
+          <h3><code>explorer</code></h3>
+          <p>Przeszukuje repozytorium, mapuje ścieżki wykonania i zbiera dowody potrzebne do decyzji.</p>
+          <p class="small">Granica: nie rozstrzyga intencji produktu.</p>
+        </article>
+        <article class="card role teal-border span-4">
+          <span class="label teal">Decyzje</span>
+          <h3><code>planner</code></h3>
+          <p>Korzysta z klasyfikacji orchestratora, usuwa niejednoznaczność, kwestionuje warianty, identyfikuje building blocks i buduje spójny plan.</p>
+          <p class="small">Granica: nie klasyfikuje samodzielnie każdej funkcji; może zgłosić korektę opartą na dowodach.</p>
+        </article>
+        <article class="card role amber-border span-4">
+          <span class="label amber">Artefakty</span>
+          <h3><code>spec-writer</code></h3>
+          <p>Materializuje zaakceptowaną treść planu i specyfikacji w uzgodnionych artefaktach.</p>
+          <p class="small">Granica: nie wymyśla kontraktów ani zakresu.</p>
+        </article>
+        <article class="card role coral-border span-4">
+          <span class="label coral">Kod</span>
+          <h3><code>worker</code></h3>
+          <p>Implementuje zatwierdzony slice i raportuje własne, ukierunkowane self-checks.</p>
+        </article>
+        <article class="card role teal-border span-4">
+          <span class="label teal">Dowód</span>
+          <h3><code>validator</code></h3>
+          <p>Niezależnie dobiera i wykonuje najmniejszy użyteczny zestaw testów, lintów lub buildów.</p>
+        </article>
+        <article class="card role span-4">
+          <span class="label">Ryzyko</span>
+          <h3><code>reviewer</code></h3>
+          <p>Analizuje bezpieczeństwo, regresje i luki w weryfikacji, gdy wymagają tego zakres lub polityka.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="artefakty" aria-labelledby="artefakty-title">
+      <h2 id="artefakty-title">Trzy warstwy informacji</h2>
+      <div class="table-wrap">
+        <table>
+          <caption>Proponowany podział odpowiedzialności między artefaktami.</caption>
+          <thead><tr><th>Artefakt</th><th>Rola</th><th>Co powinien zawierać</th><th>Pozycja w hierarchii</th></tr></thead>
+          <tbody>
+            <tr><td>OpenSpec</td><td>Wymagania i kontrakty</td><td>Zakres zmiany, zachowanie, kryteria akceptacji, założenia i ograniczenia dla konkretnego slice’a.</td><td>Normatywny</td></tr>
+            <tr><td>ADR / decyzja</td><td>Uzasadnienie wyboru</td><td>Rozważone warianty, decyzja, konsekwencje i nierozstrzygnięte ryzyka.</td><td>Normatywny dla decyzji</td></tr>
+            <tr><td>Mindmapa</td><td>Indeks inicjatywy</td><td>Capabilities, building blocks, decyzje, slice’y, zależności, statusy i linki do źródeł.</td><td>Nawigacyjny</td></tr>
+            <tr><td>TL;DR</td><td>Szybka akceptacja</td><td>Najwyżej 10 punktów opisujących wynik, granice i kolejne kroki.</td><td>Widok komunikacyjny</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout"><strong>Reguła spójności:</strong> mindmapa wskazuje źródła, ale nie zastępuje OpenSpec ani decyzji. Jeśli pojawi się rozbieżność, należy zaktualizować indeks po ustaleniu źródła normatywnego.</div>
+    </section>
+
+    <section id="mapa" aria-labelledby="mapa-title">
+      <h2 id="mapa-title">Przykład mapy inicjatywy</h2>
+      <p class="section-intro">Poniższy przykład pokazuje strukturę informacji: węzeł główny, gałęzie oraz linkowalne identyfikatory. Mapa jest indeksem nawigacyjnym, a normatywne treści pozostają w specyfikacji, decyzji i planie.</p>
+      <figure class="card map">
+        <figcaption class="map-legend">
+          <span class="legend-item"><i class="legend-dot" aria-hidden="true"></i> building block</span>
+          <span class="legend-item"><i class="legend-dot decision" aria-hidden="true"></i> decyzja</span>
+          <span class="legend-item"><i class="legend-dot slice" aria-hidden="true"></i> slice</span>
+        </figcaption>
+        <div class="map-root"><strong>IN-01 · Usprawnienie rozwoju funkcji</strong><span>inicjatywa · status: discovered</span></div>
+        <div class="map-branches">
+          <article class="branch" id="bb-01">
+            <h3>BB-01 · Building blocks</h3>
+            <p>Elementy, które można ponownie wykorzystać.</p>
+            <ul><li>BB-01a · discovery i decyzje <span class="status">specified</span></li><li>BB-01b · pakiet akceptacyjny <span class="status">planned</span></li></ul>
+          </article>
+          <article class="branch" id="dec-01">
+            <h3>DEC-01 · Decyzje</h3>
+            <p>Wybory, które wymagają uzasadnienia.</p>
+            <ul><li>DEC-01a · kiedy uruchamiać mindmapę <span class="status decided">decided</span></li><li>DEC-01b · granica OpenSpec <span class="status decided">decided</span></li></ul>
+          </article>
+          <article class="branch" id="sl-01">
+            <h3>SL-01 · Slice’y</h3>
+            <p>Małe, weryfikowalne porcje realizacji.</p>
+            <ul><li>SL-01a · szablon mapy <span class="status">planned</span></li><li>SL-01b · bramki akceptacji <span class="status parked">parked</span></li></ul>
+          </article>
+        </div>
+      </figure>
+      <p class="small">Przykładowe statusy dotyczą slice’ów i elementów procesu. Decyzje mają osobne węzły oraz stan decyzji, aby nie mieszać ich z postępem implementacji. W projekcie bez OpenSpec mapa trafia obok istniejącego artefaktu specyfikacji lub planu.</p>
+    </section>
+
+    <section id="warianty" aria-labelledby="warianty-title">
+      <h2 id="warianty-title">Dobór wariantu do skali i niepewności</h2>
+      <div class="table-wrap">
+        <table>
+          <caption>Heurystyka wyboru ceremonii do sprawdzenia w pilotażu.</caption>
+          <thead><tr><th>Profil pracy</th><th>Proponowany przebieg</th><th>Artefakty</th><th>Typowa bramka</th></tr></thead>
+          <tbody>
+            <tr><td>Mała, jednoznaczna</td><td>Krótki opis → implementacja → walidacja.</td><td>Opcjonalny plan.</td><td>Brak dodatkowej bramki pilotażowej.</td></tr>
+            <tr><td>Średnia</td><td>Discovery → plan → jeden zatwierdzony slice.</td><td>OpenSpec lub plan.</td><td>Implementation tylko przy niepewności.</td></tr>
+            <tr><td>Duża, jednoznaczna</td><td>Mindmapa → building blocks z odpowiedzialnościami i zależnościami → podział na slice’y → realizacja.</td><td>Mindmapa, OpenSpec dla slice’ów, TL;DR.</td><td>Decomposition, Implementation.</td></tr>
+            <tr><td>Niepewna architektonicznie</td><td>Discovery wariantów → decyzja → specyfikacja.</td><td>Notatka/ADR, OpenSpec.</td><td>Decision, Implementation.</td></tr>
+            <tr><td>Duża i niepewna</td><td>Pełny workflow z trzema bramkami i etapową realizacją.</td><td>Wszystkie powyższe, według potrzeb.</td><td>Decision, Decomposition, Implementation.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="bramki" aria-labelledby="bramki-title">
+      <h2 id="bramki-title">Trzy bramki akceptacji</h2>
+      <p class="section-intro">Bramka ma zatrzymać kosztowną pomyłkę w odpowiednim momencie. Jej wynik powinien być krótki i zapisany w artefakcie, do którego można wrócić. Stosuj Decision dla pracy niepewnej, Decomposition dla dużej i Implementation dla dużej lub niepewnej. Gdy stosuje się kilka bramek, można przedstawić je w jednej interakcji, zapisując osobno każdy wynik. Zgoda jest uzyskiwana przez mechanizm dostępny w aktywnym harnessie.</p>
+      <div class="grid">
+        <article class="card gate span-4"><span class="gate-number">1</span><span class="label amber">Decision</span><h3>Czy wiemy, co wybrać?</h3><p>Przegląd niejednoznaczności, wariantów, założeń i ryzyk.</p><dl><dt>Wejście</dt><dd>Dowody z repo i pytania otwarte.</dd><dt>Wyjście</dt><dd>Zaakceptowana decyzja lub świadome odłożenie.</dd></dl></article>
+        <article class="card gate span-4"><span class="gate-number">2</span><span class="label teal">Decomposition</span><h3>Czy wiemy, z czego to się składa?</h3><p>Przegląd building blocks, zależności i kolejności slice’ów.</p><dl><dt>Wejście</dt><dd>Mindmapa i decyzje.</dd><dt>Wyjście</dt><dd>Granice zakresu oraz plan specyfikacji.</dd></dl></article>
+        <article class="card gate span-4"><span class="gate-number">3</span><span class="label">Implementation</span><h3>Czy można bezpiecznie zacząć?</h3><p>Przegląd TL;DR, OpenSpec, non-goals, ryzyk i macierzy wykonania.</p><dl><dt>Wejście</dt><dd>Gotowy slice i kryteria akceptacji.</dd><dt>Wyjście</dt><dd>Zgoda na delegowanie implementacji.</dd></dl></article>
+      </div>
+      <div class="flow" aria-label="Przepływ etapów">
+        <div class="flow-step">Triage<small>skala · niepewność</small></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-step">Discovery<small>fakty · warianty</small></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-step">Decision<small>tylko praca niepewna</small></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-step">Building blocks<small>dla każdej dużej inicjatywy</small></div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-step">OpenSpec + plan</div><span class="flow-arrow" aria-hidden="true">→</span>
+        <div class="flow-step">Implementation</div>
+      </div>
+    </section>
+
+    <section id="pakiet" aria-labelledby="pakiet-title">
+      <h2 id="pakiet-title">Pakiet do szybkiej akceptacji</h2>
+      <div class="card">
+        <p class="section-intro">Lista ma być wystarczająca do świadomej decyzji i na tyle krótka, aby przeczytać ją w około minutę.</p>
+        <ol class="tldr">
+          <li>Cel produktu i oczekiwany rezultat.</li>
+          <li>Zakres oraz wyraźne non-goals.</li>
+          <li>Wybrane building blocks.</li>
+          <li>Najważniejsze decyzje i założenia.</li>
+          <li>Podział na slice’y i ich zależności.</li>
+          <li>Link do mindmapy i właściwych zmian OpenSpec.</li>
+          <li>Ryzyka oraz pytania pozostawione otwarte.</li>
+          <li>Proponowane role agentów i kolejność pracy.</li>
+          <li>Wymagana walidacja i ewentualne review.</li>
+          <li>Konkretny punkt, który wymaga akceptacji.</li>
+        </ol>
+      </div>
+      <div class="table-wrap" style="margin-top:1rem">
+        <table>
+          <caption>Przykładowa macierz wykonania; wymagania polityki mają pierwszeństwo przed preferencją.</caption>
+          <thead><tr><th>Etap</th><th>Rola</th><th>Zadanie</th><th>Kontrola</th><th>Charakter</th></tr></thead>
+          <tbody>
+            <tr><td>Evidence</td><td><code>explorer</code></td><td>Wzorce i ścieżki w repo.</td><td>Interpretacja przez planera.</td><td>Opcjonalny zależnie od niepewności.</td></tr>
+            <tr><td>Specyfikacja</td><td><code>planner</code> / <code>spec-writer</code></td><td>OpenSpec i plan.</td><td>Akceptacja człowieka.</td><td>Rekomendowane dla większego zakresu.</td></tr>
+            <tr><td>Implementacja</td><td><code>worker</code></td><td>Kod i self-checks.</td><td>Niezależny <code>validator</code>.</td><td>Wymagany dla zmiany kodu.</td></tr>
+            <tr><td>Walidacja</td><td><code>validator</code></td><td>Testy, lint, build lub inny dowód.</td><td>Raport PASS/FAIL.</td><td>Obowiązkowa według polityki.</td></tr>
+            <tr><td>Review</td><td><code>reviewer</code></td><td>Ryzyka i regresje.</td><td>Bramka findings, gdy wymagana.</td><td>Warunkowy według zakresu ryzyka.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="wdrozenie" aria-labelledby="wdrozenie-title">
+      <h2 id="wdrozenie-title">Wdrożenie etapowe jako eksperyment</h2>
+      <div class="grid">
+        <article class="card span-6"><span class="label teal">Etap 1</span><h3>Ujednolicić pakiet decyzji</h3><p>Dodać do obecnego sposobu pracy triage, TL;DR do 10 punktów i macierz wykonania. Zmierzyć czas przygotowania oraz liczbę powrotów do zakresu.</p></article>
+        <article class="card span-6"><span class="label teal">Etap 2</span><h3>Przetestować jedną dużą inicjatywę</h3><p>Utworzyć mindmapę, powiązać ją z OpenSpec i sprawdzić, czy mapa ułatwia odnajdywanie decyzji oraz zależności.</p></article>
+        <article class="card span-6"><span class="label teal">Etap 3</span><h3>Ocenić i doprecyzować granice</h3><p>Porównać koszt ceremonii z liczbą wykrytych niejasności. Zweryfikować heurystykę 1–8 stories na podstawie doświadczenia, bez traktowania jej jako normy.</p></article>
+        <article class="card span-6"><span class="label teal">Etap 4</span><h3>Dopiero potem sformalizować skill</h3><p>Jeśli pilot potwierdzi wartość, opisać workflow w skillu, który prowadzi przez proces i aktualizuje artefakty, pozostawiając routing agentów zgodny z istniejącą polityką.</p></article>
+      </div>
+      <div class="callout"><strong>Warunek powodzenia:</strong> każda nowa reguła powinna mieć właściciela, moment zastosowania i sposób wycofania, jeśli zwiększa koszt bez poprawy jakości decyzji.</div>
+    </section>
+
+    <section id="decyzje" aria-labelledby="decyzje-title">
+      <h2 id="decyzje-title">Decyzje zatwierdzone</h2>
+      <div class="card">
+        <details open><summary>1. Kiedy inicjatywa jest „duża” lub „niepewna”?</summary><p><strong>Decyzja D1 · zatwierdzona.</strong> Orchestrator jest właścicielem klasyfikacji obu wymiarów i podaje krótkie uzasadnienie. „Duża” oznacza kilka zależnych slice’ów lub obszarów, więcej niż jeden spójny artefakt planistyczny albo zmianę trudną do oceny jako jeden zakres. „Niepewna” oznacza nierozstrzygnięcie produktowe, architektoniczne, danych lub kontraktu, które może zmienić zachowanie albo zakres. Planner korzysta z tej klasyfikacji i może zgłosić korektę popartą dowodami; użytkownik może skorygować rekomendację.</p></details>
+        <details><summary>2. Gdzie przechowywać mindmapę i jak łączyć ją ze źródłami?</summary><p><strong>Decyzja D2 · zatwierdzona.</strong> W projekcie z OpenSpec mapa trafia do <code>openspec/changes/&lt;change-id&gt;/mindmap.md</code>. W projekcie bez OpenSpec trafia obok istniejącego artefaktu specyfikacji lub planu, zgodnie z jego konwencją. Mapa linkuje do źródeł normatywnych i nie powoduje automatycznej instalacji OpenSpec.</p></details>
+        <details><summary>3. Jakie elementy są obowiązkowe, a jakie rekomendowane?</summary><p><strong>Decyzja D3 · zatwierdzona.</strong> Obowiązują istniejące wymagania walidacji i review wynikające z polityki. Dla każdej dużej inicjatywy planner przed Decomposition opisuje building blocks, ich odpowiedzialności, granice i zależności. Bramki są warunkowe: Decision dla pracy niepewnej, Decomposition dla dużej oraz Implementation dla dużej lub niepewnej. Małe, jednoznaczne zmiany zachowują krótki proces. Gdy kilka bramek ma zastosowanie, można połączyć ich prezentację w jednej interakcji, zapisując osobne wyniki. Zgoda korzysta z mechanizmu aktywnego harnessu; polityka nie wymaga konkretnego narzędzia pytań.</p></details>
+        <details><summary>4. Jak mierzyć wartość pilotażu?</summary><p><strong>Decyzja D4 · zatwierdzona.</strong> Po jednej inicjatywie zapisujemy czas przygotowania i utrzymania mapy, niejasności wykryte przed implementacją, zmiany zakresu lub kontraktów po bramkach oraz ocenę użyteczności w skali 1–5 z krótkim komentarzem. Wynik służy do dopracowania procesu przed utworzeniem dedykowanego skilla.</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell"><p><strong>Raport wdrożeniowy · 2026-09-05</strong></p><p>Dokument opisuje i utrwala zatwierdzoną konfigurację pilotażu. Źródłem prawdy pozostają kanoniczna polityka, role i profile; raport jest widokiem komunikacyjnym.</p></div>
+  </footer>
+</body>
+</html>
