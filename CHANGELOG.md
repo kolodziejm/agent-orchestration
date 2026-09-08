@@ -6,6 +6,8 @@ All notable changes to the orchestration policy are documented here.
 
 - Add a simple Codex renderer for the ten role contracts using the OpenAI profile's model, reasoning, and sandbox mappings.
 - Render and check committed OpenCode and Codex snapshots; Codex artifacts are copied or symlinked manually without an installer.
+- Make reviewer participation explicitly user-directed, while retaining independent validation for code and behavior changes.
+- Require observable acceptance evidence, bounded review-fix cycles, compact handoffs, event-based orchestration updates, and lightweight pilot usage measurements.
 
 ## 0.1.0 — 2026-08-22
 

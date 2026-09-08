@@ -218,7 +218,7 @@
           <ul>
             <li>Zdefiniowane role agentów i zasady delegowania.</li>
             <li>OpenSpec używany w projektach jako część procesu.</li>
-            <li>Walidacja i review uruchamiane zgodnie z polityką oraz zakresem ryzyka.</li>
+            <li>Walidacja uruchamiana dla zmian kodu i zachowania, a review na żądanie lub po jawnej autoryzacji.</li>
             <li>Brak założenia o konkretnej lokalnej konwencji raportów lub mindmap.</li>
           </ul>
         </article>
@@ -273,7 +273,7 @@
         <article class="card role span-4">
           <span class="label">Ryzyko</span>
           <h3><code>reviewer</code></h3>
-          <p>Analizuje bezpieczeństwo, regresje i luki w weryfikacji, gdy wymagają tego zakres lub polityka.</p>
+          <p>Analizuje bezpieczeństwo, regresje i luki w weryfikacji po jawnym żądaniu lub autoryzacji. Przy jasno obecnym konkretnym ryzyku orkiestrator krótko rekomenduje review, lecz nie blokuje pracy i nie uruchamia review bez jawnej autoryzacji; po decyzji nie powtarza rekomendacji, chyba że zmieni się zakres lub ryzyko.</p>
         </article>
       </div>
     </section>
@@ -374,7 +374,7 @@
           <li>Link do mindmapy i właściwych zmian OpenSpec.</li>
           <li>Ryzyka oraz pytania pozostawione otwarte.</li>
           <li>Proponowane role agentów i kolejność pracy.</li>
-          <li>Wymagana walidacja i ewentualne review.</li>
+          <li>Wymagana walidacja oraz ewentualne review na żądanie.</li>
           <li>Konkretny punkt, który wymaga akceptacji.</li>
         </ol>
       </div>
@@ -387,7 +387,7 @@
             <tr><td>Specyfikacja</td><td><code>planner</code> / <code>spec-writer</code></td><td>OpenSpec i plan.</td><td>Akceptacja człowieka.</td><td>Rekomendowane dla większego zakresu.</td></tr>
             <tr><td>Implementacja</td><td><code>worker</code></td><td>Kod i self-checks.</td><td>Niezależny <code>validator</code>.</td><td>Wymagany dla zmiany kodu.</td></tr>
             <tr><td>Walidacja</td><td><code>validator</code></td><td>Testy, lint, build lub inny dowód.</td><td>Raport PASS/FAIL.</td><td>Obowiązkowa według polityki.</td></tr>
-            <tr><td>Review</td><td><code>reviewer</code></td><td>Ryzyka i regresje.</td><td>Bramka findings, gdy wymagana.</td><td>Warunkowy według zakresu ryzyka.</td></tr>
+            <tr><td>Review</td><td><code>reviewer</code></td><td>Ryzyka i regresje po autoryzacji użytkownika.</td><td>Bramka findings po uruchomieniu review.</td><td>On demand; jasno obecne ryzyko wymaga krótkiej, nieblokującej rekomendacji, ale nie automatycznego uruchomienia; po decyzji bez powtórzeń, chyba że zmieni się zakres lub ryzyko.</td></tr>
           </tbody>
         </table>
       </div>
@@ -409,8 +409,8 @@
       <div class="card">
         <details open><summary>1. Kiedy inicjatywa jest „duża” lub „niepewna”?</summary><p><strong>Decyzja D1 · zatwierdzona.</strong> Orchestrator jest właścicielem klasyfikacji obu wymiarów i podaje krótkie uzasadnienie. „Duża” oznacza kilka zależnych slice’ów lub obszarów, więcej niż jeden spójny artefakt planistyczny albo zmianę trudną do oceny jako jeden zakres. „Niepewna” oznacza nierozstrzygnięcie produktowe, architektoniczne, danych lub kontraktu, które może zmienić zachowanie albo zakres. Planner korzysta z tej klasyfikacji i może zgłosić korektę popartą dowodami; użytkownik może skorygować rekomendację.</p></details>
         <details><summary>2. Gdzie przechowywać mindmapę i jak łączyć ją ze źródłami?</summary><p><strong>Decyzja D2 · zatwierdzona.</strong> W projekcie z OpenSpec mapa trafia do <code>openspec/changes/&lt;change-id&gt;/mindmap.md</code>. W projekcie bez OpenSpec trafia obok istniejącego artefaktu specyfikacji lub planu, zgodnie z jego konwencją. Mapa linkuje do źródeł normatywnych i nie powoduje automatycznej instalacji OpenSpec.</p></details>
-        <details><summary>3. Jakie elementy są obowiązkowe, a jakie rekomendowane?</summary><p><strong>Decyzja D3 · zatwierdzona.</strong> Obowiązują istniejące wymagania walidacji i review wynikające z polityki. Dla każdej dużej inicjatywy planner przed Decomposition opisuje building blocks, ich odpowiedzialności, granice i zależności. Bramki są warunkowe: Decision dla pracy niepewnej, Decomposition dla dużej oraz Implementation dla dużej lub niepewnej. Małe, jednoznaczne zmiany zachowują krótki proces. Gdy kilka bramek ma zastosowanie, można połączyć ich prezentację w jednej interakcji, zapisując osobne wyniki. Zgoda korzysta z mechanizmu aktywnego harnessu; polityka nie wymaga konkretnego narzędzia pytań.</p></details>
-        <details><summary>4. Jak mierzyć wartość pilotażu?</summary><p><strong>Decyzja D4 · zatwierdzona.</strong> Po jednej inicjatywie zapisujemy czas przygotowania i utrzymania mapy, niejasności wykryte przed implementacją, zmiany zakresu lub kontraktów po bramkach oraz ocenę użyteczności w skali 1–5 z krótkim komentarzem. Wynik służy do dopracowania procesu przed utworzeniem dedykowanego skilla.</p></details>
+        <details><summary>3. Jakie elementy są obowiązkowe, a jakie rekomendowane?</summary><p><strong>Decyzja D3 · zatwierdzona.</strong> Niezależna walidacja jest wymagana dla zmian kodu lub zachowania. Reviewer działa wyłącznie na żądanie lub po jawnej autoryzacji. Gdy jasno obecne jest konkretne ryzyko, orkiestrator musi krótko rekomendować review, lecz rekomendacja nie blokuje pracy i nie uruchamia review bez jawnej autoryzacji; po decyzji nie powtarza jej, chyba że zmieni się zakres lub ryzyko. Dla każdej dużej inicjatywy planner przed Decomposition opisuje building blocks, ich odpowiedzialności, granice i zależności. Bramki są warunkowe: Decision dla pracy niepewnej, Decomposition dla dużej oraz Implementation dla dużej lub niepewnej. Małe, jednoznaczne zmiany zachowują krótki proces. Gdy kilka bramek ma zastosowanie, można połączyć ich prezentację w jednej interakcji, zapisując osobne wyniki. Zgoda korzysta z mechanizmu aktywnego harnessu; polityka nie wymaga konkretnego narzędzia pytań.</p></details>
+        <details><summary>4. Jak mierzyć wartość pilotażu?</summary><p><strong>Decyzja D4 · zatwierdzona.</strong> Po jednej inicjatywie zapisujemy czas przygotowania i utrzymania mapy, niejasności wykryte przed implementacją, zmiany zakresu lub kontraktów po bramkach, czas trwania, interwencje orkiestratora, rework, usage jeśli jest dostępny oraz ocenę użyteczności w skali 1–5 z krótkim komentarzem. Usage traktujemy jako sygnał orientacyjny, a nie dokładną miarę billingową. Wynik służy do dopracowania procesu przed utworzeniem dedykowanego skilla.</p></details>
       </div>
     </section>
   </main>

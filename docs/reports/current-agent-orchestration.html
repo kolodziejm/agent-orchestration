@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Obecna orkiestracja agentów — zasady, role i modele</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5d687b;
+      --line: #d9e0ea;
+      --soft: #f4f7fb;
+      --card: #fff;
+      --accent: #2457a6;
+      --accent-soft: #eaf1ff;
+      --ok: #176b4d;
+      --ok-soft: #e8f6ef;
+      --warn: #855d13;
+      --warn-soft: #fff7df;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef2f7;
+      font: 16px/1.58 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 34px 22px 64px; }
+    header, section, footer { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+    header { padding: 32px clamp(22px, 5vw, 56px); margin-bottom: 18px; }
+    section { padding: 26px clamp(20px, 4vw, 42px); margin: 18px 0; }
+    footer { padding: 24px clamp(20px, 4vw, 42px); margin-top: 18px; }
+    h1, h2, h3 { line-height: 1.2; letter-spacing: -.02em; margin: 0 0 12px; }
+    h1 { font-size: clamp(2rem, 4vw, 3.15rem); max-width: 800px; }
+    h2 { font-size: 1.55rem; padding-top: 4px; }
+    h3 { font-size: 1.08rem; margin-top: 24px; }
+    p { margin: 0 0 14px; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    code, .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .91em; }
+    code { background: var(--soft); border: 1px solid #e2e7ef; border-radius: 5px; padding: 1px 5px; overflow-wrap: anywhere; }
+    .eyebrow { color: var(--accent); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .78rem; margin-bottom: 10px; }
+    .lede { color: var(--muted); font-size: 1.08rem; max-width: 850px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+    .badge { border-radius: 999px; border: 1px solid var(--line); background: var(--soft); color: #2f3a4b; padding: 5px 11px; font-size: .84rem; }
+    .badge.ok { color: var(--ok); background: var(--ok-soft); border-color: #b9e3ce; }
+    .toc { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 15px 18px; margin: 18px 0 26px; }
+    .toc strong { display: block; margin-bottom: 6px; }
+    .toc ol { margin: 0; padding-left: 21px; columns: 2; }
+    .toc li { margin: 3px 0; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card { border: 1px solid var(--line); border-radius: 12px; padding: 17px; background: #fff; }
+    .card h3 { margin-top: 0; }
+    .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 15px 17px; margin: 16px 0; }
+    .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+    .callout.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+    .table-wrap { overflow-x: auto; margin: 14px 0 4px; border: 1px solid var(--line); border-radius: 10px; }
+    table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: .92rem; }
+    th, td { vertical-align: top; text-align: left; border-bottom: 1px solid var(--line); padding: 11px 12px; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: var(--soft); color: #344158; font-size: .82rem; letter-spacing: .03em; }
+    td:first-child { font-weight: 700; white-space: nowrap; }
+    ul, ol { padding-left: 23px; margin: 8px 0 14px; }
+    li { margin: 5px 0; }
+    .arch-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 12px; margin: 18px 0 11px; }
+    .arch-box { min-width: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 15px 11px; border: 1px solid #b7c8e7; border-radius: 10px; background: #f3f7ff; font-weight: 650; }
+    .arch-path { display: block; font-size: .83em; line-height: 1.45; white-space: normal; overflow-wrap: break-word; word-break: normal; }
+    .arch-path code { display: block; white-space: normal; overflow-wrap: break-word; word-break: normal; }
+    .arch-path span { display: block; }
+    .arch-box.strong { color: #fff; border-color: var(--accent); background: var(--accent); }
+    .arch-box.strong code { color: #fff; background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .38); }
+    .arrow { align-self: center; color: var(--accent); font-size: 1.5rem; font-weight: 700; }
+    .small { color: var(--muted); font-size: .9rem; }
+    .pre-wrap { overflow-x: auto; border-radius: 10px; background: #172033; color: #edf3ff; padding: 17px 20px; margin: 14px 0; }
+    pre { margin: 0; font: .91rem/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+    .rule-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; }
+    .rule-list li { margin: 4px 0; }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; }
+    @media (max-width: 720px) {
+      main { padding: 16px 11px 35px; }
+      header, section, footer { border-radius: 12px; padding: 22px 17px; }
+      .grid, .rule-list { grid-template-columns: 1fr; }
+      .toc ol { columns: 1; }
+      .arrow { transform: rotate(90deg); width: 100%; text-align: center; line-height: 1; }
+      .arch-flow { grid-template-columns: 1fr; gap: 9px; }
+      .arch-box { width: 100%; }
+      .arch-path { font-size: .9em; }
+    }
+    @media print {
+      body { background: #fff; font-size: 10.5pt; }
+      main { max-width: none; padding: 0; }
+      header, section, footer { border: 0; border-radius: 0; padding: 12px 0; margin: 0; break-inside: avoid; }
+      .toc, .badges { display: none; }
+      h2 { break-after: avoid; }
+      .table-wrap { overflow: visible; }
+      table { min-width: 0; font-size: 8pt; }
+      .arch-box { max-width: none; }
+      a { color: inherit; }
+      a[href]::after { content: " (" attr(href) ")"; font-size: .75em; overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">Raport stanu konfiguracji</div>
+      <h1>Obecna orkiestracja agentów — zasady, role i modele</h1>
+      <p class="lede">Praktyczny opis tego, kto prowadzi pracę, kiedy deleguje zadania, jakie role są dostępne i jak repozytorium zasila aktywne konfiguracje Codex oraz OpenCode.</p>
+      <div class="badges" aria-label="Status raportu">
+        <span class="badge ok">Repozytorium = source of truth</span>
+        <span class="badge"><code>main</code> → <code>origin/main</code></span>
+        <span class="badge">Snapshot <code>2026-09-08</code></span>
+        <span class="badge">HEAD <code>d18f08e</code></span>
+        <span class="badge">uncommitted changes present</span>
+        <span class="badge ok">Aktywne konfiguracje zainstalowane</span>
+        <span class="badge ok">Managed content zgodny z wygenerowanym</span>
+      </div>
+      <p class="small" style="margin-top:14px">Snapshot opiera się na dowodach zaobserwowanych 2026-09-08: bazowym HEAD <code>d18f08e</code> (<code>feat(workflow): add mindmap pilot to Codex and OpenCode</code>) oraz obecnych, niezacommitowanych zmianach worktree. Szczegóły wynikające z tych zmian nie są przypisywane bazowemu commitowi.</p>
+    </header>
+
+    <nav class="toc" aria-label="Spis treści">
+      <strong>Spis treści</strong>
+      <ol>
+        <li><a href="#overview">Jak działa orkiestracja</a></li>
+        <li><a href="#architecture">Źródło i przepływ konfiguracji</a></li>
+        <li><a href="#roles">Role i modele</a></li>
+        <li><a href="#runtime">Profile a aktywny runtime</a></li>
+        <li><a href="#delegation">Delegowanie</a></li>
+        <li><a href="#daily">Praca na co dzień</a></li>
+        <li><a href="#pilot">Pilot, OpenSpec i bramki</a></li>
+        <li><a href="#quality">Jakość i bezpieczeństwo</a></li>
+        <li><a href="#rollback">Zmiana i odzyskiwanie</a></li>
+      </ol>
+    </nav>
+
+    <section id="overview">
+      <h2>1. Jak działa orkiestracja</h2>
+      <p>Główny czat jest orkiestratorem. Zachowuje intencję użytkownika, zakres, klasyfikację pracy, decyzje, bramki akceptacji, dobór agentów i końcową syntezę.</p>
+      <div class="grid">
+        <div class="card"><h3>Domyślny sposób pracy</h3><p>Przy zadaniach nietrywialnych delegowanie jest domyślne. Orkiestrator przekazuje agentowi zakres, kryteria akceptacji, ograniczenia i znane założenia, a potem składa wynik.</p></div>
+        <div class="card"><h3>Hierarchia źródeł</h3><p>Jawna intencja i decyzje użytkownika są wiążące. Fakty z repo opisują stan techniczny, lecz nie zmieniają celu ani zatwierdzonego zakresu.</p></div>
+        <div class="card"><h3>Rola skilli</h3><p>Skill opisuje workflow, lecz nie przejmuje własności narzędzi. Każde wyszukiwanie, edycja, walidacja i diagnoza nadal trafiają do roli przewidzianej przez routing.</p></div>
+        <div class="card"><h3>Zakres tego raportu</h3><p>Dokument opisuje stan repozytorium oraz zaobserwowane pliki aktywne. Nie zawiera sekretów ani pełnej konfiguracji runtime.</p></div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>2. Źródło i przepływ konfiguracji</h2>
+      <p>Repozytorium jest źródłem prawdy. Zmiany semantyczne wprowadza się w źródłach polityki i profili, następnie renderuje, sprawdza i przegląda wygenerowany wynik.</p>
+      <div class="arch-flow" aria-label="Przepływ od kanonicznych źródeł do aktywnej konfiguracji">
+        <div class="arch-box"><div class="arch-path"><code><span>policy/</span><span>orchestration.md</span></code><code><span>policy/</span><span>routing.toml</span></code></div></div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="arch-box"><div class="arch-path"><code><span>roles/</span><span>*.md</span></code><code><span>profiles/</span><span>*.toml|md</span></code></div></div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="arch-box">adaptery /<br>renderery</div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="arch-box strong"><div class="arch-path"><code><span>generated/</span><span>opencode/</span></code><code><span>generated/</span><span>codex/</span></code></div></div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="arch-box">aktywna<br>konfiguracja</div>
+      </div>
+      <p class="small">Kolejność operatorska: edycja źródeł semantycznych → <code>./scripts/render</code> → <code>./scripts/check</code> → przegląd diffu → instalacja.</p>
+      <div class="grid">
+        <div class="callout"><strong>OpenCode.</strong> Instalator scala konfigurację i zachowuje niezwiązane ustawienia. Tworzy kopie zapasowe w <code>~/.local/state/agent-orchestration/backups/</code>, a po nieudanej walidacji przywraca stan. Walidacja używa <code>opencode debug config</code>.</div>
+        <div class="callout"><strong>Codex.</strong> Repozytorium nie ma instalatora ani menedżera rollbacku. Zaobserwowane aktywne pliki agentów są bajtowo zgodne z wygenerowanym snapshotem; aktywny <code>AGENTS.md</code> różni się tylko dwiema lokalnymi regułami użytkownika: conventional commits oraz Playwright na desktopie i mobile, bez headless, z ponownym użyciem sesji przeglądarki.</div>
+      </div>
+      <p class="small">Wygenerowane snapshoty są wersjonowane w repozytorium.</p>
+    </section>
+
+    <section id="roles">
+      <h2>3. Role i modele</h2>
+      <p>Role opisują odpowiedzialność i uprawnienia. Nazwa roli nie oznacza modelu, ceny ani poziomu możliwości: konkretne mapowania pochodzą z aktywnego profilu.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Rola</th><th>Odpowiedzialność</th><th>Uprawnienia / delegowanie</th><th>Profil OpenAI</th><th>Profil GLM</th></tr></thead>
+          <tbody>
+            <tr><td><code>worker</code></td><td>Rutynowa, dostatecznie określona implementacja.</td><td>edit/bash allow; tylko <code>vision-*</code>.</td><td><code>openai/gpt-5.6-luna</code>, high</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>worker-complex</code></td><td>Trudna, dostatecznie określona implementacja.</td><td>edit/bash allow; tylko <code>vision-*</code>.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex mapuje max → xhigh)</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>validator</code></td><td>Niezależna walidacja mechaniczna.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, medium</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>debugger</code></td><td>Diagnoza przyczyny źródłowej, tylko odczyt.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>explorer</code></td><td>Dowody z repozytorium, tylko odczyt.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, medium</td><td><code>deepseek/deepseek-v4-flash</code>, high</td></tr>
+            <tr><td><code>planner</code></td><td>Plany, specyfikacje, ADR i OpenSpec.</td><td>edit allow; bash ask; tylko <code>explorer</code> i <code>spec-writer</code>.</td><td><code>openai/gpt-5.6-sol</code>, high</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>spec-writer</code></td><td>Mechaniczne tworzenie artefaktów planistycznych z handoffu planera.</td><td>edit allow; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, high</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>design-partner</code></td><td>Produktowy flow i prototyp disposable z udziałem człowieka.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>reviewer</code></td><td>Read-only review poprawności, bezpieczeństwa i architektury.</td><td>edit deny; bash ask; tylko <code>explorer</code>.</td><td><code>openai/gpt-5.6-sol</code>, high</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>ux-critic</code></td><td>Audyt UX, dostępności, dopasowania platformowego i parytetu.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">„Wariant nie zadeklarowany” oznacza, że repozytorium nie deklaruje wariantu; raport nie opisuje domyślnego zachowania dostawcy.</p>
+    </section>
+
+    <section id="runtime">
+      <h2>4. Profile a aktywny runtime</h2>
+      <div class="callout ok"><strong>Profile wybieralne w repozytorium:</strong> OpenAI i GLM. Ich obecność w konfiguracji nie oznacza równoczesnego użycia.</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Obszar</th><th>Ustalenie</th></tr></thead>
+          <tbody>
+            <tr><td>Codex adapter</td><td>Konsumuje wyłącznie profil OpenAI, usuwa prefiks <code>openai/</code>, mapuje <code>max</code> na <code>xhigh</code> i traktuje <code>edit deny</code> jako read-only, a <code>edit allow</code> jako workspace-write.</td></tr>
+            <tr><td>Aktywny Codex</td><td>Zaobserwowany snapshot aktywny odpowiada wygenerowanemu snapshotowi OpenAI, z dwiema lokalnymi regułami w <code>AGENTS.md</code> opisanymi wyżej.</td></tr>
+            <tr><td>Aktywny OpenCode</td><td>Instalacja zawiera konfiguracje profilu OpenAI i GLM, więc oba profile są zainstalowane i dostępne. Nie oznacza to, że oba są wybrane jednocześnie.</td></tr>
+            <tr><td>Wybór runtime</td><td>Dokładny wybrany profil OpenCode zależy od sposobu uruchomienia i konfiguracji OpenCode; snapshot repozytorium tego nie ustala.</td></tr>
+            <tr><td>Agenci OpenCode</td><td>Aktywne profile zawierają zarządzane 10 ról oraz własne agenty <code>build</code> i <code>plan</code>. Własne agenty są zachowane i nie należą do zarządzanego zbioru tego repozytorium.</td></tr>
+            <tr><td>Obraz i vision</td><td>OpenAI może używać natywnego vision, gdy aktywny model je wspiera. Główne modele profilu GLM są w tym układzie tekstowe, a odczyt obrazów korzysta z profilowego skilla/agenta vision.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="delegation">
+      <h2>5. Delegowanie</h2>
+      <div class="pre-wrap"><pre aria-label="Graf delegowania">orchestrator
+├── planner
+│   ├── explorer
+│   └── spec-writer
+├── worker ─────────────── vision-*
+├── worker-complex ─────── vision-*
+├── validator
+├── debugger
+├── design-partner
+├── reviewer ───────────── explorer
+└── ux-critic</pre></div>
+      <ul>
+        <li>Tylko orkiestrator autoryzuje implementację zmian źródłowych.</li>
+        <li><code>planner</code> i <code>reviewer</code> nie uruchamiają <code>worker</code>, <code>validatora</code> ani <code>debuggera</code>.</li>
+        <li>Agenci mogą pracować równolegle wyłącznie przy niezależnych zakresach bez nakładających się plików ani zasobów.</li>
+        <li><code>validator</code>, <code>debugger</code>, <code>design-partner</code> i <code>ux-critic</code> nie delegują dalej.</li>
+      </ul>
+    </section>
+
+    <section id="daily">
+      <h2>6. Jak to działa na co dzień</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Etap</th><th>Działanie</th><th>Właściciel / wynik</th></tr></thead>
+          <tbody>
+            <tr><td>Klasyfikacja</td><td>Ocena skali i niepewności.</td><td>Orkiestrator wybiera tryb.</td></tr>
+            <tr><td>Dowody</td><td>Rozpoznanie repo, gdy potrzebne.</td><td><code>explorer</code> → fakty dla planera.</td></tr>
+            <tr><td>Planowanie</td><td>Plan, specyfikacja i artefakty.</td><td><code>planner</code> / <code>spec-writer</code>.</td></tr>
+            <tr><td>Implementacja</td><td>Kod oraz oznaczone <code>SELF-CHECKS</code>.</td><td><code>worker</code> lub <code>worker-complex</code>.</td></tr>
+            <tr><td>Walidacja</td><td>Niezależne testy, lint, typecheck, build według zakresu.</td><td><code>validator</code>.</td></tr>
+            <tr><td>Awaria</td><td>Diagnoza → naprawa → ponowna walidacja.</td><td><code>debugger → worker → validator</code>; jeden cykl dla tej samej przyczyny. Druga taka sama porażka zatrzymuje pracę i wymaga decyzji użytkownika.</td></tr>
+            <tr><td>Review</td><td>Review uruchamiany na żądanie lub po jawnej autoryzacji. Przy jasno obecnym konkretnym ryzyku orkiestrator musi krótko rekomendować review, lecz rekomendacja nie blokuje pracy; po decyzji nie jest powtarzana, chyba że zmieni się zakres lub ryzyko.</td><td><code>reviewer</code>, następnie bramka werdyktu użytkownika przed poprawkami.</td></tr>
+            <tr><td>Raport</td><td>Opis plików, kontroli i pozostałego ryzyka.</td><td>Orkiestrator oddziela self-checki od walidacji i mówi, czy review wykonano lub nie było żądane.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="pilot">
+      <h2>7. Pilot, OpenSpec i bramki</h2>
+      <p>Rozszerzony workflow stosuje się proporcjonalnie. „Duża” zmiana obejmuje kilka zależnych slice’ów lub obszarów, więcej niż jeden spójny artefakt planowania/specyfikacji albo zakres, którego nie da się ocenić jako jednej ograniczonej zmiany. „Niepewna” zmiana ma nierozstrzygniętą decyzję produktową, architektoniczną, danych lub kontraktu, która może materialnie zmienić zakres albo zachowanie.</p>
+      <div class="grid">
+        <div class="card"><h3>Duża inicjatywa</h3><p>Tworzy mindmapę w <code>openspec/changes/&lt;change-id&gt;/mindmap.md</code>, jeśli projekt używa OpenSpec; w przeciwnym razie obok istniejącego planu/specyfikacji. Mapa jest indeksem nawigacyjnym do źródeł autorytatywnych.</p><p>Przed bramką Decomposition identyfikuje building blocks: odpowiedzialność, granicę/właściciela, zależności i link do slice’a. Aktualizuje mapę przy znaczących bramkach.</p></div>
+        <div class="card"><h3>Niepewna zmiana</h3><p>Planner prowadzi usuwanie niejednoznaczności: małe wykonalne opcje, rekomendacja, założenia, konsekwencje, ryzyka i dokładna decyzja.</p><p>Od 1 do 8 user stories na spójną sesję jest heurystyką, a nie twardym limitem.</p></div>
+      </div>
+      <h3>Pakiet przed implementacją</h3>
+      <p>Dla zmiany dużej lub niepewnej pakiet zawiera TL;DR do maksymalnie 10 punktów, linki, building blocks, decyzje i założenia, kolejność slice’ów, ryzyka oraz macierz wykonania.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Bramka</th><th>Kiedy</th><th>Rezultat</th></tr></thead>
+          <tbody>
+            <tr><td>Decision</td><td>Tylko przy niepewności.</td><td>Zapisana decyzja i jej konsekwencje.</td></tr>
+            <tr><td>Decomposition</td><td>Tylko przy dużej inicjatywie.</td><td>Zatwierdzone building blocks, zależności i slice’y.</td></tr>
+            <tr><td>Implementation</td><td>Przy zmianie dużej lub niepewnej.</td><td>Zaakceptowany pakiet implementacyjny.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">Bramki mogą zostać omówione w jednej rozmowie, lecz ich wyniki zapisuje się osobno. Mała, jednoznaczna zmiana nie dostaje dodatkowej bramki.</p>
+      <h3>Miary retrospektywy</h3>
+      <ul><li>czas przygotowania i utrzymania;</li><li>niejasności wykryte przed implementacją;</li><li>zmiany zakresu lub kontraktów po bramce;</li><li>czas trwania, interwencje orkiestratora i rework;</li><li>usage, jeśli harness go udostępnia, jako sygnał orientacyjny;</li><li>użyteczność mapy i procesu w skali 1–5 z kontekstem.</li></ul>
+    </section>
+
+    <section id="quality">
+      <h2>8. Jakość i bezpieczeństwo</h2>
+      <ul class="rule-list">
+        <li>Kontrole robocze workera są oznaczone <code>SELF-CHECKS</code> i nie są końcowym dowodem.</li>
+        <li>Test opisuje publiczną akcję i obserwowalny rezultat, używa najprostszego poziomu i nie dubluje dowodów.</li>
+        <li>Przed dodaniem testu trzeba umieć dokończyć zdanie: „This test will fail when …”.</li>
+        <li>Validator ogląda niezależnie diff i testy oraz mapuje każde kryterium na obserwowalny dowód; nie edytuje źródeł, konfiguracji ani historii Git.</li>
+        <li>Validatora nie uruchamia się dla dokumentacji i zmian, dla których walidacja mechaniczna nie ma zastosowania.</li>
+        <li>Review jest rekomendowany przy auth/authz, uprawnieniach, sekretach, bezpieczeństwie, płatnościach, finansach i danych wrażliwych.</li>
+        <li>Review jest rekomendowany przy migracjach, semantyce persystencji, operacjach destrukcyjnych i odzyskiwaniu danych.</li>
+        <li>Review jest rekomendowany przy współbieżności, koordynacji rozproszonej i trudnych race conditions.</li>
+        <li>Review jest rekomendowany przy publicznych API, schematach, protokołach, kompatybilności i współdzielonych interfejsach.</li>
+        <li>Review jest rekomendowany przy deploymencie, infrastrukturze, signing, release, konfiguracji produkcyjnej, wielu subsystemach, szerokim refaktorze i zmianach orkiestracji.</li>
+        <li>Reviewer uruchamia się wyłącznie na żądanie lub po jawnej autoryzacji; walidacja nie zastępuje review.</li>
+      </ul>
+      <div class="callout"><strong>Werdykt review.</strong> Reviewer jest read-only i nie wykonuje mechanicznej walidacji ani poprawek. Wyniki są widoczne i zawierają stabilne ID, severity, dowód, wpływ, plik i linię, komentarz, rekomendację oraz alternatywy. Narzędzie pytań pokazuje rekomendowaną opcję jako pierwszą i opcję Skip; gdy narzędzie jest niedostępne, te same opcje są przedstawiane w zwykłym czacie i wymagana jest rzeczywista odpowiedź użytkownika. Zatwierdzona poprawka obejmuje jedną ograniczoną korektę i celowany re-review tego zakresu oraz sąsiednich skutków.</div>
+      <div class="grid">
+        <div class="card"><h3>design-partner</h3><p>Prototyp trafia do dedykowanego katalogu. Praca pozostaje human-in-the-loop, a przed implementacją produkcyjną lub formalnym planowaniem potrzebne jest jawne zamrożenie projektu.</p></div>
+        <div class="card"><h3>ux-critic</h3><p>Wykonuje audyt użyteczności, dostępności, dopasowania platformowego i parytetu; nie tworzy poprawek w produkcyjnych źródłach.</p></div>
+      </div>
+    </section>
+
+    <section id="rollback">
+      <h2>9. Zmiana i odzyskiwanie</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sytuacja</th><th>Playbook</th></tr></thead>
+          <tbody>
+            <tr><td>Zmiana semantyczna</td><td>Edytuj źródła → <code>./scripts/render</code> → <code>./scripts/check</code> → przejrzyj diff → wykonaj dry run/instalację OpenCode.</td></tr>
+            <tr><td>Codex</td><td>Wykonaj ręczne kopiowanie lub symlink do wybranej lokalizacji. Przywróć poprzedni commit wygenerowanych plików albo własną kopię zapasową; brak wbudowanego menedżera rollbacku.</td></tr>
+            <tr><td>OpenCode — błąd instalacji</td><td>Instalator sam przywraca stan po nieudanej walidacji. Kopie z <code>~/.local/state/agent-orchestration/backups/</code> pozostają dostępne do ręcznego odzyskania. Nie ma deklarowanej komendy CLI rollback.</td></tr>
+            <tr><td>Git</td><td>Wersjonowanie repo pozwala operatorowi odwrócić commit, ponownie wyrenderować i zainstalować konfigurację. Jest to workflow operatorski, a nie wbudowany rollback.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <h2>10. Dowody i ograniczenia</h2>
+      <p>Raport opiera się na kanonicznej polityce, routingu, rolach, profilach, adapterach, wygenerowanych snapshotach i testach w tym repozytorium. Linki są względne względem katalogu raportu:</p>
+      <div class="footer-links">
+        <a href="../../policy/orchestration.md">policy/orchestration.md</a>
+        <a href="../../policy/routing.toml">policy/routing.toml</a>
+        <a href="../../roles/">roles/</a>
+        <a href="../../profiles/openai.toml">profiles/openai.toml</a>
+        <a href="../../profiles/glm.toml">profiles/glm.toml</a>
+        <a href="../../README.md">README.md</a>
+        <a href="../../adapters/opencode/install.py">adapters/opencode/install.py</a>
+        <a href="../../adapters/opencode/render.py">adapters/opencode/render.py</a>
+        <a href="../../adapters/codex/render.py">adapters/codex/render.py</a>
+        <a href="../../tests/">tests/</a>
+      </div>
+      <p class="small" style="margin-top:18px"><strong>Ograniczenie dowodowe:</strong> porównanie aktywnej konfiguracji obejmowało metadane i zarządzane pliki. Wybrany aktywny profil OpenCode nie został ustalony. Raport nie zawiera sekretów ani pełnej konfiguracji runtime.</p>
+      <p class="small">Wygenerowano: 2026-09-08 · bazowy HEAD: <code>d18f08e</code> · worktree zawiera niezacommitowane zmiany.</p>
+    </footer>
+  </main>
+</body>
+</html>
