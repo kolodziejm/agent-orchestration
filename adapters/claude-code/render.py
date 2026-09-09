@@ -136,9 +136,11 @@ def render_into(output: Path) -> None:
         rendered = frontmatter(role, config, models[role], native_vision) + contract_path.read_text()
         (output / "agents" / f"{role}.md").write_text(rendered)
 
-    core = (ROOT / "policy" / "orchestration.md").read_text()
+    core = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
+    addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
+    shared = "\n\n".join([core, addendum])
     (output / "_shared" / "orchestration-core.md").write_text(
-        f"{MARKER_START}\n{core}\n{MARKER_END}\n"
+        f"{MARKER_START}\n{shared}\n{MARKER_END}\n"
     )
 
     (output / "manifest.json").write_text(

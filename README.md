@@ -125,6 +125,8 @@ Unlike OpenCode, a Claude Code subagent file has no separate profile-routing lay
 
 Claude Code has no per-subagent equivalent of OpenCode's `bash = "ask"` permission; prompts are configured at the session level, not per agent file. `Bash` is therefore granted to every rendered agent, including read-only roles, since they still need it for investigation. Delegation (`delegates` in `policy/routing.toml`) is expressed as `Agent(<target>)` entries in the agent's `tools` frontmatter field. `vision-*` delegates are omitted for profiles that declare `[capabilities] native_vision = true`, since all current Claude models are natively multimodal.
 
+Subagents rendered from role files start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff. The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile. Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.
+
 The local `.agent-orchestration.manifest.json` under the target directory tracks managed roles the same way as the OpenCode adapter, so obsolete generated agents are removed without deleting unrelated agents or CLAUDE.md content.
 
 ## Generated snapshots

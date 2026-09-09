@@ -142,6 +142,21 @@ class ClaudeCodeRenderTests(unittest.TestCase):
             self.assertTrue(core.rstrip("\n").endswith("<!-- agent-orchestration:end -->"))
             self.assertIn((ROOT / "policy" / "orchestration.md").read_text().strip(), core)
 
+    def test_shared_orchestration_core_includes_profile_addendum_after_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                check=True,
+            )
+            core = (output / "_shared" / "orchestration-core.md").read_text()
+            policy = (ROOT / "policy" / "orchestration.md").read_text().strip()
+            addendum = (ROOT / "profiles" / self.profile["addendum"]).read_text().strip()
+            self.assertIn(policy, core)
+            self.assertIn(addendum, core)
+            self.assertLess(core.index(policy), core.index(addendum))
+
     def test_manifest_lists_all_roles_and_the_claude_profile(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
