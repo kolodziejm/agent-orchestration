@@ -17,7 +17,10 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT = (ROOT / "generated" / "codex").resolve()
+# Unresolved on purpose: resolving here would make the argparse default
+# already-resolved, so a symlink swapped in at "generated/codex" would
+# never hit the is_symlink() check below when --output is omitted.
+DEFAULT_OUTPUT = ROOT / "generated" / "codex"
 DEFAULT_PROFILE = "openai"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
@@ -146,7 +149,7 @@ def assert_safe_output(output: Path) -> Path:
         raise SystemExit(f"Refusing symlinked output path: {output}")
 
     output = output.resolve()
-    if output == DEFAULT_OUTPUT:
+    if output == DEFAULT_OUTPUT.resolve():
         return output
 
     try:

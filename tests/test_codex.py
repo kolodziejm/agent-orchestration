@@ -1,4 +1,5 @@
 import importlib.util
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / "adapters" / "codex" / "render.py"
 ROUTING = ROOT / "policy" / "routing.toml"
 PROFILE = ROOT / "profiles" / "openai.toml"
+
+
+def build_temp_repo(destination: Path) -> Path:
+    """Copy the subset of the repo render.py resolves ROOT against, so a test
+    can corrupt "generated/codex" without touching the real repo."""
+    for name in ("adapters", "policy", "profiles", "roles"):
+        shutil.copytree(ROOT / name, destination / name)
+    return destination
 
 
 def load_renderer():
@@ -161,6 +170,29 @@ class CodexRenderContractTests(unittest.TestCase):
 
             self.assertEqual(marker.read_text(), "previous snapshot")
             self.assertEqual(list(output.parent.glob(f".{output.name}.old-*")), [])
+
+    def test_renderer_refuses_symlinked_default_output_and_leaves_target_untouched(self):
+        """REGRESSION CONTRACT: a pre-resolved --output default would silently follow a symlink at "generated/codex" instead of hitting the is_symlink() guard when --output is omitted; TEST LAYER: renderer integration test."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            target = Path(directory) / "real-target"
+            target.mkdir()
+            marker = target / "marker.txt"
+            marker.write_text("original")
+            (repo / "generated").mkdir(parents=True, exist_ok=True)
+            (repo / "generated" / "codex").symlink_to(target)
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "codex" / "render.py")],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refusing symlinked output path", result.stderr)
+            self.assertTrue((repo / "generated" / "codex").is_symlink())
+            self.assertEqual(marker.read_text(), "original")
 
 
 if __name__ == "__main__":

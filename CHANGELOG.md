@@ -20,6 +20,7 @@ All notable changes to the orchestration policy are documented here.
 - Render the active profile's addendum into the shared `orchestration-core.md` section, after the policy text, so installed `CLAUDE.md` files receive the Claude Code harness notes that were previously never rendered.
 - Align mandatory-validation scope, the reviewer repair-budget cap, and the orchestrator's trivial-work exception with their surrounding rules, removing internal contradictions in the shared policy.
 - Invoke `python3` instead of a hardcoded `python3.11` in every script and adapter shebang, relying on the caller's environment (e.g. CI's `actions/setup-python`) to provide 3.11+; each renderer fails fast with a clear message if run under an older interpreter.
+- Fix the Codex renderer's default `--output` being resolved at import time, which bypassed the symlink guard for a symlinked `generated/codex` when no `--output` flag was passed; it now matches the unresolved-default pattern already used by the Claude Code and OpenCode renderers.
 
 ## 0.1.0 — 2026-08-22
 
