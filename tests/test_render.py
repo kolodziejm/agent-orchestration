@@ -2,6 +2,7 @@ import json
 import importlib.util
 import contextlib
 import io
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,25 @@ def load_render_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def build_temp_repo(destination: Path) -> Path:
+    """Copy the subset of the repo render.py resolves ROOT against, so a test
+    can corrupt one profile without touching the real profiles/ directory."""
+    for name in ("adapters", "policy", "profiles", "roles"):
+        shutil.copytree(ROOT / name, destination / name)
+    return destination
+
+
+def set_toml_top_level_key(path: Path, key: str, value: str) -> None:
+    """Overwrite (or insert) a simple top-level `key = "value"` line.
+
+    Profile files only use scalar top-level keys before their first table
+    header, so a line-level rewrite is sufficient without a TOML writer.
+    """
+    lines = [line for line in path.read_text().splitlines() if not line.strip().startswith(f"{key} =")]
+    lines.insert(0, f"{key} = {json.dumps(value)}")
+    path.write_text("\n".join(lines) + "\n")
 
 
 class PolicyContractTests(unittest.TestCase):
@@ -115,6 +135,37 @@ class OpenCodeRenderTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Refusing unsafe output path", result.stderr)
         self.assertTrue((ROOT / "README.md").is_file())
+
+    def test_renderer_rejects_a_typoed_harness_value_instead_of_silently_dropping_the_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            broken_profile = repo / "profiles" / "glm.toml"
+            set_toml_top_level_key(broken_profile, "harness", "opencde")
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "opencode" / "render.py"), "--output", str(Path(directory) / "out")],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(broken_profile), result.stderr)
+            self.assertIn("opencde", result.stderr)
+
+    def test_renderer_refuses_to_render_an_empty_profile_set(self):
+        """An empty profile set would make the installer uninstall every managed profile."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            for name in ("openai.toml", "glm.toml"):
+                set_toml_top_level_key(repo / "profiles" / name, "harness", "codex")
+            # profiles/claude.toml already declares harness = "claude-code".
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "opencode" / "render.py"), "--output", str(Path(directory) / "out")],
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("empty profile set", result.stderr)
 
     def test_keyboard_interrupt_during_atomic_replace_restores_previous_output(self):
         renderer = load_render_module()

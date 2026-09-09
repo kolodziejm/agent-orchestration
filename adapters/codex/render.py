@@ -1,7 +1,12 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Render the canonical orchestration policy into Codex artifacts."""
 
 from __future__ import annotations
+
+import sys
+
+if sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required (tomllib).")
 
 import argparse
 import json

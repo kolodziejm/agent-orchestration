@@ -45,6 +45,8 @@ orchestrator
 
 ## OpenCode adapter
 
+Requires Python 3.11 or newer (`python3` on `PATH`).
+
 Render committed snapshots:
 
 ```bash
@@ -93,7 +95,7 @@ The adapter removes the `openai/` provider prefix from model identifiers, maps t
 
 ## Claude Code adapter
 
-Render committed snapshots (also renders the OpenCode snapshot):
+Render committed snapshots (also renders the OpenCode and Codex snapshots):
 
 ```bash
 ./scripts/render
@@ -119,7 +121,7 @@ Install and back up changed files:
 
 The installer copies each rendered `agents/<role>.md` subagent file into `<target>/agents/`, and merges the shared orchestration policy into `<target>/CLAUDE.md` by replacing only the section between the `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers (or appending it if absent). Content outside the markers is preserved untouched. The default target is `~/.claude`, overridable with `--target`.
 
-Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. Only one profile may declare `harness = "claude-code"` (currently `profiles/claude.toml`); the OpenCode renderer ignores it via the same `harness` field (profiles without a `harness` field default to `"opencode"` for backward compatibility).
+Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. The `harness` field controls which renderer picks up a profile: the OpenCode renderer selects profiles with `harness = "opencode"`, the default when the field is absent; the Claude Code renderer selects the single profile declaring `harness = "claude-code"` (currently `profiles/claude.toml`); the Codex renderer selects by explicit `--profile` and does not read `harness`, so the `openai` profile is rendered by both OpenCode and Codex.
 
 ### Claude Code permission degradation
 
@@ -131,14 +133,12 @@ The local `.agent-orchestration.manifest.json` under the target directory tracks
 
 ## Generated snapshots
 
-`generated/opencode/` and `generated/claude-code/` are committed intentionally. A policy change should show both:
+`generated/opencode/`, `generated/codex/`, and `generated/claude-code/` are committed snapshots, intentionally. A policy or profile change must show both:
 
 1. the harness-agnostic semantic change;
 2. its exact per-harness output.
 
 CI rerenders snapshots and fails on drift.
-
-Both `generated/opencode/` and `generated/codex/` are committed snapshots. A policy or profile change must update the corresponding semantic source and its exact harness output in the same change.
 
 ## Adding a role
 

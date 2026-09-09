@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Render harness-agnostic policies into Claude Code subagent artifacts.
 
 Claude Code permission degradation notes (documented here because Claude Code
@@ -21,6 +21,11 @@ has no per-subagent equivalent):
 
 from __future__ import annotations
 
+import sys
+
+if sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required (tomllib).")
+
 import argparse
 import json
 import re
@@ -31,10 +36,14 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT = (ROOT / "generated" / "claude-code").resolve()
+# Unresolved on purpose: resolving here would make the argparse default
+# already-resolved, so a symlink swapped in at "generated/claude-code" would
+# never hit the is_symlink() check below when --output is omitted.
+DEFAULT_OUTPUT = ROOT / "generated" / "claude-code"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash"]
+VALID_HARNESSES = {"opencode", "codex", "claude-code"}
 
 MARKER_START = "<!-- agent-orchestration:start -->"
 MARKER_END = "<!-- agent-orchestration:end -->"
@@ -49,7 +58,10 @@ def load_claude_profile() -> dict:
     candidates = []
     for path in sorted((ROOT / "profiles").glob("*.toml")):
         profile = load_toml(path)
-        if profile.get("harness") == "claude-code":
+        harness = profile.get("harness", "opencode")
+        if harness not in VALID_HARNESSES:
+            raise SystemExit(f"Invalid harness in {path}: {harness!r}")
+        if harness == "claude-code":
             candidates.append(profile)
     if len(candidates) != 1:
         raise SystemExit(
@@ -61,13 +73,26 @@ def load_claude_profile() -> dict:
 
 def tools_for(config: dict, native_vision: bool) -> str:
     tools = list(BASE_TOOLS)
-    if config["edit"] == "allow":
+    edit = config["edit"]
+    if edit == "allow":
         tools.extend(["Edit", "Write"])
+    elif edit != "deny":
+        raise SystemExit(f"Claude Code does not support routing edit permission: {edit!r}")
     for target in config.get("delegates", []):
         if target == "vision-*" and native_vision:
             continue
         tools.append(f"Agent({target})")
     return ", ".join(tools)
+
+
+def require_subagent_mode(role: str, config: dict) -> None:
+    # Claude Code agent files are always subagents; routing.toml roles with a
+    # different mode have no primary-agent equivalent to render here.
+    mode = config.get("mode")
+    if mode != "subagent":
+        raise SystemExit(
+            f"Claude Code adapter only renders subagent roles: {role!r} has mode {mode!r}"
+        )
 
 
 SAFE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._()*-]*$")
@@ -98,8 +123,11 @@ def frontmatter(role: str, config: dict, model_config: dict, native_vision: bool
 
 
 def assert_safe_output(output: Path) -> Path:
-    output = output.expanduser().resolve()
-    if output == DEFAULT_OUTPUT:
+    output = output.expanduser()
+    if output.is_symlink():
+        raise SystemExit(f"Refusing symlinked output path: {output}")
+    output = output.resolve()
+    if output == DEFAULT_OUTPUT.resolve():
         return output
     try:
         output.relative_to(TEMP_ROOT)
@@ -130,6 +158,7 @@ def render_into(output: Path) -> None:
     (output / "_shared").mkdir(parents=True)
 
     for role, config in roles.items():
+        require_subagent_mode(role, config)
         contract_path = ROOT / "roles" / f"{role}.md"
         if not contract_path.is_file():
             raise SystemExit(f"Missing role contract: {contract_path}")

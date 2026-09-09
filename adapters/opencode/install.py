@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Install generated OpenCode policy artifacts with diff, backup, rollback, and validation."""
 
 from __future__ import annotations

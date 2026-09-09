@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Install generated Claude Code policy artifacts with diff, backup, and rollback."""
 
 from __future__ import annotations
@@ -31,14 +31,15 @@ def text_diff(current: Path, desired: str, label: str) -> str:
 def validate_manifest(manifest: dict, label: str) -> None:
     if manifest.get("format_version") != 1:
         raise SystemExit(f"Unsupported {label} format_version")
-    values = manifest.get("roles")
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise SystemExit(f"Invalid {label} roles")
-    if len(values) != len(set(values)):
-        raise SystemExit(f"Duplicate names in {label} roles")
-    for value in values:
-        if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
-            raise SystemExit(f"Unsafe name in {label} roles: {value!r}")
+    for key in ("roles", "profiles"):
+        values = manifest.get(key)
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise SystemExit(f"Invalid {label} {key}")
+        if len(values) != len(set(values)):
+            raise SystemExit(f"Duplicate names in {label} {key}")
+        for value in values:
+            if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
+                raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
 
 
 def assert_safe_destination(path: Path, target: Path) -> None:
@@ -87,7 +88,7 @@ def load_and_preflight_manifests(rendered: Path, target: Path) -> tuple[dict, di
     previous_manifest = (
         json.loads(manifest_path.read_text())
         if manifest_path.exists()
-        else {"format_version": 1, "roles": []}
+        else {"format_version": 1, "roles": [], "profiles": []}
     )
     validate_manifest(previous_manifest, "installed manifest")
     return current_manifest, previous_manifest

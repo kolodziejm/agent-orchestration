@@ -36,7 +36,11 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
                 check=True,
             )
 
-            previous = {"format_version": 1, "roles": ["worker", "obsolete-managed-role"]}
+            previous = {
+                "format_version": 1,
+                "roles": ["worker", "obsolete-managed-role"],
+                "profiles": ["claude"],
+            }
             target.mkdir()
             (target / install.MANIFEST_NAME).write_text(json.dumps(previous))
             (target / "agents").mkdir(parents=True)
@@ -100,6 +104,31 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             install.merge_claude_md(existing, "section")
 
+    def test_unsafe_profile_name_in_installed_manifest_is_rejected_before_mutation(self):
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(rendered)],
+                cwd=ROOT,
+                check=True,
+            )
+            target.mkdir()
+            unsafe_manifest = {"format_version": 1, "roles": [], "profiles": ["../../x"]}
+            manifest_bytes = json.dumps(unsafe_manifest).encode()
+            (target / install.MANIFEST_NAME).write_bytes(manifest_bytes)
+
+            with self.assertRaises(SystemExit):
+                install.desired_state(rendered, target)
+
+            self.assertEqual(
+                (target / install.MANIFEST_NAME).read_bytes(),
+                manifest_bytes,
+            )
+            self.assertEqual(list(target.iterdir()), [target / install.MANIFEST_NAME])
+
     def test_symlinked_destination_is_rejected(self):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
@@ -162,6 +191,71 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
             backed_up = list(backups_root.rglob("CLAUDE.md"))
             self.assertEqual(len(backed_up), 1)
             self.assertEqual(backed_up[0].read_bytes(), original_bytes)
+
+    def test_second_install_is_idempotent_and_reports_already_synchronized(self):
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            target = root / "target"
+            target.mkdir()
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with contextlib.redirect_stdout(io.StringIO()) as first_out:
+                    first_result = install.install(target, dry_run=False)
+                with contextlib.redirect_stdout(io.StringIO()) as second_out:
+                    second_result = install.install(target, dry_run=False)
+
+            self.assertEqual(first_result, 0)
+            self.assertEqual(second_result, 0)
+            self.assertNotIn("already synchronized", first_out.getvalue())
+            self.assertIn("already synchronized", second_out.getvalue())
+
+    def test_merge_of_empty_existing_yields_exactly_the_managed_section(self):
+        install = load_install_module()
+        section = f"{install.MARKER_START}\nmanaged\n{install.MARKER_END}\n"
+        self.assertEqual(install.merge_claude_md("", section), section)
+
+    def test_merge_without_trailing_newline_does_not_glue_existing_and_section(self):
+        install = load_install_module()
+        section = f"{install.MARKER_START}\nmanaged\n{install.MARKER_END}\n"
+        result = install.merge_claude_md("notes", section)
+        self.assertTrue(result.startswith("notes\n"))
+        self.assertEqual(result.splitlines()[0], "notes")
+        self.assertIn(section, result)
+
+    def test_merge_is_idempotent_for_content_outside_markers(self):
+        install = load_install_module()
+        section = f"{install.MARKER_START}\nmanaged v1\n{install.MARKER_END}\n"
+        existing = "# Notes\n\nSome unrelated content.\n"
+        once = install.merge_claude_md(existing, section)
+        twice = install.merge_claude_md(once, section)
+        self.assertEqual(once, twice)
+
+    def test_preexisting_unmanaged_role_file_is_overwritten_and_backed_up(self):
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            target = root / "target"
+            (target / "agents").mkdir(parents=True)
+            user_written = "# My own explorer notes\nDo not touch.\n"
+            (target / "agents" / "explorer.md").write_text(user_written)
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = install.install(target, dry_run=False)
+
+            self.assertEqual(result, 0)
+            managed_content = (target / "agents" / "explorer.md").read_text()
+            self.assertNotEqual(managed_content, user_written)
+
+            backups_root = fake_home / ".local" / "state" / "agent-orchestration" / "backups"
+            backed_up = list(backups_root.rglob("explorer.md"))
+            self.assertEqual(len(backed_up), 1)
+            self.assertEqual(backed_up[0].read_text(), user_written)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,12 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Render harness-agnostic policies into OpenCode artifacts."""
 
 from __future__ import annotations
+
+import sys
+
+if sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required (tomllib).")
 
 import argparse
 import json
@@ -12,8 +17,13 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUTPUT = (ROOT / "generated" / "opencode").resolve()
+# Unresolved on purpose: resolving here would make the argparse default
+# already-resolved, so a symlink swapped in at "generated/opencode" would
+# never hit the is_symlink() check below when --output is omitted.
+DEFAULT_OUTPUT = ROOT / "generated" / "opencode"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
+
+VALID_HARNESSES = {"opencode", "codex", "claude-code"}
 
 
 def load_toml(path: Path) -> dict:
@@ -41,8 +51,11 @@ def frontmatter(role: str, config: dict) -> str:
 
 
 def assert_safe_output(output: Path) -> Path:
-    output = output.expanduser().resolve()
-    if output == DEFAULT_OUTPUT:
+    output = output.expanduser()
+    if output.is_symlink():
+        raise SystemExit(f"Refusing symlinked output path: {output}")
+    output = output.resolve()
+    if output == DEFAULT_OUTPUT.resolve():
         return output
     try:
         output.relative_to(TEMP_ROOT)
@@ -79,7 +92,10 @@ def render_into(output: Path) -> None:
     profile_names = []
     for profile_path in sorted((ROOT / "profiles").glob("*.toml")):
         profile = load_toml(profile_path)
-        if profile.get("harness", "opencode") != "opencode":
+        harness = profile.get("harness", "opencode")
+        if harness not in VALID_HARNESSES:
+            raise SystemExit(f"Invalid harness in {profile_path}: {harness!r}")
+        if harness != "opencode":
             continue
         name = profile["name"]
         profile_names.append(name)
@@ -96,6 +112,14 @@ def render_into(output: Path) -> None:
         (destination / "agent-routing.json").write_text(
             json.dumps({"agent": {role: dict(value) for role, value in models.items()}}, indent=2, sort_keys=True)
             + "\n"
+        )
+
+    if not profile_names:
+        # An empty profile set would make the installer delete every managed
+        # profile it finds on disk instead of leaving them alone.
+        raise SystemExit(
+            "No profile with harness = \"opencode\" matched under profiles/; "
+            "refusing to render an empty profile set"
         )
 
     (output / "manifest.json").write_text(

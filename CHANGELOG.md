@@ -10,7 +10,7 @@ All notable changes to the orchestration policy are documented here.
 - Require observable acceptance evidence, bounded review-fix cycles, compact handoffs, event-based orchestration updates, and lightweight pilot usage measurements.
 - Add a Claude Code adapter (`adapters/claude-code/`) mirroring the OpenCode adapter's rendering, snapshot, diff, backup, install, and rollback architecture.
 - Add a `claude` model-routing profile (`profiles/claude.toml` + `profiles/claude.md`) with per-role Claude model aliases and effort levels.
-- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility) so a profile only renders for its declared harness; the OpenCode renderer ignores `claude-code` profiles and vice versa.
+- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility): the OpenCode renderer selects profiles declaring `harness = "opencode"`, the Claude Code renderer selects the single profile declaring `harness = "claude-code"`, and the Codex renderer selects by explicit `--profile` without reading `harness`, so the `openai` profile is rendered by both OpenCode and Codex.
 - Bake model and effort directly into each rendered Claude Code subagent's frontmatter, since Claude Code has no profile-routing layer equivalent to OpenCode's `agent-routing.json`.
 - Express routing delegation as `Agent(<target>)` tool entries and document that Claude Code has no per-subagent equivalent of `bash = "ask"`.
 - Merge the shared orchestration policy into a target `CLAUDE.md` using `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers, preserving unrelated content.
@@ -18,6 +18,8 @@ All notable changes to the orchestration policy are documented here.
 - Clarify the definition of a trivial request, when validator involvement is mandatory, what counts as explicit review authorization, the one-sentence non-blocking form of the review recommendation, and the per-finding repair budget in the reviewer user-verdict gate.
 - Document Claude Code subagent history defaults, the `Agent` tool's `model` parameter restriction, and built-in harness agent usage constraints in the Claude Code adapter README and the `claude` profile addendum.
 - Render the active profile's addendum into the shared `orchestration-core.md` section, after the policy text, so installed `CLAUDE.md` files receive the Claude Code harness notes that were previously never rendered.
+- Align mandatory-validation scope, the reviewer repair-budget cap, and the orchestrator's trivial-work exception with their surrounding rules, removing internal contradictions in the shared policy.
+- Invoke `python3` instead of a hardcoded `python3.11` in every script and adapter shebang, relying on the caller's environment (e.g. CI's `actions/setup-python`) to provide 3.11+; each renderer fails fast with a clear message if run under an older interpreter.
 
 ## 0.1.0 — 2026-08-22
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-python3.11 "$ROOT/adapters/opencode/render.py" --output "$ROOT/generated/opencode"
-python3.11 "$ROOT/adapters/codex/render.py" --output "$ROOT/generated/codex" --profile openai
-python3.11 "$ROOT/adapters/claude-code/render.py" --output "$ROOT/generated/claude-code"
+python3 "$ROOT/adapters/opencode/render.py" --output "$ROOT/generated/opencode"
+python3 "$ROOT/adapters/codex/render.py" --output "$ROOT/generated/codex" --profile openai
+python3 "$ROOT/adapters/claude-code/render.py" --output "$ROOT/generated/claude-code"

@@ -3,10 +3,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-python3.11 -m unittest discover -s "$ROOT/tests" -v
-python3.11 "$ROOT/adapters/opencode/render.py" --output "$TMP/opencode"
+python3 -m unittest discover -s "$ROOT/tests" -v
+python3 "$ROOT/adapters/opencode/render.py" --output "$TMP/opencode"
 diff -ruN "$ROOT/generated/opencode" "$TMP/opencode"
-python3.11 "$ROOT/adapters/codex/render.py" --output "$TMP/codex" --profile openai
+python3 "$ROOT/adapters/codex/render.py" --output "$TMP/codex" --profile openai
 diff -ruN "$ROOT/generated/codex" "$TMP/codex"
-python3.11 "$ROOT/adapters/claude-code/render.py" --output "$TMP/claude-code"
+python3 "$ROOT/adapters/claude-code/render.py" --output "$TMP/claude-code"
 diff -ruN "$ROOT/generated/claude-code" "$TMP/claude-code"
