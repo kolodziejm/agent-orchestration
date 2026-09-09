@@ -145,6 +145,25 @@ class CodexRenderContractTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "edit permission"):
             renderer.sandbox_mode({"edit": "ask"})
 
+    def test_renderer_rejects_bash_deny_without_granting_shell(self):
+        """This test will fail when Codex renders bash=deny as a shell-capable sandbox."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            policy = repo / "policy" / "routing.toml"
+            policy.write_text(policy.read_text().replace('bash = "ask"', 'bash = "deny"'))
+            output = Path(directory) / "output"
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "codex" / "render.py"), "--output", str(output)],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot enforce bash = deny", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_renderer_rejects_unsafe_output_path_without_removing_existing_artifacts(self):
         """REGRESSION CONTRACT: unsafe output paths are rejected before existing artifacts can be removed; TEST LAYER: renderer integration test."""
         renderer = load_renderer()
@@ -192,6 +211,50 @@ class CodexRenderContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refusing symlinked output path", result.stderr)
             self.assertTrue((repo / "generated" / "codex").is_symlink())
+            self.assertEqual(marker.read_text(), "original")
+
+    def test_renderer_rejects_symlinked_parent_under_repository_root(self):
+        """This test will fail when a symlinked parent redirects generated output outside ROOT."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            redirected = Path(directory) / "redirected-generated"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            (repo / "generated").symlink_to(redirected, target_is_directory=True)
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "codex" / "render.py")],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
+            self.assertEqual(marker.read_text(), "original")
+
+    def test_renderer_rejects_symlinked_parent_under_temporary_root(self):
+        """This test will fail when a temporary-root symlink redirects generated output."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            redirected = root / "redirected"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            parent = root / "parent-link"
+            parent.symlink_to(redirected, target_is_directory=True)
+            output = parent / "output"
+
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
             self.assertEqual(marker.read_text(), "original")
 
 

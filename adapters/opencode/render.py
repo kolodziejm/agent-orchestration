@@ -16,6 +16,13 @@ import tomllib
 import uuid
 from pathlib import Path
 
+ADAPTERS_DIR = Path(__file__).resolve().parents[1]
+if str(ADAPTERS_DIR) not in sys.path:
+    sys.path.insert(0, str(ADAPTERS_DIR))
+
+from common import assert_safe_output as shared_assert_safe_output
+from common import assert_safe_rename, validate_capabilities
+
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
 # already-resolved, so a symlink swapped in at "generated/opencode" would
@@ -51,27 +58,15 @@ def frontmatter(role: str, config: dict) -> str:
 
 
 def assert_safe_output(output: Path) -> Path:
-    output = output.expanduser()
-    if output.is_symlink():
-        raise SystemExit(f"Refusing symlinked output path: {output}")
-    output = output.resolve()
-    if output == DEFAULT_OUTPUT.resolve():
-        return output
-    try:
-        output.relative_to(TEMP_ROOT)
-    except ValueError as error:
-        raise SystemExit(
-            f"Refusing unsafe output path: {output}. "
-            f"Use {DEFAULT_OUTPUT} or a directory below {TEMP_ROOT}."
-        ) from error
-    if output == TEMP_ROOT:
-        raise SystemExit(f"Refusing to replace temporary root: {output}")
-    return output
+    return shared_assert_safe_output(output, DEFAULT_OUTPUT, TEMP_ROOT)
 
 
 def render_into(output: Path) -> None:
     routing = load_toml(ROOT / "policy" / "routing.toml")
     roles = routing["roles"]
+
+    for role, config in roles.items():
+        validate_capabilities(role, config, "opencode")
 
     (output / "agents").mkdir(parents=True)
     (output / "profiles" / "_shared").mkdir(parents=True)
@@ -137,21 +132,30 @@ def render(output: Path) -> None:
     staging_root = Path(tempfile.mkdtemp(prefix=f".{output.name}.render-", dir=output.parent))
     staged = staging_root / "result"
     old = output.parent / f".{output.name}.old-{uuid.uuid4().hex}"
+    allowed_root = ROOT if output == DEFAULT_OUTPUT.resolve() else TEMP_ROOT
     try:
         render_into(staged)
         had_old = output.exists()
         if had_old:
+            assert_safe_rename(output, allowed_root)
+            assert_safe_rename(old, allowed_root)
             output.rename(old)
         try:
+            assert_safe_rename(staged, allowed_root)
+            assert_safe_rename(output, allowed_root)
             staged.rename(output)
         except BaseException:
             if had_old and old.exists() and not output.exists():
+                assert_safe_rename(old, allowed_root)
+                assert_safe_rename(output, allowed_root)
                 old.rename(output)
             raise
         if old.exists():
+            assert_safe_rename(old, allowed_root)
             shutil.rmtree(old)
     finally:
         if staging_root.exists():
+            assert_safe_rename(staging_root, allowed_root)
             shutil.rmtree(staging_root)
 
 

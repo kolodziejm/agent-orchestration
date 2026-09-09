@@ -52,10 +52,6 @@ def expected_tools(config: dict, native_vision: bool) -> list:
     tools = ["Read", "Grep", "Glob", "Bash"]
     if config["edit"] == "allow":
         tools.extend(["Edit", "Write"])
-    for target in config.get("delegates", []):
-        if target == "vision-*" and native_vision:
-            continue
-        tools.append(f"Agent({target})")
     return tools
 
 
@@ -122,8 +118,8 @@ class ClaudeCodeRenderTests(unittest.TestCase):
                     role,
                 )
 
-    def test_delegates_map_to_agent_entries_per_routing(self):
-        native_vision = self.profile.get("capabilities", {}).get("native_vision", False)
+    def test_flat_topology_omits_nested_agent_entries(self):
+        """This test will fail when Claude agents advertise unavailable nested delegation tools."""
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             subprocess.run(
@@ -134,10 +130,11 @@ class ClaudeCodeRenderTests(unittest.TestCase):
             for role, config in self.roles.items():
                 content = (output / "agents" / f"{role}.md").read_text()
                 for target in config.get("delegates", []):
-                    if target == "vision-*" and native_vision:
-                        self.assertNotIn(f"Agent({target})", content)
-                        continue
-                    self.assertIn(f"Agent({target})", content, f"{role} -> {target}")
+                    self.assertNotIn(f"Agent({target})", content, f"{role} -> {target}")
+
+            shared = (output / "_shared" / "orchestration-core.md").read_text()
+            self.assertIn("flat subagent topology", shared)
+            self.assertIn("invokes `explorer` directly", shared)
 
     def test_role_contract_bodies_remain_provider_and_model_free(self):
         forbidden = ("sonnet", "opus", "haiku")
@@ -255,6 +252,50 @@ class ClaudeCodeRenderTests(unittest.TestCase):
             self.assertTrue((repo / "generated" / "claude-code").is_symlink())
             self.assertEqual(marker.read_text(), "original")
 
+    def test_renderer_rejects_symlinked_parent_under_repository_root(self):
+        """This test will fail when a symlinked parent redirects generated output outside ROOT."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            redirected = Path(directory) / "redirected-generated"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            (repo / "generated").symlink_to(redirected, target_is_directory=True)
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "claude-code" / "render.py")],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
+            self.assertEqual(marker.read_text(), "original")
+
+    def test_renderer_rejects_symlinked_parent_under_temporary_root(self):
+        """This test will fail when a temporary-root symlink redirects generated output."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            redirected = root / "redirected"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            parent = root / "parent-link"
+            parent.symlink_to(redirected, target_is_directory=True)
+            output = parent / "output"
+
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
+            self.assertEqual(marker.read_text(), "original")
+
     def test_renderer_rejects_a_typoed_harness_value_instead_of_silently_ignoring_the_profile(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = build_temp_repo(Path(directory) / "repo")
@@ -320,6 +361,25 @@ class ClaudeCodeRenderTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "edit permission"):
             render_module.tools_for({"edit": "ask", "delegates": []}, native_vision=False)
 
+    def test_renderer_rejects_bash_deny_without_granting_shell(self):
+        """This test will fail when Claude Code renders bash=deny with Bash access."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            policy = repo / "policy" / "routing.toml"
+            policy.write_text(policy.read_text().replace('bash = "ask"', 'bash = "deny"'))
+            output = Path(directory) / "output"
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "claude-code" / "render.py"), "--output", str(output)],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot enforce bash = deny", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_require_subagent_mode_rejects_a_non_subagent_role(self):
         render_module = load_render_module()
         with self.assertRaisesRegex(SystemExit, "mode"):
@@ -329,7 +389,7 @@ class ClaudeCodeRenderTests(unittest.TestCase):
     def test_frontmatter_round_trips_through_pyyaml(self):
         render_module = load_render_module()
         tricky_description = 'Reviews: "high" risk changes # notes\nsecond line'
-        config = {"description": tricky_description, "edit": "deny", "delegates": []}
+        config = {"description": tricky_description, "edit": "deny", "bash": "ask", "delegates": []}
         model_config = {"model": "sonnet", "variant": "high"}
 
         rendered = render_module.frontmatter("tricky-role", config, model_config, native_vision=False)

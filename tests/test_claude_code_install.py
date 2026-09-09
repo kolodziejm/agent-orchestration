@@ -24,6 +24,48 @@ def load_install_module():
 
 
 class ClaudeCodeInstallPlanTests(unittest.TestCase):
+    def test_first_install_reports_unmanaged_role_collision_until_adopted(self):
+        """This test will fail when first install overwrites a managed-name file without adoption."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            role_path = target / "agents" / "worker.md"
+            role_path.parent.mkdir(parents=True)
+            role_path.write_text("user-owned role\n")
+
+            result = subprocess.run(
+                [sys.executable, str(INSTALL), "--target", str(target), "--dry-run"],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(role_path), result.stderr)
+            self.assertIn("--adopt", result.stderr)
+            self.assertEqual(role_path.read_text(), "user-owned role\n")
+
+    def test_first_install_reports_existing_claude_md_until_adopted(self):
+        """This test will fail when first install appends to an existing managed instruction file without adoption."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            claude_md = target / "CLAUDE.md"
+            claude_md.write_text("user-owned instructions\n")
+
+            result = subprocess.run(
+                [sys.executable, str(INSTALL), "--target", str(target), "--dry-run"],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(claude_md), result.stderr)
+            self.assertIn("--adopt", result.stderr)
+            self.assertEqual(claude_md.read_text(), "user-owned instructions\n")
+
     def test_merge_preserves_unrelated_claude_md_and_removes_stale_managed_roles(self):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
@@ -74,7 +116,7 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
             target.mkdir()
             (target / "CLAUDE.md").write_text("# Project notes\n\nExisting content.\n")
 
-            files, _ = install.desired_state(rendered, target)
+            files, _ = install.desired_state(rendered, target, adopt=True)
             claude_md = files[target / "CLAUDE.md"]
             self.assertIn("Existing content.", claude_md)
             self.assertIn("<!-- agent-orchestration:start -->", claude_md)
@@ -182,7 +224,7 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
                 with mock.patch.object(Path, "home", return_value=fake_home):
                     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                         with self.assertRaises(KeyboardInterrupt):
-                            install.install(target, dry_run=False)
+                            install.install(target, dry_run=False, adopt=True)
 
             self.assertEqual(claude_md.read_bytes(), original_bytes)
             self.assertFalse((target / install.MANIFEST_NAME).exists())
@@ -246,7 +288,7 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
 
             with mock.patch.object(Path, "home", return_value=fake_home):
                 with contextlib.redirect_stdout(io.StringIO()):
-                    result = install.install(target, dry_run=False)
+                    result = install.install(target, dry_run=False, adopt=True)
 
             self.assertEqual(result, 0)
             managed_content = (target / "agents" / "explorer.md").read_text()
@@ -256,6 +298,37 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
             backed_up = list(backups_root.rglob("explorer.md"))
             self.assertEqual(len(backed_up), 1)
             self.assertEqual(backed_up[0].read_text(), user_written)
+
+    def test_backups_use_unique_directories_when_installs_share_a_timestamp(self):
+        """This test will fail when two Claude Code backups collide in one timestamp directory."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            target = root / "target"
+            target.mkdir()
+            claude_md = target / "CLAUDE.md"
+            claude_md.write_text("user notes\n")
+
+            fixed = mock.Mock()
+            fixed.strftime.return_value = "20260101T000000Z"
+            fake_datetime = mock.Mock()
+            fake_datetime.now.return_value = fixed
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with mock.patch.object(install, "datetime", fake_datetime):
+                    install.install(target, dry_run=False, adopt=True)
+                    claude_md.write_text("changed user notes\n")
+                    install.install(target, dry_run=False)
+
+            backups = list(
+                (fake_home / ".local" / "state" / "agent-orchestration" / "backups").rglob(
+                    "CLAUDE.md"
+                )
+            )
+            self.assertEqual(len(backups), 2)
+            self.assertEqual(len({path.parents[1].name for path in backups}), 2)
 
 
 if __name__ == "__main__":

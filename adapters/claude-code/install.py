@@ -42,6 +42,23 @@ def validate_manifest(manifest: dict, label: str) -> None:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
 
 
+def _has_entry(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
+    """Find managed names already present before this adapter was adopted."""
+    collisions = [
+        str(target / "agents" / f"{role}.md")
+        for role in sorted(current_manifest["roles"])
+        if _has_entry(target / "agents" / f"{role}.md")
+    ]
+    claude_md = target / "CLAUDE.md"
+    if _has_entry(claude_md):
+        collisions.append(str(claude_md))
+    return collisions
+
+
 def assert_safe_destination(path: Path, target: Path) -> None:
     resolved_target = target.resolve()
     try:
@@ -79,36 +96,55 @@ def merge_claude_md(existing: str, section: str) -> str:
     )
 
 
-def load_and_preflight_manifests(rendered: Path, target: Path) -> tuple[dict, dict]:
+def load_and_preflight_manifests(
+    rendered: Path, target: Path, adopt: bool = False
+) -> tuple[dict, dict]:
     current_manifest = json.loads((rendered / "manifest.json").read_text())
     validate_manifest(current_manifest, "generated manifest")
 
     manifest_path = target / MANIFEST_NAME
     assert_safe_destination(manifest_path, target)
+    manifest_exists = _has_entry(manifest_path)
     previous_manifest = (
         json.loads(manifest_path.read_text())
-        if manifest_path.exists()
+        if manifest_exists
         else {"format_version": 1, "roles": [], "profiles": []}
     )
     validate_manifest(previous_manifest, "installed manifest")
+
+    roles = set(current_manifest["roles"]) | set(previous_manifest["roles"])
+    paths = {
+        target / MANIFEST_NAME,
+        target / "CLAUDE.md",
+    }
+    paths.update(target / "agents" / f"{role}.md" for role in roles)
+    for path in paths:
+        assert_safe_destination(path, target)
+
+    if not manifest_exists and not adopt:
+        collisions = unmanaged_collisions(current_manifest, target)
+        if collisions:
+            details = "\n".join(f"  - {path}" for path in collisions)
+            raise SystemExit(
+                "Claude Code adoption required: existing unmanaged managed names found:\n"
+                f"{details}\nRun again with --adopt to take ownership."
+            )
     return current_manifest, previous_manifest
 
 
-def desired_state(rendered: Path, target: Path) -> tuple[dict[Path, str], set[Path]]:
+def desired_state(
+    rendered: Path, target: Path, adopt: bool = False
+) -> tuple[dict[Path, str], set[Path]]:
     files: dict[Path, str] = {}
     deletions: set[Path] = set()
 
-    current_manifest, previous_manifest = load_and_preflight_manifests(rendered, target)
+    current_manifest, previous_manifest = load_and_preflight_manifests(rendered, target, adopt)
     manifest_path = target / MANIFEST_NAME
     current_roles = set(current_manifest["roles"])
     previous_roles = set(previous_manifest.get("roles", []))
     stale_roles = previous_roles - current_roles
 
     claude_md_path = target / "CLAUDE.md"
-    for path in {manifest_path, claude_md_path} | {
-        target / "agents" / f"{role}.md" for role in current_roles | previous_roles
-    }:
-        assert_safe_destination(path, target)
 
     for role in current_roles:
         source = rendered / "agents" / f"{role}.md"
@@ -124,7 +160,7 @@ def desired_state(rendered: Path, target: Path) -> tuple[dict[Path, str], set[Pa
     return files, deletions - set(files)
 
 
-def install(target: Path, dry_run: bool) -> int:
+def install(target: Path, dry_run: bool, adopt: bool = False) -> int:
     target = target.expanduser()
     if target.is_symlink():
         raise SystemExit(f"Refusing symlinked target root: {target}")
@@ -132,7 +168,7 @@ def install(target: Path, dry_run: bool) -> int:
     with tempfile.TemporaryDirectory(prefix="agent-orchestration-") as directory:
         rendered = Path(directory) / "claude-code"
         subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
-        files, deletions = desired_state(rendered, target)
+        files, deletions = desired_state(rendered, target, adopt)
         changed = {
             path: content
             for path, content in files.items()
@@ -158,9 +194,9 @@ def install(target: Path, dry_run: bool) -> int:
             assert_safe_destination(path, target)
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        backup_root = (
-            Path.home() / ".local" / "state" / "agent-orchestration" / "backups" / stamp / "claude-code"
-        )
+        backup_base = Path.home() / ".local" / "state" / "agent-orchestration" / "backups"
+        backup_base.mkdir(parents=True, exist_ok=True)
+        backup_root = Path(tempfile.mkdtemp(prefix=f"{stamp}-", dir=backup_base)) / "claude-code"
         originals: dict[Path, bytes | None] = {
             path: path.read_bytes() if path.exists() else None for path in affected
         }
@@ -197,5 +233,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", type=Path, default=Path.home() / ".claude")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--adopt",
+        action="store_true",
+        help="take ownership of existing managed names on first installation",
+    )
     args = parser.parse_args()
-    raise SystemExit(install(args.target, args.dry_run))
+    raise SystemExit(install(args.target, args.dry_run, args.adopt))

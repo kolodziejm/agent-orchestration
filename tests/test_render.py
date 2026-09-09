@@ -151,6 +151,24 @@ class OpenCodeRenderTests(unittest.TestCase):
             self.assertIn(str(broken_profile), result.stderr)
             self.assertIn("opencde", result.stderr)
 
+    def test_renderer_preserves_bash_deny_in_harness_capabilities(self):
+        """This test will fail when OpenCode silently widens bash=deny while rendering."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            policy = repo / "policy" / "routing.toml"
+            policy.write_text(policy.read_text().replace('bash = "ask"', 'bash = "deny"'))
+            output = Path(directory) / "output"
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "opencode" / "render.py"), "--output", str(output)],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            validator = (output / "agents" / "validator.md").read_text()
+            self.assertIn('"*": deny', validator)
+
     def test_renderer_refuses_to_render_an_empty_profile_set(self):
         """An empty profile set would make the installer uninstall every managed profile."""
         with tempfile.TemporaryDirectory() as directory:
@@ -189,8 +207,109 @@ class OpenCodeRenderTests(unittest.TestCase):
             self.assertEqual((output / "previous.txt").read_text(), "previous snapshot")
             self.assertEqual(list(output.parent.glob(f".{output.name}.old-*")), [])
 
+    def test_renderer_rejects_symlinked_parent_under_repository_root(self):
+        """This test will fail when a symlinked parent redirects generated output outside ROOT."""
+        with tempfile.TemporaryDirectory() as directory:
+            repo = build_temp_repo(Path(directory) / "repo")
+            redirected = Path(directory) / "redirected-generated"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            (repo / "generated").symlink_to(redirected, target_is_directory=True)
+
+            result = subprocess.run(
+                [sys.executable, str(repo / "adapters" / "opencode" / "render.py")],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
+            self.assertEqual(marker.read_text(), "original")
+
+    def test_renderer_rejects_symlinked_parent_under_temporary_root(self):
+        """This test will fail when a temporary-root symlink redirects generated output."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            redirected = root / "redirected"
+            redirected.mkdir()
+            marker = redirected / "marker.txt"
+            marker.write_text("original")
+            parent = root / "parent-link"
+            parent.symlink_to(redirected, target_is_directory=True)
+            output = parent / "output"
+
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("symlink", result.stderr.lower())
+            self.assertEqual(marker.read_text(), "original")
+
 
 class OpenCodeInstallPlanTests(unittest.TestCase):
+    def test_first_install_reports_unmanaged_role_collision_until_adopted(self):
+        """This test will fail when first install overwrites a managed-name file without adoption."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            role_path = target / "agents" / "worker.md"
+            role_path.parent.mkdir()
+            role_path.write_text("user-owned role\n")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALL),
+                    "--target",
+                    str(target),
+                    "--dry-run",
+                    "--skip-validate",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(role_path), result.stderr)
+            self.assertIn("--adopt", result.stderr)
+            self.assertEqual(role_path.read_text(), "user-owned role\n")
+
+    def test_first_install_reports_unmanaged_profile_agent_collision(self):
+        """This test will fail when first install silently replaces a profile agent entry."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            config_path = target / "profiles" / "openai" / "opencode.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({"agent": {"worker": {"model": "user/model"}}}))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALL),
+                    "--target",
+                    str(target),
+                    "--dry-run",
+                    "--skip-validate",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(f"{config_path} (agent.worker)", result.stderr)
+            self.assertIn("--adopt", result.stderr)
+            self.assertIn("user/model", config_path.read_text())
+
     def test_unconfigured_generated_profile_is_not_added_to_installed_manifest(self):
         """REGRESSION CONTRACT: install only configured profiles; TEST LAYER: installer plan unit test."""
         install = load_install_module()
@@ -374,6 +493,38 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             for path in backed_up:
                 self.assertIn("opencode", path.relative_to(backups_root).parts)
 
+    def test_backups_use_unique_directories_when_installs_share_a_timestamp(self):
+        """This test will fail when two OpenCode backups collide in one timestamp directory."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            target = root / "target"
+            for name in ("openai", "glm"):
+                profile = target / "profiles" / name
+                profile.mkdir(parents=True)
+                (profile / "opencode.json").write_text("{}")
+
+            fixed = mock.Mock()
+            fixed.strftime.return_value = "20260101T000000Z"
+            fake_datetime = mock.Mock()
+            fake_datetime.now.return_value = fixed
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with mock.patch.object(install, "datetime", fake_datetime):
+                    install.install(target, dry_run=False, validate=False)
+                    (target / "profiles" / "openai" / "opencode.json").write_text("{}")
+                    install.install(target, dry_run=False, validate=False)
+
+            backups = list(
+                (fake_home / ".local" / "state" / "agent-orchestration" / "backups").rglob(
+                    "opencode.json"
+                )
+            )
+            self.assertEqual(len(backups), 3)
+            self.assertEqual(len({path.parents[3].name for path in backups}), 2)
+
 
 class OpenCodeInstallValidationTests(unittest.TestCase):
     def test_validation_checks_only_locally_configured_profiles(self):
@@ -404,8 +555,11 @@ class OpenCodeInstallValidationTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             with mock.patch.object(install.subprocess, "run", side_effect=run):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    install.install(target, dry_run=False, validate=True)
+                fake_home = root / "fake-home"
+                fake_home.mkdir()
+                with mock.patch.object(Path, "home", return_value=fake_home):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        install.install(target, dry_run=False, validate=True)
 
             self.assertEqual(
                 [call[0] for call in validation_calls],

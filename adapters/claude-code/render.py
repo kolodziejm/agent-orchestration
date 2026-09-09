@@ -10,13 +10,13 @@ has no per-subagent equivalent):
   including read-only roles, since they need it for investigation
   (e.g. running read-only inspection commands). Session-level Claude Code
   permission settings remain the operator's responsibility.
-- Delegation (`delegates` in routing.toml) is expressed as `Agent(<target>)`
-  entries in the `tools` frontmatter field, since Claude Code enforces
-  per-target subagent delegation that way rather than a permission map.
-- `vision-*` delegates are omitted when the active profile declares native
-  vision support (`[capabilities] native_vision = true`), since all Claude
-  models are natively multimodal and profile-provided vision delegation is
-  unnecessary.
+- Claude Code uses a flat subagent topology. The orchestrator performs the
+  delegation described by `delegates` and passes returned evidence in the
+  handoff; rendered subagent files do not expose nested `Agent(<target>)`
+  tools.
+- All `delegates` entries are omitted because Claude Code's rendered
+  subagents cannot invoke nested agents. Native vision support means the
+  active Claude profile also needs no separate `vision-*` delegation.
 """
 
 from __future__ import annotations
@@ -34,6 +34,13 @@ import tempfile
 import tomllib
 import uuid
 from pathlib import Path
+
+ADAPTERS_DIR = Path(__file__).resolve().parents[1]
+if str(ADAPTERS_DIR) not in sys.path:
+    sys.path.insert(0, str(ADAPTERS_DIR))
+
+from common import assert_safe_output as shared_assert_safe_output
+from common import assert_safe_rename, validate_capabilities
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -78,10 +85,9 @@ def tools_for(config: dict, native_vision: bool) -> str:
         tools.extend(["Edit", "Write"])
     elif edit != "deny":
         raise SystemExit(f"Claude Code does not support routing edit permission: {edit!r}")
-    for target in config.get("delegates", []):
-        if target == "vision-*" and native_vision:
-            continue
-        tools.append(f"Agent({target})")
+    # Claude Code agent files are subagents without reliable nested-agent
+    # delegation. The orchestrator owns all Agent calls and passes evidence
+    # in the handoff to each rendered role.
     return ", ".join(tools)
 
 
@@ -123,23 +129,7 @@ def frontmatter(role: str, config: dict, model_config: dict, native_vision: bool
 
 
 def assert_safe_output(output: Path) -> Path:
-    output = output.expanduser()
-    if output.is_symlink():
-        raise SystemExit(f"Refusing symlinked output path: {output}")
-    output = output.resolve()
-    if output == DEFAULT_OUTPUT.resolve():
-        return output
-    try:
-        output.relative_to(TEMP_ROOT)
-    except ValueError as error:
-        raise SystemExit(
-            f"Refusing unsafe output path: {output}. "
-            f"Use {DEFAULT_OUTPUT} or a directory below {TEMP_ROOT}."
-        ) from error
-    if output == TEMP_ROOT:
-        raise SystemExit(f"Refusing to replace temporary root: {output}")
-    return output
-
+    return shared_assert_safe_output(output, DEFAULT_OUTPUT, TEMP_ROOT)
 
 def render_into(output: Path) -> None:
     routing = load_toml(ROOT / "policy" / "routing.toml")
@@ -153,6 +143,9 @@ def render_into(output: Path) -> None:
         extra = sorted(set(models) - expected_roles)
         raise SystemExit(f"Profile {profile['name']} mismatch: missing={missing}, extra={extra}")
     native_vision = bool(profile.get("capabilities", {}).get("native_vision", False))
+
+    for role, config in roles.items():
+        validate_capabilities(role, config, "claude-code")
 
     (output / "agents").mkdir(parents=True)
     (output / "_shared").mkdir(parents=True)
@@ -187,21 +180,30 @@ def render(output: Path) -> None:
     staging_root = Path(tempfile.mkdtemp(prefix=f".{output.name}.render-", dir=output.parent))
     staged = staging_root / "result"
     old = output.parent / f".{output.name}.old-{uuid.uuid4().hex}"
+    allowed_root = ROOT if output == DEFAULT_OUTPUT.resolve() else TEMP_ROOT
     try:
         render_into(staged)
         had_old = output.exists()
         if had_old:
+            assert_safe_rename(output, allowed_root)
+            assert_safe_rename(old, allowed_root)
             output.rename(old)
         try:
+            assert_safe_rename(staged, allowed_root)
+            assert_safe_rename(output, allowed_root)
             staged.rename(output)
         except BaseException:
             if had_old and old.exists() and not output.exists():
+                assert_safe_rename(old, allowed_root)
+                assert_safe_rename(output, allowed_root)
                 old.rename(output)
             raise
         if old.exists():
+            assert_safe_rename(old, allowed_root)
             shutil.rmtree(old)
     finally:
         if staging_root.exists():
+            assert_safe_rename(staging_root, allowed_root)
             shutil.rmtree(staging_root)
 
 

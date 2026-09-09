@@ -65,6 +65,13 @@ Nested delegation is deliberately narrow:
 - All other subagents must not delegate.
 - `explorer` is read-only and must not delegate.
 - Only the orchestrator may authorize source implementation. A planner may invoke `spec-writer` only for planning/documentation artifacts already inside the orchestrator-approved planning scope.
+
+The delegation graph above is a logical contract. A harness with flat subagent
+execution must preserve that contract by having the orchestrator perform the
+delegation that would otherwise be nested, then include the returned evidence
+in the planner or reviewer handoff. Its adapter must omit delegation tools that
+the harness cannot expose to rendered subagents; it must not advertise a
+delegation permission that appears to work but cannot be invoked.
 - `planner` and `reviewer` must never invoke `worker`, `worker-complex`, `validator`, `debugger`, or another source-changing agent.
 
 A planner or reviewer should start with at most one focused explorer task. Reuse it for follow-up questions about the same area. Start another explorer only for a genuinely independent evidence scope. Do not request broad scans such as "understand the entire repository". The parent reasoning agent remains responsible for interpreting the evidence and for its conclusions.
@@ -186,7 +193,9 @@ Keep orchestration event-based: wait for completion, a blocker, a decision, or a
 
 - The primary agent is the orchestrator and follows the shared orchestration policy loaded before this file.
 - All models in this profile are natively multimodal; use native vision for image and screenshot reading. Profile-provided `vision-*` delegation is unnecessary.
-- Preserve the primary model's context for authority, decomposition, decisions, approval gates, and synthesis. Delegate mechanical repository evidence gathering to the agents defined by the shared policy.
+- Preserve the primary model's context for authority, decomposition, decisions, approval gates, and synthesis.
+- Claude Code uses a flat subagent topology. The orchestrator invokes `explorer` directly when planner or reviewer evidence is needed, then includes that evidence in the planner or reviewer handoff. The orchestrator also performs any other delegation that the logical policy assigns to a subagent, including planner-authorized `spec-writer` drafting.
+- Rendered role files do not expose nested `Agent(explorer)` or `Agent(spec-writer)` tools. Planner and reviewer must use evidence supplied by the orchestrator and return any follow-up investigation request to it.
 - Subagents rendered from role files start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff.
 - The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile.
 - Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.

@@ -68,6 +68,13 @@ Nested delegation is deliberately narrow:
 - All other subagents must not delegate.
 - `explorer` is read-only and must not delegate.
 - Only the orchestrator may authorize source implementation. A planner may invoke `spec-writer` only for planning/documentation artifacts already inside the orchestrator-approved planning scope.
+
+The delegation graph above is a logical contract. A harness with flat subagent
+execution must preserve that contract by having the orchestrator perform the
+delegation that would otherwise be nested, then include the returned evidence
+in the planner or reviewer handoff. Its adapter must omit delegation tools that
+the harness cannot expose to rendered subagents; it must not advertise a
+delegation permission that appears to work but cannot be invoked.
 - `planner` and `reviewer` must never invoke `worker`, `worker-complex`, `validator`, `debugger`, or another source-changing agent.
 
 A planner or reviewer should start with at most one focused explorer task. Reuse it for follow-up questions about the same area. Start another explorer only for a genuinely independent evidence scope. Do not request broad scans such as "understand the entire repository". The parent reasoning agent remains responsible for interpreting the evidence and for its conclusions.
