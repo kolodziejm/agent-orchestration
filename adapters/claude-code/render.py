@@ -50,7 +50,7 @@ DEFAULT_OUTPUT = ROOT / "generated" / "claude-code"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash"]
-VALID_HARNESSES = {"opencode", "codex", "claude-code"}
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
 
 MARKER_START = "<!-- agent-orchestration:start -->"
 MARKER_END = "<!-- agent-orchestration:end -->"

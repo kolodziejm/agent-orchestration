@@ -158,6 +158,17 @@ class CodexRenderContractTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             renderer.codex_model("deepseek/deepseek-v4-flash")
 
+    def test_renderer_rejects_pi_only_profile_before_rendering(self):
+        """This test will fail when Codex consumes a profile reserved for Pi."""
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--profile", "deepseek", "--output", str(Path(directory) / "codex")],
+                cwd=ROOT, text=True, capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("harness", result.stderr.lower())
+            self.assertFalse((Path(directory) / "codex").exists())
+
     def test_renderer_rejects_ask_edit_permission(self):
         """REGRESSION CONTRACT: Codex does not silently widen unsupported edit='ask'; TEST LAYER: renderer unit test."""
         renderer = load_renderer()

@@ -1,0 +1,31 @@
+{
+  "format_version": 1,
+  "adapter": "pi-subagents",
+  "adapter_format": "0.67.0",
+  "roles": [
+    "debugger",
+    "design-partner",
+    "explorer",
+    "planner",
+    "reviewer",
+    "spec-writer",
+    "ux-critic",
+    "validator",
+    "worker",
+    "worker-complex"
+  ],
+  "profiles": [
+    "openai"
+  ],
+  "launchers": [
+    "pi-openai"
+  ],
+  "workflows": [
+    "feature-workflow-pilot"
+  ],
+  "shared": [
+    "orchestration-core.md",
+    "control-plane.json",
+    "degradations.md"
+  ]
+}

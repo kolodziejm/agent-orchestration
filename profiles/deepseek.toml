@@ -1,0 +1,64 @@
+version = 1
+name = "deepseek"
+addendum = "deepseek.md"
+harness = "pi"
+
+[control_plane.primary]
+model = "deepseek/deepseek-flash"
+effort = "high"
+
+[control_plane]
+small_model = "deepseek/deepseek-flash"
+
+[control_plane.builtins.build]
+model = "deepseek/deepseek-flash"
+effort = "high"
+
+[control_plane.builtins.plan]
+model = "deepseek/deepseek-flash"
+effort = "max"
+
+[capabilities]
+native_vision = true
+primary_installable = true
+supported_variants = ["low", "high", "max"]
+
+[models.worker]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.worker-complex]
+model = "deepseek/deepseek-flash"
+variant = "max"
+
+[models.validator]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.debugger]
+model = "deepseek/deepseek-flash"
+variant = "max"
+
+[models.explorer]
+model = "deepseek/deepseek-flash"
+variant = "low"
+
+[models.planner]
+model = "deepseek/deepseek-flash"
+variant = "max"
+
+[models.spec-writer]
+model = "deepseek/deepseek-flash"
+variant = "low"
+
+[models.design-partner]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.reviewer]
+model = "deepseek/deepseek-flash"
+variant = "max"
+
+[models.ux-critic]
+model = "deepseek/deepseek-flash"
+variant = "high"

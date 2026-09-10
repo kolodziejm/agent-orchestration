@@ -9,8 +9,13 @@
       "thinking": "high"
     }
   },
-  "installed": false,
-  "note": "pi-subagents agent files configure child roles only; primary, small-model, and built-in mappings are recorded as control-plane intent.",
+  "installed": {
+    "builtins": false,
+    "primary": "launcher",
+    "roles": "agent-files",
+    "small_model": false
+  },
+  "note": "The profile launcher selects the primary model and pi-subagents agent files configure child roles. Pi cannot install the small-model or built-in mappings; those values are recorded as control-plane intent.",
   "primary": {
     "model": "openai-codex/gpt-5.6-sol",
     "thinking": "medium"

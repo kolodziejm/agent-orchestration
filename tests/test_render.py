@@ -91,6 +91,15 @@ class PolicyContractTests(unittest.TestCase):
 
 
 class OpenCodeRenderTests(unittest.TestCase):
+    def test_renderer_intentionally_excludes_pi_profiles(self):
+        """This test will fail when a Pi-only profile leaks into OpenCode output."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            subprocess.run([sys.executable, str(RENDER), "--output", str(output)], cwd=ROOT, check=True)
+            manifest = json.loads((output / "manifest.json").read_text())
+            self.assertNotIn("deepseek", manifest["profiles"])
+            self.assertFalse((output / "profiles" / "deepseek").exists())
+
     def test_renderer_produces_agent_contracts_and_profile_fragments(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "generated" / "opencode"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
-VALID_HARNESSES = {"opencode", "codex", "claude-code"}
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
 WORKFLOW_NAME = "feature-workflow-pilot"
 
 

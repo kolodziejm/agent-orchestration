@@ -1,9 +1,9 @@
 ---
 name: "debugger"
 description: "Read-only root-cause diagnosis agent"
-model: openai-codex/gpt-5.6-sol
-thinking: high
-tools: read, grep, find, ls
+model: deepseek/deepseek-flash
+thinking: max
+tools: read, grep, find, ls, bash
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false

@@ -49,6 +49,11 @@ def load_profile(name: str) -> dict:
     profile = load_toml(path)
     if profile.get("name") != name:
         raise SystemExit(f"Profile name mismatch in {path}")
+    harness = profile.get("harness", "opencode")
+    if harness not in {"opencode", "codex"}:
+        raise SystemExit(
+            f"Profile {name!r} declares harness = {harness!r}; Codex will not render it"
+        )
 
     return profile
 

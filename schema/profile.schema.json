@@ -8,7 +8,7 @@
     "version": {"type": "integer", "const": 1},
     "name": {"type": "string", "minLength": 1},
     "addendum": {"type": "string", "minLength": 1},
-    "harness": {"enum": ["opencode", "codex", "claude-code"]},
+    "harness": {"enum": ["opencode", "codex", "claude-code", "pi"]},
     "capabilities": {
       "type": "object",
       "required": ["supported_variants"],

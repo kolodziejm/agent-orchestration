@@ -4,14 +4,12 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
-- Add a production Pi adapter for `pi-subagents` using v0.67.0 as the minimum-supported,
-  tested baseline with the OpenAI logical profile, exact per-role model/thinking mappings,
-  strict tool ceilings, fresh context,
-  committed snapshots, and separately packaged policy, control-plane, degradation, and
-  workflow artifacts.
-- Add a dry-run-first Pi installer with explicit unmanaged-name adoption, unique
-  backups, stale managed-role removal, validation/interruption rollback, and preservation
-  of unrelated Pi agents, settings, packages, and extensions.
+- Extend the production Pi adapter with isolated OpenAI and DeepSeek bundles, explicit
+  fail-closed provider mapping, exact all-role DeepSeek Flash routing, native vision,
+  executable profile launchers, and deterministic committed snapshots.
+- Extend the dry-run-first Pi installer with profile isolation, launcher adoption and
+  rollback, target-specific runtime validation, a preserving DeepSeek settings merge,
+  and validated `deepseek` model-catalog bootstrap while keeping authentication manual.
 - Add versioned profile control-plane intent for the primary/small models and built-in
   `build`/`plan` mappings, with OpenAI Sol/Luna routing and explicit harness validation.
 - Replace ceremonial mandatory delegation with proportional delegation for leverage while
@@ -31,7 +29,7 @@ All notable changes to the orchestration policy are documented here.
 - Require observable acceptance evidence, bounded review-fix cycles, compact handoffs, event-based orchestration updates, and lightweight pilot usage measurements.
 - Add a Claude Code adapter (`adapters/claude-code/`) mirroring the OpenCode adapter's rendering, snapshot, diff, backup, install, and rollback architecture.
 - Add a `claude` model-routing profile (`profiles/claude.toml` + `profiles/claude.md`) with per-role Claude model aliases and effort levels.
-- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility): the OpenCode renderer selects profiles declaring `harness = "opencode"`, the Claude Code renderer selects the single profile declaring `harness = "claude-code"`, and the Codex renderer selects by explicit `--profile` without reading `harness`, so the `openai` profile is rendered by both OpenCode and Codex.
+- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility): OpenCode and Claude Code skip Pi-only profiles, Codex rejects incompatible explicit profiles, and the Pi renderer selects its supported profile explicitly.
 - Bake model and effort directly into each rendered Claude Code subagent's frontmatter, since Claude Code has no profile-routing layer equivalent to OpenCode's `agent-routing.json`.
 - Express routing delegation as `Agent(<target>)` tool entries and document that Claude Code has no per-subagent equivalent of `bash = "ask"`.
 - Merge the shared orchestration policy into a target `CLAUDE.md` using `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers, preserving unrelated content.

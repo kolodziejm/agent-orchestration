@@ -15,7 +15,10 @@
     "worker-complex"
   ],
   "profiles": [
-    "openai"
+    "deepseek"
+  ],
+  "launchers": [
+    "pi-deepseek"
   ],
   "workflows": [
     "feature-workflow-pilot"

@@ -173,7 +173,7 @@ orchestration policy into `<target>/CLAUDE.md` by replacing only the section bet
 appending it if absent). Content outside the markers is preserved untouched. The default
 target is `~/.claude`, overridable with `--target`.
 
-Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. The renderer also emits `_shared/control-plane.md`, which records the profile intent and truthfully states that Claude Code cannot install the primary model, small model, or built-in `build`/`plan` mappings; those require manual session configuration. The `harness` field controls which renderer picks up a profile: the OpenCode renderer selects profiles with `harness = "opencode"`, the default when the field is absent; the Claude Code renderer selects the single profile declaring `harness = "claude-code"` (currently `profiles/claude.toml`); the Codex renderer selects by explicit `--profile` and does not read `harness`, so the `openai` profile is rendered by both OpenCode and Codex.
+Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. The renderer also emits `_shared/control-plane.md`, which records the profile intent and truthfully states that Claude Code cannot install the primary model, small model, or built-in `build`/`plan` mappings; those require manual session configuration. The `harness` field controls which renderer picks up a profile: OpenCode selects `harness = "opencode"` (the backward-compatible default), Claude Code selects the single `harness = "claude-code"` profile, and Pi-only profiles declare `harness = "pi"`. Codex accepts only explicitly selected OpenCode/Codex-compatible profiles. Every scanning adapter recognizes and intentionally skips known profiles for other harnesses while still rejecting unknown harness values.
 
 ### Claude Code permission degradation
 
@@ -188,8 +188,9 @@ unrelated agents or CLAUDE.md content.
 
 ## Generated snapshots
 
-`generated/opencode/`, `generated/codex/`, `generated/claude-code/`, and
-`generated/pi/` are committed snapshots, intentionally. They include the separately
+`generated/opencode/`, `generated/codex/`, `generated/claude-code/`, and the isolated
+`generated/pi/openai/` and `generated/pi/deepseek/` bundles are committed snapshots,
+intentionally. They include the separately
 packaged optional workflow and the harness-specific control-plane artifact. A policy or
 profile change must show both:
 
@@ -201,10 +202,12 @@ CI rerenders snapshots and fails on drift.
 ## Pi adapter
 
 The Pi adapter requires a locally installed `pi-subagents` release at or above the
-v0.67.0 minimum-supported, tested baseline.
-It consumes the canonical OpenAI profile, maps `openai/<model-id>` to
-`openai-codex/<model-id>`, and bakes each role's mapped model and variant (as
-`thinking`) into exactly ten `agents/*.md` definitions. Every role explicitly uses
+v0.67.0 minimum-supported, tested baseline in each profile directory. It renders
+isolated OpenAI and DeepSeek bundles. Provider mapping is explicit and fail-closed:
+`openai/<id>` becomes `openai-codex/<id>` and `deepseek/<id>` remains
+`deepseek/<id>`; cross-provider and unknown tokens are rejected. Each bundle bakes the
+role's mapped model and variant (as `thinking`) into exactly ten `agents/*.md`
+definitions. Every role explicitly uses
 `defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
 inherited project context or skill catalog. The `extensions` field is intentionally
 omitted, so normal Pi extensions remain available subject to each role's strict tool
@@ -220,31 +223,46 @@ uv run --locked ./scripts/check
 Preview a user installation without changing it:
 
 ```bash
-./scripts/install-pi --dry-run
+./scripts/install-pi --profile openai --dry-run
+./scripts/install-pi --profile deepseek --dry-run
 ```
 
-The default target is `~/.pi/agent`; use `--target` for an isolated fixture. A real
-install first reads `<target>/npm/node_modules/pi-subagents/package.json` and fails
+The default target is `~/.pi/agent` for OpenAI and `~/.pi/profiles/deepseek` for
+DeepSeek; use `--target` for an isolated fixture. The installer places the matching
+`pi-openai` or `pi-deepseek` launcher in `~/.local/bin` by default; use `--bin-dir`
+for an isolated fixture. Launchers invoke
+`$HOME/.nvm/versions/node/v24.15.0/bin/pi`, share sessions under
+`$HOME/.pi/agent/sessions`, forward all arguments exactly, and contain no credentials.
+Authenticate through the provider environment or Pi's `/login` flow; the installer
+never reads or copies `auth.json`.
+
+A real install first reads `<target>/npm/node_modules/pi-subagents/package.json` and fails
 closed unless it reports a valid release at or above v0.67.0; `--dry-run` remains
 available as a metadata-free preview. On first installation, existing files at managed
 role or artifact names require explicit `--adopt`. The installer backs up every changed
 or removed file under a unique
 `~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
 validates the installed definitions, removes only stale roles recorded in its own
-manifest, and rolls back validation failures and interruptions. It never rewrites Pi's
-`settings.json`, package declarations, extension configuration, or unrelated agent
-files. Shared policy, control-plane intent, degradation notes, and the optional workflow
-are namespaced under `<target>/agent-orchestration/`.
+manifest, and rolls back validation failures and interruptions. OpenAI settings remain
+untouched. For DeepSeek, it merges the required source packages into `settings.json`
+and seeds the validated `deepseek` provider/model entry from the source
+`models-store.json`, preserving unrelated settings, providers, packages, extensions,
+and agent files. An existing valid DeepSeek catalog entry is retained so a newer local
+catalog is not downgraded. Catalog bootstrap does not authenticate the provider:
+configure a provider environment variable or complete Pi's `/login deepseek` flow
+manually. Shared policy, control-plane intent, degradation notes, and the optional
+workflow are namespaced under `<target>/agent-orchestration/`.
 
 Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
 an agent's tool list, pi-subagents always passes it through. The adapter therefore omits
 `bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Use a
-separately configured permission wrapper for command-level policy. Pi agent files also
-cannot install the primary session, small model, or built-in build/plan mappings, so
-`generated/pi/_shared/control-plane.json` records those mapped values as non-installed
-intent. The OpenAI profile has no concrete `vision-*` agent among the canonical ten;
-wildcard vision delegation remains role guidance rather than an advertised runtime
-agent.
+separately configured permission wrapper for command-level policy. Pi agent files
+configure child roles and each profile launcher selects the primary model. Pi cannot
+install the small model or built-in build/plan mappings, so each bundle's
+`_shared/control-plane.json` records those values as non-installed intent. Neither
+profile has a concrete `vision-*` agent among the canonical ten; both selected models
+declare native vision, so wildcard visual delegation remains guidance rather than an
+advertised runtime agent.
 
 ## Adding a role
 

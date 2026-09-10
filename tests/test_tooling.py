@@ -52,15 +52,17 @@ class ToolingContractTests(unittest.TestCase):
                 capture_output=True,
             )
             self.assertEqual(rendered.returncode, 0, rendered.stderr)
-            manifest = json.loads(
-                (isolated / "generated" / "pi" / "manifest.json").read_text()
-            )
-            self.assertEqual(manifest["adapter"], "pi-subagents")
-            self.assertEqual(manifest["adapter_format"], "0.67.0")
-            self.assertTrue(manifest["roles"])
-            self.assertTrue(
-                (isolated / "generated" / "pi" / "agents" / "worker.md").is_file()
-            )
+            for profile in ("openai", "deepseek"):
+                manifest = json.loads(
+                    (isolated / "generated" / "pi" / profile / "manifest.json").read_text()
+                )
+                self.assertEqual(manifest["adapter"], "pi-subagents")
+                self.assertEqual(manifest["adapter_format"], "0.67.0")
+                self.assertEqual(manifest["profiles"], [profile])
+                self.assertTrue(manifest["roles"])
+                self.assertTrue(
+                    (isolated / "generated" / "pi" / profile / "agents" / "worker.md").is_file()
+                )
 
             checked = subprocess.run(
                 [str(isolated / "scripts" / "check")],

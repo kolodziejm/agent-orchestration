@@ -31,7 +31,12 @@ class ProfileControlPlaneTests(unittest.TestCase):
             for builtin in control_plane["builtins"].values():
                 self.assertEqual(set(builtin), {"model", "effort"}, name)
             supported = profile["capabilities"]["supported_variants"]
-            self.assertEqual(set(supported), {"low", "medium", "high", "max", "xhigh"}, name)
+            expected_supported = (
+                {"low", "high", "max"}
+                if name == "deepseek"
+                else {"low", "medium", "high", "max", "xhigh"}
+            )
+            self.assertEqual(set(supported), expected_supported, name)
 
         openai = profiles["openai"]
         expected = {

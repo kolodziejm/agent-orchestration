@@ -1,9 +1,9 @@
 ---
 name: "validator"
 description: "Independent mechanical validation agent"
-model: openai-codex/gpt-5.6-luna
-thinking: medium
-tools: read, grep, find, ls
+model: deepseek/deepseek-flash
+thinking: high
+tools: read, grep, find, ls, bash
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false

@@ -14,7 +14,7 @@ if str(ADAPTERS_DIR) not in sys.path:
 from common import validate_capabilities, validate_profile
 
 ROOT = ADAPTERS_DIR.parent
-VALID_HARNESSES = {"opencode", "codex", "claude-code"}
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
 
 
 def load_toml(path: Path) -> dict:
@@ -61,7 +61,7 @@ def validate_sources() -> int:
             path,
             set(roles),
             harness,
-            require_role_variants=harness == "claude-code",
+            require_role_variants=harness in {"claude-code", "pi"},
         )
         addendum = ROOT / "profiles" / profile["addendum"]
         if not addendum.is_file():

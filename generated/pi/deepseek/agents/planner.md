@@ -1,9 +1,9 @@
 ---
 name: "planner"
 description: "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
-model: openai-codex/gpt-5.6-sol
-thinking: high
-tools: read, grep, find, ls, edit, write, subagent
+model: deepseek/deepseek-flash
+thinking: max
+tools: read, grep, find, ls, edit, write, bash, subagent
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false
