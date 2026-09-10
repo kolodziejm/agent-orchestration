@@ -1,0 +1,13 @@
+small_model = "gpt-5.6-luna"
+
+[primary]
+model = "gpt-5.6-sol"
+effort = "medium"
+
+[builtins.build]
+model = "gpt-5.6-sol"
+effort = "medium"
+
+[builtins.plan]
+model = "gpt-5.6-sol"
+effort = "high"

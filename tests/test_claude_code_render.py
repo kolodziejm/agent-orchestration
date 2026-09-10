@@ -192,6 +192,21 @@ class ClaudeCodeRenderTests(unittest.TestCase):
             self.assertEqual(set(manifest["roles"]), set(self.roles))
             self.assertEqual(manifest["profiles"], ["claude"])
 
+    def test_snapshot_truthfully_documents_that_claude_cannot_install_primary_control_plane(self):
+        """This test will fail when Claude output implies its primary model was installed."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                check=True,
+            )
+            control_plane = (output / "_shared" / "control-plane.md").read_text()
+            self.assertIn("cannot install the primary", control_plane.lower())
+            self.assertIn("manual session configuration", control_plane.lower())
+            self.assertIn("opus", control_plane)
+            self.assertIn("not an installed runtime configuration", control_plane.lower())
+
     def test_renderer_rejects_repository_root_as_output(self):
         result = subprocess.run(
             [sys.executable, str(RENDER), "--output", str(ROOT)],

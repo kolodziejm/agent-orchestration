@@ -20,6 +20,7 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 MARKER_START = "<!-- agent-orchestration:start -->"
 MARKER_END = "<!-- agent-orchestration:end -->"
 MARKER_PATTERN = re.compile(re.escape(MARKER_START) + r".*?" + re.escape(MARKER_END), re.DOTALL)
+CONTROL_PLANE_NOTE = Path("_shared") / "control-plane.md"
 
 
 def text_diff(current: Path, desired: str, label: str) -> str:
@@ -40,6 +41,17 @@ def validate_manifest(manifest: dict, label: str) -> None:
         for value in values:
             if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
+    control_plane = manifest.get("control_plane", False)
+    if not isinstance(control_plane, bool):
+        raise SystemExit(f"Invalid {label} control_plane")
+    workflows = manifest.get("workflows", [])
+    if not isinstance(workflows, list) or not all(isinstance(value, str) for value in workflows):
+        raise SystemExit(f"Invalid {label} workflows")
+    if len(workflows) != len(set(workflows)):
+        raise SystemExit(f"Duplicate names in {label} workflows")
+    for value in workflows:
+        if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
+            raise SystemExit(f"Unsafe name in {label} workflows: {value!r}")
 
 
 def _has_entry(path: Path) -> bool:
@@ -53,9 +65,17 @@ def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
         for role in sorted(current_manifest["roles"])
         if _has_entry(target / "agents" / f"{role}.md")
     ]
+    collisions.extend(
+        str(target / "workflows" / f"{workflow}.md")
+        for workflow in sorted(current_manifest.get("workflows", []))
+        if _has_entry(target / "workflows" / f"{workflow}.md")
+    )
     claude_md = target / "CLAUDE.md"
     if _has_entry(claude_md):
         collisions.append(str(claude_md))
+    control_note = target / CONTROL_PLANE_NOTE
+    if _has_entry(control_note):
+        collisions.append(str(control_note))
     return collisions
 
 
@@ -118,6 +138,15 @@ def load_and_preflight_manifests(
         target / "CLAUDE.md",
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
+    paths.update(
+        target / "workflows" / f"{workflow}.md"
+        for workflow in current_manifest.get("workflows", [])
+    )
+    paths.update(
+        target / "workflows" / f"{workflow}.md"
+        for workflow in previous_manifest.get("workflows", [])
+    )
+    paths.add(target / CONTROL_PLANE_NOTE)
     for path in paths:
         assert_safe_destination(path, target)
 
@@ -142,7 +171,10 @@ def desired_state(
     manifest_path = target / MANIFEST_NAME
     current_roles = set(current_manifest["roles"])
     previous_roles = set(previous_manifest.get("roles", []))
+    current_workflows = set(current_manifest.get("workflows", []))
+    previous_workflows = set(previous_manifest.get("workflows", []))
     stale_roles = previous_roles - current_roles
+    stale_workflows = previous_workflows - current_workflows
 
     claude_md_path = target / "CLAUDE.md"
 
@@ -152,9 +184,17 @@ def desired_state(
     for role in stale_roles:
         deletions.add(target / "agents" / f"{role}.md")
 
+    for workflow in current_workflows:
+        source = rendered / "workflows" / f"{workflow}.md"
+        files[target / "workflows" / source.name] = source.read_text()
+    for workflow in stale_workflows:
+        deletions.add(target / "workflows" / f"{workflow}.md")
+
     section = (rendered / "_shared" / "orchestration-core.md").read_text()
     existing_claude_md = claude_md_path.read_text() if claude_md_path.exists() else ""
     files[claude_md_path] = merge_claude_md(existing_claude_md, section)
+    control_note_source = rendered / CONTROL_PLANE_NOTE
+    files[target / CONTROL_PLANE_NOTE] = control_note_source.read_text()
 
     files[manifest_path] = json.dumps(current_manifest, indent=2) + "\n"
     return files, deletions - set(files)

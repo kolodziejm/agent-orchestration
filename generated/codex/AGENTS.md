@@ -16,9 +16,9 @@ Skills define workflow, not tool ownership. Any repository read/search, command,
 
 Treat the primary chat as the orchestrator. Preserve its context for user intent, requirements, decomposition, agent selection, decisions, approval gates, and final synthesis rather than raw code, broad search results, logs, or test output.
 
-Delegation is the default, not a fallback. For every non-trivial request, classify the work and delegate before repository inspection or commands. Direct repository, shell, browser, and editing calls by the orchestrator are policy violations whenever a matching agent exists. If ownership is unclear, delegate the question to `explorer`.
+Delegation is the default for repository discovery and source work. The primary may work directly only on a small, clearly bounded, low-risk task when delegation offers no concrete leverage. Before acting directly, the primary must briefly state why delegation is not useful.
 
-A request is trivial only when it is an edit of a few lines in a file already in the orchestrator's context, or an answer drawn from a single known file, and it does not change product behavior. Everything else is non-trivial and follows routing.
+Delegate broader discovery, multi-area or behavior-changing work, uncertain or context-heavy work, work requiring a specialist, work benefiting from parallelism, and work requiring independent risk separation. If ownership or the value of delegation is unclear, delegate the question to `explorer`.
 
 Every delegation uses a short authoritative handoff containing only the user intent, approved scope and exclusions, acceptance criteria, relevant decisions and constraints, and the named artifacts or evidence needed for the task. Where the harness supports history controls, use a no-history or limited-history fork by default so the child relies on that handoff rather than the full parent transcript. A full-history fork is an exception only when the handoff cannot safely convey a specific dependency; state that reason in the handoff. Handoffs must not select or change a fixed model; model selection remains owned by routing and the active profile.
 
@@ -40,7 +40,7 @@ Parallel workers are allowed only for independent scopes with no overlapping fil
 - Audit usability, accessibility, platform fit, or parity: `ux-critic`.
 - Read an image or screenshot: use native vision when supported; a text-only worker may use a profile-provided `vision-*` agent.
 
-Apart from trivial work as defined above, the orchestrator must not implement source changes, run mechanical validation, diagnose failures, or perform repository discovery itself.
+Except for the narrow direct-work exception above, the orchestrator must delegate repository discovery, source changes, mechanical validation, and failure diagnosis according to the routing below.
 
 ## Context ownership: push authority, pull evidence
 
@@ -85,19 +85,9 @@ Use `planner` for OpenSpec and non-OpenSpec planning. It owns reasoning, decisio
 
 If technical evidence is missing, the planner should commission focused exploration itself. If product intent or an architectural decision is missing, it must surface the exact decision to the orchestrator rather than asking explorer to infer it from code.
 
-## Feature workflow pilot
+## Proportional workflow
 
-Use the following proportional extension when a product change is large, uncertain, or both. The orchestrator is the sole owner of the initial scale and uncertainty classification: it classifies the work before delegating and states the reason in the handoff. Treat a change as large when it has several dependent slices or areas, needs more than one coherent planning/specification artifact, or cannot be reviewed as one bounded change. Treat it as uncertain when an unresolved product, architecture, data, or contract decision could materially change its behavior or scope. Small, unambiguous changes continue through the short workflow. The planner consumes the classification and may report an evidence-supported correction to the orchestrator; it does not independently classify every feature.
-
-For a large initiative, persist a mindmap as a navigational index. When the project uses OpenSpec, place it beside the relevant change at `openspec/changes/<change-id>/mindmap.md`. When OpenSpec is not present, place it beside the project's established specification or plan artifact; do not introduce OpenSpec or a new directory convention automatically. The map should link to the authoritative specification, decision records, and plan, and record building blocks, slices, dependencies, status, and open questions. Update it at meaningful decision, decomposition, and completion points.
-
-For every large initiative, including one whose direction is already clear, the planner must identify the building blocks before the Decomposition gate. For each block, record its responsibility, boundary or owner, dependencies, and relationship to the slices, then challenge whether the boundaries are reusable and coherent. For an uncertain change, this follows ambiguity removal; the planner uses focused evidence from `explorer`, compares a small number of viable options, and returns a recommendation with assumptions, consequences, and the exact decision needed before finalizing the blocks. Building blocks may be proposed by the user or planner, but their ownership and contracts must be explicit.
-
-The specification phase should cover one to eight user stories in a coherent session. This is a pilot heuristic, not a quality guarantee or a hard limit. Keep each implementation slice small enough to produce a coherent, observable result. The resulting specification or plan must include product behavior, acceptance criteria, non-goals, dependencies, risks, and unresolved questions. The planner may self-review a low-risk plan; review remains an explicit user-directed activity described below.
-
-Before implementation of a large or uncertain slice, provide a compact handoff containing a TL;DR of at most ten items, links to the relevant artifacts, the selected building blocks, decisions and assumptions, slice ordering, risks, and an execution matrix. This handoff follows the short-handoff and history rules above. The matrix identifies required, recommended, and optional roles and checks without changing model profiles, routing, or policy-mandated validation or user-authorized review. The applicable approval gates are conditional: Decision is required for uncertain work, Decomposition for large work, and Implementation for large or uncertain work. When more than one gate applies, the orchestrator may present their decisions in one combined interaction, but must record each applicable outcome separately. No additional approval gate is implied for work outside these conditions. This policy does not require a particular question tool for those gates.
-
-After the pilot initiative, record a short retrospective using the existing project documentation convention. Capture preparation and maintenance time, ambiguities found before implementation, scope or contract changes after a gate, elapsed time, orchestrator interventions, rework, usage where the harness exposes it, and a one-to-five usefulness rating with a sentence of context. Treat usage as an available signal rather than an exact billing measure. Use the result to refine the workflow before creating a dedicated skill.
+For a large or uncertain initiative, apply the optional Feature Workflow Pilot in `workflows/feature-workflow-pilot.md`. Adapters package that artifact separately and must not inline its detailed procedure into every base prompt.
 
 ## Implementation and self-checks
 
@@ -106,6 +96,8 @@ Give `worker` or `worker-complex` the approved scope, acceptance criteria, relev
 Both worker roles may run small, targeted checks needed to iterate during implementation. They must report these as `SELF-CHECKS`; they are not independent validation and must not be represented as final proof that the change is correct.
 
 Both worker roles must preserve unrelated user work and remain within scope. Ambiguous shared architecture, contracts, security behavior, or product semantics must be returned to the orchestrator for a decision.
+
+Delegated source-changing worker output always requires independent validator verification. A direct primary source change within the narrow low-risk exception may use targeted self-checks instead; this exception does not waive any applicable review authorization or user-verdict gate.
 
 ### Behavioral test enforcement
 
@@ -117,9 +109,9 @@ Before adding a test, answer: `This test will fail when ...` with a concrete def
 
 ## Independent validation
 
-After implementation, give `validator` a compact handoff containing the changed scope, acceptance criteria, worker self-checks, relevant commands, and environment assumptions. Wait for its report before claiming completion. The handoff should contain only the context needed for this validation; do not resend the full conversation when a focused summary is sufficient.
+When implementation requires independent validation under the rules below, give `validator` a compact handoff containing the changed scope, acceptance criteria, worker self-checks, relevant commands, and environment assumptions. Wait for its report before claiming completion. The handoff should contain only the context needed for this validation; do not resend the full conversation when a focused summary is sufficient.
 
-Validation by `validator` is mandatory whenever a worker role changed code, tests, configuration, or dependencies, or the change touches product behavior. For a trivial inline edit as defined above, a single quick check by the orchestrator suffices and must be reported as a self-check, never as independent validation.
+Validation by `validator` is mandatory whenever a worker role changed code, tests, configuration, or dependencies, or the change touches product behavior. For a direct source change within the narrow exception above, a single quick check by the orchestrator suffices and must be reported as a self-check, never as independent validation.
 
 The validator must independently inspect the relevant diff and choose the smallest useful validation matrix. For each acceptance criterion, report observable evidence that demonstrates the expected public behavior. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Validation confirms acceptance criteria; it is not a covert reviewer and must not expand into architecture critique or speculative design findings. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
 

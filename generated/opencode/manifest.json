@@ -15,5 +15,9 @@
   "profiles": [
     "glm",
     "openai"
+  ],
+  "control_plane": true,
+  "workflows": [
+    "feature-workflow-pilot"
   ]
 }

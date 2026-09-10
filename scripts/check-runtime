@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" && -z "${VIRTUAL_ENV:-}" && -z "${UV_RUN_RECURSION_DEPTH:-}" ]]; then
   exec env AGENT_ORCHESTRATION_UV_RUN=1 uv run --locked --project "$ROOT" "$0" "$@"
 fi
 
-exec python3 "$ROOT/adapters/opencode/install.py" "$@"
+PYTHON="${PYTHON:-python3}"
+if ! "$PYTHON" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+  printf '%s\n' 'Python 3.11+ is required; run this command with: uv run --locked ./scripts/check-runtime' >&2
+  exit 2
+fi
+
+exec "$PYTHON" "$ROOT/adapters/opencode/check_runtime.py" "$@"

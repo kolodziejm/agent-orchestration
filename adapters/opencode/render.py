@@ -21,7 +21,7 @@ if str(ADAPTERS_DIR) not in sys.path:
     sys.path.insert(0, str(ADAPTERS_DIR))
 
 from common import assert_safe_output as shared_assert_safe_output
-from common import assert_safe_rename, validate_capabilities
+from common import assert_safe_rename, validate_capabilities, validate_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -31,6 +31,7 @@ DEFAULT_OUTPUT = ROOT / "generated" / "opencode"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 VALID_HARNESSES = {"opencode", "codex", "claude-code"}
+WORKFLOW_NAME = "feature-workflow-pilot"
 
 
 def load_toml(path: Path) -> dict:
@@ -57,6 +58,24 @@ def frontmatter(role: str, config: dict) -> str:
     return "\n".join(lines)
 
 
+def control_plane_fragment(control_plane: dict) -> dict:
+    """Translate the profile's harness-neutral control intent to OpenCode keys."""
+    return {
+        "primary": {
+            "model": control_plane["primary"]["model"],
+            "variant": control_plane["primary"]["effort"],
+        },
+        "small_model": control_plane["small_model"],
+        "builtins": {
+            name: {
+                "model": config["model"],
+                "variant": config["effort"],
+            }
+            for name, config in control_plane["builtins"].items()
+        },
+    }
+
+
 def assert_safe_output(output: Path) -> Path:
     return shared_assert_safe_output(output, DEFAULT_OUTPUT, TEMP_ROOT)
 
@@ -70,6 +89,11 @@ def render_into(output: Path) -> None:
 
     (output / "agents").mkdir(parents=True)
     (output / "profiles" / "_shared").mkdir(parents=True)
+    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
+    if not workflow_source.is_file():
+        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
+    (output / "workflows").mkdir(parents=True)
+    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
 
     for role, config in roles.items():
         contract_path = ROOT / "roles" / f"{role}.md"
@@ -95,15 +119,21 @@ def render_into(output: Path) -> None:
         name = profile["name"]
         profile_names.append(name)
         models = profile["models"]
-        if set(models) != expected_roles:
-            missing = sorted(expected_roles - set(models))
-            extra = sorted(set(models) - expected_roles)
-            raise SystemExit(f"Profile {name} mismatch: missing={missing}, extra={extra}")
+        validate_profile(
+            profile,
+            profile_path,
+            expected_roles,
+            "opencode",
+        )
 
         destination = output / "profiles" / name
         destination.mkdir(parents=True)
         addendum = ROOT / "profiles" / profile["addendum"]
         shutil.copy2(addendum, destination / "orchestration.md")
+        (destination / "control-plane.json").write_text(
+            json.dumps(control_plane_fragment(profile["control_plane"]), indent=2, sort_keys=True)
+            + "\n"
+        )
         (destination / "agent-routing.json").write_text(
             json.dumps({"agent": {role: dict(value) for role, value in models.items()}}, indent=2, sort_keys=True)
             + "\n"
@@ -119,7 +149,13 @@ def render_into(output: Path) -> None:
 
     (output / "manifest.json").write_text(
         json.dumps(
-            {"format_version": 1, "roles": sorted(roles), "profiles": sorted(profile_names)},
+            {
+                "format_version": 1,
+                "roles": sorted(roles),
+                "profiles": sorted(profile_names),
+                "control_plane": True,
+                "workflows": [WORKFLOW_NAME],
+            },
             indent=2,
         )
         + "\n"

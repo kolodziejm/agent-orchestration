@@ -40,7 +40,7 @@ if str(ADAPTERS_DIR) not in sys.path:
     sys.path.insert(0, str(ADAPTERS_DIR))
 
 from common import assert_safe_output as shared_assert_safe_output
-from common import assert_safe_rename, validate_capabilities
+from common import assert_safe_rename, validate_capabilities, validate_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -54,6 +54,7 @@ VALID_HARNESSES = {"opencode", "codex", "claude-code"}
 
 MARKER_START = "<!-- agent-orchestration:start -->"
 MARKER_END = "<!-- agent-orchestration:end -->"
+WORKFLOW_NAME = "feature-workflow-pilot"
 
 
 def load_toml(path: Path) -> dict:
@@ -128,6 +129,29 @@ def frontmatter(role: str, config: dict, model_config: dict, native_vision: bool
     return "\n".join(lines)
 
 
+def render_control_plane(profile: dict) -> str:
+    """Explain the selected intent without claiming Claude Code installed it."""
+    control_plane = profile["control_plane"]
+    primary = control_plane["primary"]
+    build = control_plane["builtins"]["build"]
+    plan = control_plane["builtins"]["plan"]
+    return "\n".join(
+        [
+            "# Claude Code control-plane intent",
+            "",
+            "Claude Code cannot install the primary control plane. The primary model,",
+            "small model, and built-in build/plan mappings require manual session configuration.",
+            "This file records the selected profile intent; it is not an installed runtime configuration.",
+            "",
+            f"- primary: {primary['model']} ({primary['effort']})",
+            f"- small_model: {control_plane['small_model']}",
+            f"- build: {build['model']} ({build['effort']})",
+            f"- plan: {plan['model']} ({plan['effort']})",
+            "",
+        ]
+    )
+
+
 def assert_safe_output(output: Path) -> Path:
     return shared_assert_safe_output(output, DEFAULT_OUTPUT, TEMP_ROOT)
 
@@ -138,10 +162,13 @@ def render_into(output: Path) -> None:
     profile = load_claude_profile()
     models = profile["models"]
     expected_roles = set(roles)
-    if set(models) != expected_roles:
-        missing = sorted(expected_roles - set(models))
-        extra = sorted(set(models) - expected_roles)
-        raise SystemExit(f"Profile {profile['name']} mismatch: missing={missing}, extra={extra}")
+    validate_profile(
+        profile,
+        ROOT / "profiles" / f"{profile['name']}.toml",
+        expected_roles,
+        "claude-code",
+        require_role_variants=True,
+    )
     native_vision = bool(profile.get("capabilities", {}).get("native_vision", False))
 
     for role, config in roles.items():
@@ -149,6 +176,12 @@ def render_into(output: Path) -> None:
 
     (output / "agents").mkdir(parents=True)
     (output / "_shared").mkdir(parents=True)
+    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
+    if not workflow_source.is_file():
+        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
+    (output / "workflows").mkdir(parents=True)
+    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
+    (output / "_shared" / "control-plane.md").write_text(render_control_plane(profile))
 
     for role, config in roles.items():
         require_subagent_mode(role, config)
@@ -167,7 +200,13 @@ def render_into(output: Path) -> None:
 
     (output / "manifest.json").write_text(
         json.dumps(
-            {"format_version": 1, "roles": sorted(roles), "profiles": [profile["name"]]},
+            {
+                "format_version": 1,
+                "roles": sorted(roles),
+                "profiles": [profile["name"]],
+                "workflows": [WORKFLOW_NAME],
+                "control_plane": False,
+            },
             indent=2,
         )
         + "\n"

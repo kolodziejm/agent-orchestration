@@ -1,9 +1,27 @@
+version = 1
 name = "claude"
 addendum = "claude.md"
 harness = "claude-code"
 
 [capabilities]
 native_vision = true
+primary_installable = false
+supported_variants = ["low", "medium", "high", "max", "xhigh"]
+
+[control_plane.primary]
+model = "opus"
+effort = "high"
+
+[control_plane]
+small_model = "sonnet"
+
+[control_plane.builtins.build]
+model = "opus"
+effort = "high"
+
+[control_plane.builtins.plan]
+model = "opus"
+effort = "high"
 
 [models.worker]
 model = "sonnet"

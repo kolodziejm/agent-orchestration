@@ -24,6 +24,35 @@ def load_install_module():
 
 
 class ClaudeCodeInstallPlanTests(unittest.TestCase):
+    def test_install_packages_workflow_and_truthful_control_plane_note(self):
+        """This test will fail when Claude installation omits optional artifacts or claims primary control."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(rendered)],
+                cwd=ROOT,
+                check=True,
+            )
+
+            files, _ = install.desired_state(rendered, target, adopt=True)
+            workflow = target / "workflows" / "feature-workflow-pilot.md"
+            self.assertIn(workflow, files)
+            self.assertEqual(files[workflow], (rendered / "workflows" / workflow.name).read_text())
+
+            control_note = target / "_shared" / "control-plane.md"
+            self.assertIn(control_note, files)
+            self.assertIn("cannot install the primary", files[control_note].lower())
+
+            section = files[target / "CLAUDE.md"]
+            self.assertIn("workflows/feature-workflow-pilot.md", section)
+            self.assertNotIn("# Feature Workflow Pilot", section)
+            manifest = json.loads(files[target / install.MANIFEST_NAME])
+            self.assertEqual(manifest["workflows"], ["feature-workflow-pilot"])
+            self.assertFalse(manifest["control_plane"])
+
     def test_first_install_reports_unmanaged_role_collision_until_adopted(self):
         """This test will fail when first install overwrites a managed-name file without adoption."""
         with tempfile.TemporaryDirectory() as directory:

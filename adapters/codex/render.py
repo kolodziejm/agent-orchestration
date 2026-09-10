@@ -21,7 +21,7 @@ if str(ADAPTERS_DIR) not in sys.path:
     sys.path.insert(0, str(ADAPTERS_DIR))
 
 from common import assert_safe_output as shared_assert_safe_output
-from common import assert_safe_rename, validate_capabilities
+from common import assert_safe_rename, validate_capabilities, validate_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -33,6 +33,7 @@ TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 CODEX_MODEL_PREFIX = "openai/"
 CODEX_REASONING_EFFORTS = {"max": "xhigh"}
+WORKFLOW_NAME = "feature-workflow-pilot"
 
 
 def load_toml(path: Path) -> dict:
@@ -97,6 +98,26 @@ def render_agent(role: str, role_config: dict, model_config: dict, contract: str
     )
 
 
+def render_control_plane(profile: dict) -> str:
+    """Render profile control intent using Codex model and effort names."""
+    control_plane = profile["control_plane"]
+    lines = [f"small_model = {toml_string(codex_model(control_plane['small_model']))}", ""]
+    for section, config in (
+        ("primary", control_plane["primary"]),
+        ("builtins.build", control_plane["builtins"]["build"]),
+        ("builtins.plan", control_plane["builtins"]["plan"]),
+    ):
+        lines.extend(
+            [
+                f"[{section}]",
+                f"model = {toml_string(codex_model(config['model']))}",
+                f"effort = {toml_string(config['effort'])}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def render_agents_file(profile: dict) -> str:
     policy = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
     addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
@@ -115,6 +136,13 @@ def validate_inputs(profile_name: str) -> None:
     routing = load_toml(ROOT / "policy" / "routing.toml")
     roles = routing["roles"]
     profile = load_profile(profile_name)
+    validate_profile(
+        profile,
+        ROOT / "profiles" / f"{profile_name}.toml",
+        set(roles),
+        "codex",
+        require_role_variants=True,
+    )
     models = profile.get("models", {})
 
     if set(models) != set(roles):
@@ -142,6 +170,12 @@ def render_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
         validate_capabilities(role, role_config, "codex")
 
     (output / "agents").mkdir(parents=True, exist_ok=True)
+    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
+    if not workflow_source.is_file():
+        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
+    (output / "workflows").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
+    (output / "control-plane.toml").write_text(render_control_plane(profile))
     for role, role_config in roles.items():
         contract_path = ROOT / "roles" / f"{role}.md"
         if not contract_path.is_file():

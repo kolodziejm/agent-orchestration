@@ -33,6 +33,16 @@ def managed_instruction_paths(target: Path, profiles: set[str]) -> set[str]:
     return paths
 
 
+def control_plane_field_labels(config_path: Path) -> tuple[str, ...]:
+    return (
+        f"{config_path} (model)",
+        f"{config_path} (variant)",
+        f"{config_path} (small_model)",
+        f"{config_path} (agent.build)",
+        f"{config_path} (agent.plan)",
+    )
+
+
 def validate_manifest(manifest: dict, label: str) -> None:
     if manifest.get("format_version") != 1:
         raise SystemExit(f"Unsupported {label} format_version")
@@ -45,17 +55,36 @@ def validate_manifest(manifest: dict, label: str) -> None:
         for value in values:
             if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
+    control_plane = manifest.get("control_plane", False)
+    if not isinstance(control_plane, bool):
+        raise SystemExit(f"Invalid {label} control_plane")
+    workflows = manifest.get("workflows", [])
+    if not isinstance(workflows, list) or not all(isinstance(value, str) for value in workflows):
+        raise SystemExit(f"Invalid {label} workflows")
+    if len(workflows) != len(set(workflows)):
+        raise SystemExit(f"Duplicate names in {label} workflows")
+    for value in workflows:
+        if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
+            raise SystemExit(f"Unsafe name in {label} workflows: {value!r}")
 
 
 def _has_entry(path: Path) -> bool:
     return path.exists() or path.is_symlink()
 
 
-def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
+def unmanaged_collisions(
+    current_manifest: dict, target: Path, rendered: Path | None = None
+) -> list[str]:
     """Find managed names already present before this adapter was adopted."""
     collisions: list[str] = []
     roles = set(current_manifest["roles"])
     profiles = set(current_manifest["profiles"])
+    workflows = set(current_manifest.get("workflows", []))
+
+    for workflow in sorted(workflows):
+        path = target / "workflows" / f"{workflow}.md"
+        if _has_entry(path):
+            collisions.append(str(path))
 
     for role in sorted(roles):
         path = target / "agents" / f"{role}.md"
@@ -83,6 +112,25 @@ def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
                 for role in sorted(roles)
                 if role in agents
             )
+            if rendered is not None and current_manifest.get("control_plane", False):
+                labels = control_plane_field_labels(config_path)
+                control = json.loads(
+                    (rendered / "profiles" / name / "control-plane.json").read_text()
+                )
+                if any(key in config for key in ("model", "variant", "small_model")):
+                    labels = control_plane_field_labels(config_path)
+                    collisions.extend(
+                        label
+                        for label, key in zip(labels[:3], ("model", "variant", "small_model"))
+                        if key in config
+                    )
+                collisions.extend(
+                    label
+                    for label, key in zip(
+                        labels[3:], ("build", "plan")
+                    )
+                    if key in agents
+                )
 
     return collisions
 
@@ -110,6 +158,8 @@ def load_and_preflight_manifests(
         target / "profiles" / "_shared" / "orchestration-core.md",
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
+    paths.update(target / "workflows" / f"{workflow}.md" for workflow in current_manifest.get("workflows", []))
+    paths.update(target / "workflows" / f"{workflow}.md" for workflow in previous_manifest.get("workflows", []))
     for name in profiles:
         paths.add(target / "profiles" / name / "opencode.json")
         paths.add(target / "profiles" / name / "orchestration.md")
@@ -117,7 +167,7 @@ def load_and_preflight_manifests(
         assert_safe_destination(path, target)
 
     if not manifest_exists and not adopt:
-        collisions = unmanaged_collisions(current_manifest, target)
+        collisions = unmanaged_collisions(current_manifest, target, rendered)
         if collisions:
             details = "\n".join(f"  - {path}" for path in collisions)
             raise SystemExit(
@@ -139,14 +189,24 @@ def desired_state(
     previous_roles = set(previous_manifest.get("roles", []))
     current_profiles = set(current_manifest["profiles"])
     previous_profiles = set(previous_manifest.get("profiles", []))
+    current_workflows = set(current_manifest.get("workflows", []))
+    previous_workflows = set(previous_manifest.get("workflows", []))
     stale_roles = previous_roles - current_roles
+    stale_workflows = previous_workflows - current_workflows
     all_managed_instructions = managed_instruction_paths(target, current_profiles | previous_profiles)
+    previous_control_plane = bool(previous_manifest.get("control_plane", False))
 
     for role in current_roles:
         source = rendered / "agents" / f"{role}.md"
         files[target / "agents" / source.name] = source.read_text()
     for role in stale_roles:
         deletions.add(target / "agents" / f"{role}.md")
+
+    for workflow in current_workflows:
+        source = rendered / "workflows" / f"{workflow}.md"
+        files[target / "workflows" / source.name] = source.read_text()
+    for workflow in stale_workflows:
+        deletions.add(target / "workflows" / f"{workflow}.md")
 
     core = rendered / "profiles" / "_shared" / "orchestration-core.md"
     files[target / "profiles" / "_shared" / core.name] = core.read_text()
@@ -163,6 +223,8 @@ def desired_state(
 
         config = json.loads(config_path.read_text())
         agents = config.setdefault("agent", {})
+        if not isinstance(agents, dict):
+            raise SystemExit(f"Invalid OpenCode agent configuration: {config_path}")
         roles_to_remove = stale_roles if name in current_profiles else previous_roles
         for role in roles_to_remove:
             agents.pop(role, None)
@@ -175,6 +237,11 @@ def desired_state(
         if name in current_profiles:
             fragment = json.loads((profile_dir / "agent-routing.json").read_text())
             agents.update(fragment["agent"])
+            control = json.loads((profile_dir / "control-plane.json").read_text())
+            config["model"] = control["primary"]["model"]
+            config["variant"] = control["primary"]["variant"]
+            config["small_model"] = control["small_model"]
+            agents.update(control["builtins"])
             addendum_target = target / "profiles" / name / "orchestration.md"
             files[addendum_target] = (profile_dir / "orchestration.md").read_text()
             config["instructions"] = [
@@ -184,6 +251,12 @@ def desired_state(
             ]
         else:
             config["instructions"] = unrelated_instructions
+            if previous_control_plane:
+                config.pop("model", None)
+                config.pop("variant", None)
+                config.pop("small_model", None)
+                agents.pop("build", None)
+                agents.pop("plan", None)
 
         files[config_path] = json.dumps(config, indent=2) + "\n"
 

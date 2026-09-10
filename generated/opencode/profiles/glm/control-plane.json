@@ -1,0 +1,17 @@
+{
+  "builtins": {
+    "build": {
+      "model": "zai-coding-plan/glm-5.3",
+      "variant": "high"
+    },
+    "plan": {
+      "model": "zai-coding-plan/glm-5.3",
+      "variant": "high"
+    }
+  },
+  "primary": {
+    "model": "zai-coding-plan/glm-5.3",
+    "variant": "high"
+  },
+  "small_model": "deepseek/deepseek-v4-flash"
+}

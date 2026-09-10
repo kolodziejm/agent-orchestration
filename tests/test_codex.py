@@ -80,6 +80,26 @@ class CodexRenderContractTests(unittest.TestCase):
                 self.assertEqual(agent["model_reasoning_effort"], expected_effort)
                 self.assertEqual(agent["sandbox_mode"], expected_sandbox)
 
+    def test_snapshot_exports_the_openai_control_plane_for_codex_setup(self):
+        """This test will fail when Codex output omits primary and built-in profile intent."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "codex"
+            render_snapshot(output)
+
+            with (output / "control-plane.toml").open("rb") as handle:
+                control_plane = tomllib.load(handle)
+            self.assertEqual(
+                control_plane,
+                {
+                    "primary": {"model": "gpt-5.6-sol", "effort": "medium"},
+                    "small_model": "gpt-5.6-luna",
+                    "builtins": {
+                        "build": {"model": "gpt-5.6-sol", "effort": "medium"},
+                        "plan": {"model": "gpt-5.6-sol", "effort": "high"},
+                    },
+                },
+            )
+
     def test_developer_instructions_preserve_every_role_contract_exactly(self):
         """REGRESSION CONTRACT: Codex preserves each complete role contract; TEST LAYER: generated artifact contract test."""
         with ROUTING.open("rb") as handle:

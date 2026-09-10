@@ -4,6 +4,19 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Add versioned profile control-plane intent for the primary/small models and built-in
+  `build`/`plan` mappings, with OpenAI Sol/Luna routing and explicit harness validation.
+- Replace ceremonial mandatory delegation with proportional delegation for leverage while
+  retaining independent validation for delegated source changes and the strict reviewer
+  user-verdict gate.
+- Move the detailed Feature Workflow Pilot into a separately packaged optional workflow
+  artifact so base prompts remain compact.
+- Add Codex/OpenCode/Claude Code control-plane artifacts and extend installers to manage
+  optional workflows without overwriting unrelated configuration.
+- Add the read-only `scripts/check-runtime` drift check for effective OpenCode settings,
+  with secret-safe diagnostics and fixture-based tests.
+- Add explicit profile schema/source validation, a pinned uv/Python 3.11+ workflow, and CI
+  coverage through `uv run --locked ./scripts/check`.
 - Add a simple Codex renderer for the ten role contracts using the OpenAI profile's model, reasoning, and sandbox mappings.
 - Render and check committed OpenCode and Codex snapshots; Codex artifacts are copied or symlinked manually without an installer.
 - Make reviewer participation explicitly user-directed, while retaining independent validation for code and behavior changes.

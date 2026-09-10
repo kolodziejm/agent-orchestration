@@ -1,12 +1,12 @@
 {
   "agent": {
     "debugger": {
-      "model": "openai/gpt-5.6-luna",
-      "variant": "max"
+      "model": "openai/gpt-5.6-sol",
+      "variant": "high"
     },
     "design-partner": {
       "model": "openai/gpt-5.6-luna",
-      "variant": "max"
+      "variant": "high"
     },
     "explorer": {
       "model": "openai/gpt-5.6-luna",
@@ -22,11 +22,11 @@
     },
     "spec-writer": {
       "model": "openai/gpt-5.6-luna",
-      "variant": "high"
+      "variant": "medium"
     },
     "ux-critic": {
       "model": "openai/gpt-5.6-luna",
-      "variant": "max"
+      "variant": "high"
     },
     "validator": {
       "model": "openai/gpt-5.6-luna",
@@ -37,8 +37,8 @@
       "variant": "high"
     },
     "worker-complex": {
-      "model": "openai/gpt-5.6-luna",
-      "variant": "max"
+      "model": "openai/gpt-5.6-sol",
+      "variant": "medium"
     }
   }
 }

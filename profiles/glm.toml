@@ -1,5 +1,24 @@
+version = 1
 name = "glm"
 addendum = "glm.md"
+
+[control_plane.primary]
+model = "zai-coding-plan/glm-5.3"
+effort = "high"
+
+[control_plane]
+small_model = "deepseek/deepseek-v4-flash"
+
+[control_plane.builtins.build]
+model = "zai-coding-plan/glm-5.3"
+effort = "high"
+
+[control_plane.builtins.plan]
+model = "zai-coding-plan/glm-5.3"
+effort = "high"
+
+[capabilities]
+supported_variants = ["low", "medium", "high", "max", "xhigh"]
 
 [models.worker]
 model = "deepseek/deepseek-v4-flash"

@@ -14,5 +14,9 @@
   ],
   "profiles": [
     "claude"
-  ]
+  ],
+  "workflows": [
+    "feature-workflow-pilot"
+  ],
+  "control_plane": false
 }

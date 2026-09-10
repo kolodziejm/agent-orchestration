@@ -114,7 +114,7 @@ class OpenCodeRenderTests(unittest.TestCase):
 
             openai = json.loads((output / "profiles" / "openai" / "agent-routing.json").read_text())
             self.assertEqual(openai["agent"]["worker"]["variant"], "high")
-            self.assertEqual(openai["agent"]["worker-complex"]["variant"], "max")
+            self.assertEqual(openai["agent"]["worker-complex"]["variant"], "medium")
             self.assertEqual(openai["agent"]["spec-writer"]["model"], "openai/gpt-5.6-luna")
 
             core = output / "profiles" / "_shared" / "orchestration-core.md"
@@ -124,6 +124,33 @@ class OpenCodeRenderTests(unittest.TestCase):
             debugger = (output / "agents" / "debugger.md").read_text()
             self.assertIn('bash:\n    "*": ask', validator)
             self.assertIn('bash:\n    "*": ask', debugger)
+
+    def test_renderer_exports_the_profile_control_plane_separately(self):
+        """This test will fail when OpenCode drops primary, small-model, or built-in intent."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--output", str(output)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            control_plane = json.loads(
+                (output / "profiles" / "openai" / "control-plane.json").read_text()
+            )
+            self.assertEqual(
+                control_plane,
+                {
+                    "primary": {"model": "openai/gpt-5.6-sol", "variant": "medium"},
+                    "small_model": "openai/gpt-5.6-luna",
+                    "builtins": {
+                        "build": {"model": "openai/gpt-5.6-sol", "variant": "medium"},
+                        "plan": {"model": "openai/gpt-5.6-sol", "variant": "high"},
+                    },
+                },
+            )
 
     def test_renderer_rejects_repository_root_as_output(self):
         result = subprocess.run(
@@ -253,6 +280,103 @@ class OpenCodeRenderTests(unittest.TestCase):
 
 
 class OpenCodeInstallPlanTests(unittest.TestCase):
+    def test_install_packages_optional_workflow_without_inlining_it_in_instructions(self):
+        """This test will fail when the optional workflow is omitted or loaded into every profile."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
+
+            config_path = target / "profiles" / "openai" / "opencode.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text(json.dumps({"instructions": ["/tmp/unrelated.md"]}))
+
+            files, _ = install.desired_state(rendered, target, adopt=True)
+            workflow_target = target / "workflows" / "feature-workflow-pilot.md"
+            self.assertEqual(
+                files[workflow_target],
+                (rendered / "workflows" / "feature-workflow-pilot.md").read_text(),
+            )
+            merged = json.loads(files[config_path])
+            self.assertNotIn(str(workflow_target), merged["instructions"])
+            installed_manifest = json.loads(files[target / install.MANIFEST_NAME])
+            self.assertEqual(installed_manifest["workflows"], ["feature-workflow-pilot"])
+
+    def test_first_install_reports_unmanaged_control_plane_collision_until_adopted(self):
+        """This test will fail when first install overwrites runtime control settings without adoption."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            config_path = target / "profiles" / "openai" / "opencode.json"
+            config_path.parent.mkdir(parents=True)
+            original = {
+                "model": "user/primary",
+                "small_model": "user/small",
+                "agent": {"build": {"model": "user/build"}},
+            }
+            config_path.write_text(json.dumps(original))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALL),
+                    "--target",
+                    str(target),
+                    "--dry-run",
+                    "--skip-validate",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(f"{config_path} (model)", result.stderr)
+            self.assertIn("--adopt", result.stderr)
+            self.assertEqual(json.loads(config_path.read_text()), original)
+
+    def test_merge_installs_control_plane_without_overwriting_unrelated_config(self):
+        """This test will fail when installation renders roles but drops control-plane intent."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rendered = root / "rendered"
+            target = root / "target"
+            subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
+
+            profile = target / "profiles" / "openai"
+            profile.mkdir(parents=True)
+            config_path = profile / "opencode.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "provider": {"sentinel": {"enabled": True}},
+                        "model": "custom/primary",
+                        "variant": "low",
+                        "small_model": "custom/small",
+                        "agent": {"custom-agent": {"model": "custom/agent"}},
+                    }
+                )
+            )
+
+            files, _ = install.desired_state(rendered, target, adopt=True)
+            merged = json.loads(files[config_path])
+            self.assertEqual(merged["provider"], {"sentinel": {"enabled": True}})
+            self.assertEqual(merged["model"], "openai/gpt-5.6-sol")
+            self.assertEqual(merged["variant"], "medium")
+            self.assertEqual(merged["small_model"], "openai/gpt-5.6-luna")
+            self.assertEqual(merged["agent"]["custom-agent"], {"model": "custom/agent"})
+            self.assertEqual(
+                merged["agent"]["build"],
+                {"model": "openai/gpt-5.6-sol", "variant": "medium"},
+            )
+            self.assertEqual(
+                merged["agent"]["plan"],
+                {"model": "openai/gpt-5.6-sol", "variant": "high"},
+            )
+
     def test_first_install_reports_unmanaged_role_collision_until_adopted(self):
         """This test will fail when first install overwrites a managed-name file without adoption."""
         with tempfile.TemporaryDirectory() as directory:

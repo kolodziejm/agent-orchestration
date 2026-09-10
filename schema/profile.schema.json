@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kolodziejm/agent-orchestration/schema/profile.schema.json",
+  "title": "Versioned agent orchestration model profile",
+  "type": "object",
+  "required": ["version", "name", "addendum", "models", "control_plane", "capabilities"],
+  "properties": {
+    "version": {"type": "integer", "const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "addendum": {"type": "string", "minLength": 1},
+    "harness": {"enum": ["opencode", "codex", "claude-code"]},
+    "capabilities": {
+      "type": "object",
+      "required": ["supported_variants"],
+      "properties": {
+        "native_vision": {"type": "boolean"},
+        "primary_installable": {"type": "boolean"},
+        "supported_variants": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/roleModel"}
+    },
+    "control_plane": {"$ref": "#/$defs/controlPlane"}
+  },
+  "$defs": {
+    "roleModel": {
+      "type": "object",
+      "required": ["model"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "variant": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "controlModel": {
+      "type": "object",
+      "required": ["model", "effort"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "controlPlane": {
+      "type": "object",
+      "required": ["primary", "small_model", "builtins"],
+      "properties": {
+        "primary": {"$ref": "#/$defs/controlModel"},
+        "small_model": {"type": "string", "minLength": 1},
+        "builtins": {
+          "type": "object",
+          "required": ["build", "plan"],
+          "properties": {
+            "build": {"$ref": "#/$defs/controlModel"},
+            "plan": {"$ref": "#/$defs/controlModel"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
