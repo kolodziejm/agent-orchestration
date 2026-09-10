@@ -4,6 +4,14 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Add a production Pi adapter for `pi-subagents` using v0.67.0 as the minimum-supported,
+  tested baseline with the OpenAI logical profile, exact per-role model/thinking mappings,
+  strict tool ceilings, fresh context,
+  committed snapshots, and separately packaged policy, control-plane, degradation, and
+  workflow artifacts.
+- Add a dry-run-first Pi installer with explicit unmanaged-name adoption, unique
+  backups, stale managed-role removal, validation/interruption rollback, and preservation
+  of unrelated Pi agents, settings, packages, and extensions.
 - Add versioned profile control-plane intent for the primary/small models and built-in
   `build`/`plan` mappings, with OpenAI Sol/Luna routing and explicit harness validation.
 - Replace ceremonial mandatory delegation with proportional delegation for leverage while

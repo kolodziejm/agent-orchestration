@@ -9,7 +9,7 @@ policy + role contracts + logical model profiles
                     ↓
              harness adapter
                     ↓
-       OpenCode / Codex / Claude Code / future harnesses
+       OpenCode / Codex / Claude Code / Pi / future harnesses
 ```
 
 ## Source of truth
@@ -188,12 +188,63 @@ unrelated agents or CLAUDE.md content.
 
 ## Generated snapshots
 
-`generated/opencode/`, `generated/codex/`, and `generated/claude-code/` are committed snapshots, intentionally. They include the separately packaged optional workflow and the harness-specific control-plane artifact. A policy or profile change must show both:
+`generated/opencode/`, `generated/codex/`, `generated/claude-code/`, and
+`generated/pi/` are committed snapshots, intentionally. They include the separately
+packaged optional workflow and the harness-specific control-plane artifact. A policy or
+profile change must show both:
 
 1. the harness-agnostic semantic change;
 2. its exact per-harness output.
 
 CI rerenders snapshots and fails on drift.
+
+## Pi adapter
+
+The Pi adapter requires a locally installed `pi-subagents` release at or above the
+v0.67.0 minimum-supported, tested baseline.
+It consumes the canonical OpenAI profile, maps `openai/<model-id>` to
+`openai-codex/<model-id>`, and bakes each role's mapped model and variant (as
+`thinking`) into exactly ten `agents/*.md` definitions. Every role explicitly uses
+`defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
+inherited project context or skill catalog. The `extensions` field is intentionally
+omitted, so normal Pi extensions remain available subject to each role's strict tool
+allowlist.
+
+Render and check the snapshot through the standard entrypoints:
+
+```bash
+./scripts/render
+uv run --locked ./scripts/check
+```
+
+Preview a user installation without changing it:
+
+```bash
+./scripts/install-pi --dry-run
+```
+
+The default target is `~/.pi/agent`; use `--target` for an isolated fixture. A real
+install first reads `<target>/npm/node_modules/pi-subagents/package.json` and fails
+closed unless it reports a valid release at or above v0.67.0; `--dry-run` remains
+available as a metadata-free preview. On first installation, existing files at managed
+role or artifact names require explicit `--adopt`. The installer backs up every changed
+or removed file under a unique
+`~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
+validates the installed definitions, removes only stale roles recorded in its own
+manifest, and rolls back validation failures and interruptions. It never rewrites Pi's
+`settings.json`, package declarations, extension configuration, or unrelated agent
+files. Shared policy, control-plane intent, degradation notes, and the optional workflow
+are namespaced under `<target>/agent-orchestration/`.
+
+Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
+an agent's tool list, pi-subagents always passes it through. The adapter therefore omits
+`bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Use a
+separately configured permission wrapper for command-level policy. Pi agent files also
+cannot install the primary session, small model, or built-in build/plan mappings, so
+`generated/pi/_shared/control-plane.json` records those mapped values as non-installed
+intent. The OpenAI profile has no concrete `vision-*` agent among the canonical ten;
+wildcard vision delegation remains role guidance rather than an advertised runtime
+agent.
 
 ## Adding a role
 
@@ -208,7 +259,8 @@ CI rerenders snapshots and fails on drift.
 
 Create an adapter under `adapters/<harness>/` that consumes only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the adapter, not in role contracts.
 
-Currently supported: OpenCode (`adapters/opencode/`), Codex (`adapters/codex/`), and Claude Code (`adapters/claude-code/`).
+Currently supported: OpenCode (`adapters/opencode/`), Codex (`adapters/codex/`),
+Claude Code (`adapters/claude-code/`), and Pi (`adapters/pi/`).
 
 ## Security
 

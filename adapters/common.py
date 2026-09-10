@@ -11,6 +11,7 @@ HARNESS_SUPPORTED_EFFORTS = {
     "opencode": SUPPORTED_EFFORTS,
     "codex": frozenset({"low", "medium", "high", "max", "xhigh"}),
     "claude-code": frozenset({"low", "medium", "high", "max", "xhigh"}),
+    "pi": SUPPORTED_EFFORTS,
 }
 
 

@@ -1,0 +1,20 @@
+{
+  "builtins": {
+    "build": {
+      "model": "openai-codex/gpt-5.6-sol",
+      "thinking": "medium"
+    },
+    "plan": {
+      "model": "openai-codex/gpt-5.6-sol",
+      "thinking": "high"
+    }
+  },
+  "installed": false,
+  "note": "pi-subagents agent files configure child roles only; primary, small-model, and built-in mappings are recorded as control-plane intent.",
+  "primary": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinking": "medium"
+  },
+  "profile": "openai",
+  "small_model": "openai-codex/gpt-5.6-luna"
+}
