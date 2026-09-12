@@ -40,6 +40,16 @@ Independent ready mutation lanes are parallel-by-default when the harness can pr
 - Audit usability, accessibility, platform fit, or parity: `ux-critic`.
 - Read an image or screenshot: use native vision when supported; a text-only worker may use a profile-provided `vision-*` agent.
 
+### On-demand UX critic authorization and handoff
+
+`ux-critic` runs only after an explicit user request or authorization delivered through the primary orchestrator. It must never be launched automatically after implementation, validation, or review. Authorization is scoped to the named flow and web/mobile surfaces; the audit must not expand beyond that scope.
+
+Before delegating `ux-critic`, the primary orchestrator must hand off the target flow and surfaces, an already-running web URL and/or already-prepared Appium session and device, auth or test identity details when needed, a reference artifact when provided, and the screenshot artifact destination. The orchestrator prepares the runtime/session before launch; `ux-critic` must not start a server, prepare or install an app, install dependencies, create/reset a session or device, or use lifecycle tools.
+
+`ux-critic` must physically traverse the approved running app with harness-native browser/device tools, capture screenshots at meaningful checkpoints, and read and visually inspect those image files with native vision. Accessibility snapshots, page source, and code may assist navigation or diagnosis but never substitute for runtime visual evidence. If any runtime, URL, prepared session/device, credentials, interaction tool, screenshot capability, or native image inspection is unavailable, it returns `STATUS: BLOCKED` with exact prerequisites. It does not substitute code or tests for a completed audit.
+
+UX-Critic performs open-ended experiential review only. It must not execute automated tests, lint, typecheck, formatters, builds, or deterministic/mechanical validation; `validator` exclusively owns mechanical acceptance, including predefined browser/device checks. UX-Critic never closes release or implementation acceptance.
+
 Except for the narrow direct-work exception above, the orchestrator must delegate repository discovery, source changes, mechanical validation, and failure diagnosis according to the routing below.
 
 ## Context ownership: push authority, pull evidence
@@ -182,7 +192,7 @@ Default to exactly one reviewer per explicitly requested review. Do not silently
 
 Use `design-partner` for uncertain product flows and pre-implementation visual exploration. Keep it human-in-the-loop and do not proceed to production implementation or formal planning until the user explicitly freezes the design. Disposable prototypes belong only in a dedicated prototype directory; never in production source.
 
-Use `ux-critic` for heuristic usability, accessibility, platform-fit, and optional parity audits. It may create explicitly requested audit artifacts but must not modify production source, act as a mechanical release gate, or close implementation acceptance; `validator` owns predefined deterministic acceptance, including browser/device checks.
+Use `ux-critic` only for explicitly user-requested heuristic usability, accessibility, platform-fit, and optional parity audits over the named scope. It may create explicitly requested audit artifacts but must not modify production source, act as a mechanical release gate, or close implementation acceptance; `validator` owns predefined deterministic acceptance, including browser/device checks. A complete UX report exposes `STATUS: COMPLETE` or `STATUS: BLOCKED` and screenshot evidence.
 
 ## Safety and reporting
 

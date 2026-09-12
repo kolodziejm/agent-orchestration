@@ -13,6 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / "adapters" / "pi" / "render.py"
 
 
+UX_CRITIC_TOOLS = [
+    "read",
+    "browser_navigate", "browser_navigate_back", "browser_snapshot", "browser_find",
+    "browser_click", "browser_fill_form", "browser_type", "browser_press_key",
+    "browser_select_option", "browser_hover", "browser_drag", "browser_mouse_wheel",
+    "browser_wait_for", "browser_resize", "browser_take_screenshot", "browser_start_video",
+    "browser_stop_video", "appium_get_active_element", "appium_find_element", "appium_get_text",
+    "appium_get_element_attribute", "appium_get_page_source", "appium_gesture", "appium_drag_and_drop",
+    "appium_set_value", "appium_mobile_press_key", "appium_mobile_keyboard", "appium_get_window_size",
+    "appium_orientation", "appium_context", "appium_alert", "appium_screenshot", "appium_screen_recording",
+]
+
+
 EXPECTED = {
     "openai": {
         "models": {
@@ -464,6 +477,7 @@ console.log(JSON.stringify({ queries, statuses }));
             "reviewer": "read, grep, find, ls, subagent",
             "explorer": "read, grep, find, ls",
             "spec-writer": "read, grep, find, ls, edit, write",
+            "ux-critic": ", ".join(UX_CRITIC_TOOLS),
         }
         for profile_name in EXPECTED:
             with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
@@ -477,6 +491,29 @@ console.log(JSON.stringify({ queries, statuses }));
                     frontmatter = (output / "agents" / f"{role}.md").read_text().split("---", 2)[1]
                     tools_line = next(line for line in frontmatter.splitlines() if line.startswith("tools: "))
                     self.assertEqual(tools_line, f"tools: {tools}")
+
+    def test_ux_critic_pi_allowlist_is_runtime_only_and_excludes_unsafe_tools(self):
+        """REGRESSION CONTRACT: Pi UX-Critic remains runtime-only and cannot regain repository, shell, or lifecycle access."""
+        forbidden = {
+            "grep", "find", "ls", "edit", "write", "bash", "subagent",
+            "browser_run_code_unsafe", "browser_evaluate", "browser_file_upload",
+            "browser_drop", "browser_tabs", "appium_session_management",
+            "appium_select_device", "appium_prepare_ios_simulator", "appium_app_lifecycle",
+            "appium_mobile_device_control", "appium_mobile_permissions", "appium_mobile_file",
+            "appium_driver_settings", "appium_perform_actions", "appium_mobile_clipboard",
+        }
+        for profile_name in EXPECTED:
+            with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / profile_name
+                result = subprocess.run(
+                    [sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)],
+                    cwd=ROOT, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                frontmatter = (output / "agents" / "ux-critic.md").read_text().split("---", 2)[1]
+                tools_line = next(line for line in frontmatter.splitlines() if line.startswith("tools: "))
+                self.assertEqual(tools_line, f"tools: {', '.join(UX_CRITIC_TOOLS)}")
+                self.assertTrue(set(UX_CRITIC_TOOLS).isdisjoint(forbidden))
 
     def test_renderer_emits_complete_default_hybrid_pi_bundle(self):
         """This test will fail when the Pi bundle omits a canonical artifact or role."""
@@ -508,13 +545,16 @@ console.log(JSON.stringify({ queries, statuses }));
             for role, config in routing_roles.items():
                 content = (output / "agents" / f"{role}.md").read_text()
                 frontmatter = content.split("---", 2)[1]
-                expected_tools = ["read", "grep", "find", "ls"]
-                if config["edit"] == "allow":
-                    expected_tools += ["edit", "write"]
-                if config["bash"] == "allow" or role in {"validator", "debugger", "planner"}:
-                    expected_tools.append("bash")
-                if set(config.get("delegates", [])) & {"explorer", "spec-writer"}:
-                    expected_tools.append("subagent")
+                if role == "ux-critic":
+                    expected_tools = UX_CRITIC_TOOLS
+                else:
+                    expected_tools = ["read", "grep", "find", "ls"]
+                    if config["edit"] == "allow":
+                        expected_tools += ["edit", "write"]
+                    if config["bash"] == "allow" or role in {"validator", "debugger", "planner"}:
+                        expected_tools.append("bash")
+                    if set(config.get("delegates", [])) & {"explorer", "spec-writer"}:
+                        expected_tools.append("subagent")
                 model = profile["models"][role]
                 expected_model = model["model"].replace("openai/", "openai-codex/", 1)
                 self.assertIn(f"model: {expected_model}", frontmatter)

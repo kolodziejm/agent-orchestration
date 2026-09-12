@@ -103,9 +103,13 @@ def validate_capabilities(role: str, config: dict, harness: str) -> None:
         raise SystemExit(f"Invalid bash capability for {role}: {bash!r}")
 
     if harness in {"codex", "claude-code"} and bash == "deny":
-        raise SystemExit(
-            f"{harness} cannot enforce bash = deny for role {role}; refusing to render"
-        )
+        # Codex maps deny to read-only sandbox mode, while Claude Code can
+        # enforce this one canonical read-only role by omitting Bash from its
+        # tools. Other roles retain each adapter's existing degradation.
+        if not (role == "ux-critic"):
+            raise SystemExit(
+                f"{harness} cannot enforce bash = deny for role {role}; refusing to render"
+            )
 
 
 def _validate_model_config(

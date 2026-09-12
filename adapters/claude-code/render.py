@@ -6,10 +6,11 @@ has no per-subagent equivalent):
 
 - `bash = "ask"` in policy/routing.toml has no per-subagent enforcement in
   Claude Code; permission prompts are configured at the session level, not
-  per agent file. `Bash` is therefore granted to every rendered agent,
-  including read-only roles, since they need it for investigation
-  (e.g. running read-only inspection commands). Session-level Claude Code
-  permission settings remain the operator's responsibility.
+  per agent file. `Bash` is therefore granted to rendered roles that request
+  or ask for it, since they need it for investigation (e.g. running read-only
+  inspection commands). The canonical `ux-critic` role is the narrow
+  exception: its `bash = "deny"` is enforced by omitting Bash entirely.
+  Session-level Claude Code permission settings remain the operator's responsibility.
 - Claude Code uses a flat subagent topology. The orchestrator performs the
   delegation described by `delegates` and passes returned evidence in the
   handoff; rendered subagent files do not expose nested `Agent(<target>)`
@@ -79,8 +80,10 @@ def load_claude_profile() -> dict:
     return candidates[0]
 
 
-def tools_for(config: dict, native_vision: bool) -> str:
+def tools_for(config: dict, native_vision: bool, role: str | None = None) -> str:
     tools = list(BASE_TOOLS)
+    if role == "ux-critic" and config.get("bash") == "deny":
+        tools.remove("Bash")
     edit = config["edit"]
     if edit == "allow":
         tools.extend(["Edit", "Write"])
@@ -114,7 +117,8 @@ def scalar_token(value: str, label: str) -> str:
 
 def frontmatter(role: str, config: dict, model_config: dict, native_vision: bool) -> str:
     tools = ", ".join(
-        scalar_token(token, "tools") for token in tools_for(config, native_vision).split(", ")
+        scalar_token(token, "tools")
+        for token in tools_for(config, native_vision, role).split(", ")
     )
     lines = [
         "---",

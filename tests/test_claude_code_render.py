@@ -48,8 +48,10 @@ def parse_frontmatter_tools(content: str) -> list:
     raise AssertionError("no tools: line found in frontmatter block")
 
 
-def expected_tools(config: dict, native_vision: bool) -> list:
+def expected_tools(config: dict, native_vision: bool, role: str | None = None) -> list:
     tools = ["Read", "Grep", "Glob", "Bash"]
+    if role == "ux-critic" and config.get("bash") == "deny":
+        tools.remove("Bash")
     if config["edit"] == "allow":
         tools.extend(["Edit", "Write"])
     return tools
@@ -114,7 +116,7 @@ class ClaudeCodeRenderTests(unittest.TestCase):
                 # role's prose body cannot produce a false positive/negative.
                 self.assertEqual(
                     parse_frontmatter_tools(content),
-                    expected_tools(config, native_vision),
+                    expected_tools(config, native_vision, role),
                     role,
                 )
 

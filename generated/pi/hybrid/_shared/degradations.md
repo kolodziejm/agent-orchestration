@@ -11,6 +11,13 @@
 - Validator, debugger, and planner receive `bash` despite canonical `bash = "ask"` because
   their contracts require mechanical checks or repository commands. Debugger remains source-edit
   read-only; planner retains its existing edit/write/subagent capabilities.
+- UX-Critic is an on-demand, read-only runtime audit. Its Pi agent file has an
+  explicit allowlist of verified Playwright MCP and Appium MCP interaction,
+  inspection, screenshot, and recording tools, plus Pi's built-in image-capable
+  `read` for opening saved screenshots. `read` is its only filesystem capability;
+  it receives no `edit`, `write`, or shell tools. The primary must supply the
+  running URL/session, device, scope, identity, reference, and screenshot
+  destination first.
 - The selected profile has no concrete `vision-*` role among its ten canonical roles.
   Wildcard visual delegation is therefore guidance only; no nonexistent agent is
   advertised in a strict tool allowlist.

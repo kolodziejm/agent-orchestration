@@ -44,6 +44,48 @@ PROFILE_STATUS_ENTRYPOINTS = {
     "openai": "./codex-pace-loader.ts",
 }
 READ_TOOLS = ["read", "grep", "find", "ls"]
+# Pi's MCP directTools expose these concrete names. This is intentionally a
+# role-specific exception rather than a general capability abstraction: the
+# orchestrator supplies the already-running browser/session before delegation.
+UX_CRITIC_TOOLS = [
+    # Pi built-in image-capable filesystem read, for opening saved screenshots.
+    "read",
+    # Playwright MCP (safe navigation, interaction, state inspection, and evidence).
+    "browser_navigate",
+    "browser_navigate_back",
+    "browser_snapshot",
+    "browser_find",
+    "browser_click",
+    "browser_fill_form",
+    "browser_type",
+    "browser_press_key",
+    "browser_select_option",
+    "browser_hover",
+    "browser_drag",
+    "browser_mouse_wheel",
+    "browser_wait_for",
+    "browser_resize",
+    "browser_take_screenshot",
+    "browser_start_video",
+    "browser_stop_video",
+    # Appium MCP 1.90 direct tools (prepared session only).
+    "appium_get_active_element",
+    "appium_find_element",
+    "appium_get_text",
+    "appium_get_element_attribute",
+    "appium_get_page_source",
+    "appium_gesture",
+    "appium_drag_and_drop",
+    "appium_set_value",
+    "appium_mobile_press_key",
+    "appium_mobile_keyboard",
+    "appium_get_window_size",
+    "appium_orientation",
+    "appium_context",
+    "appium_alert",
+    "appium_screenshot",
+    "appium_screen_recording",
+]
 SAFE_MODEL_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -65,6 +107,9 @@ def pi_model(model: str, allowed_providers: frozenset[str]) -> str:
 
 
 def tools_for(role: str, config: dict) -> list[str]:
+    if role == "ux-critic":
+        return list(UX_CRITIC_TOOLS)
+
     tools = list(READ_TOOLS)
     if config["edit"] == "allow":
         tools.extend(["edit", "write"])
@@ -179,6 +224,13 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
 - Validator, debugger, and planner receive `bash` despite canonical `bash = "ask"` because
   their contracts require mechanical checks or repository commands. Debugger remains source-edit
   read-only; planner retains its existing edit/write/subagent capabilities.
+- UX-Critic is an on-demand, read-only runtime audit. Its Pi agent file has an
+  explicit allowlist of verified Playwright MCP and Appium MCP interaction,
+  inspection, screenshot, and recording tools, plus Pi's built-in image-capable
+  `read` for opening saved screenshots. `read` is its only filesystem capability;
+  it receives no `edit`, `write`, or shell tools. The primary must supply the
+  running URL/session, device, scope, identity, reference, and screenshot
+  destination first.
 - The selected profile has no concrete `vision-*` role among its ten canonical roles.
   Wildcard visual delegation is therefore guidance only; no nonexistent agent is
   advertised in a strict tool allowlist.

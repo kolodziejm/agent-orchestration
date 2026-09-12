@@ -66,6 +66,6 @@ delegates = ["explorer"]
 [roles.ux-critic]
 description = "Evidence-based UX, accessibility, platform-fit, and parity auditor"
 mode = "subagent"
-edit = "allow"
-bash = "allow"
+edit = "deny"
+bash = "deny"
 delegates = []
