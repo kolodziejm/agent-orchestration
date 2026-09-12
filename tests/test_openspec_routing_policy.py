@@ -39,6 +39,11 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                 "_shared/orchestration-core.md",
             ),
             (
+                "pi-hybrid",
+                [ROOT / "adapters" / "pi" / "render.py", "--profile", "hybrid"],
+                "_shared/orchestration-core.md",
+            ),
+            (
                 "pi-openai",
                 [ROOT / "adapters" / "pi" / "render.py", "--profile", "openai"],
                 "_shared/orchestration-core.md",

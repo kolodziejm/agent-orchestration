@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./codex-pace-loader.ts"
+    ]
+  }
+}

@@ -6,7 +6,12 @@ if [ ! -x "$pi_executable" ]; then
   printf '%s\n' "Pi executable is missing or not executable: $pi_executable" >&2
   exit 127
 fi
+node_executable="${AGENT_ORCHESTRATION_NODE_EXECUTABLE:-$(dirname "$pi_executable")/node}"
+if [ ! -x "$node_executable" ]; then
+  printf '%s\n' "Pi Node executable is missing or not executable: $node_executable" >&2
+  exit 127
+fi
 
 export PI_CODING_AGENT_DIR="$HOME/.pi/profiles/deepseek"
 export PI_CODING_AGENT_SESSION_DIR="$HOME/.pi/agent/sessions"
-exec "$pi_executable" --model deepseek/deepseek-flash --thinking high "$@"
+exec "$node_executable" "$pi_executable" "$@"

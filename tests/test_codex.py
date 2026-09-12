@@ -142,9 +142,11 @@ class CodexRenderContractTests(unittest.TestCase):
             with (output / "agents" / "reviewer.toml").open("rb") as handle:
                 reviewer = tomllib.load(handle)
 
-            self.assertIn("delegate one focused read-only investigation to `explorer`", planner["developer_instructions"])
+            self.assertIn("broad mechanical evidence gathering", planner["developer_instructions"])
+            self.assertIn("parallel fanout", planner["developer_instructions"])
             self.assertIn("delegate their mechanical drafting to `spec-writer`", planner["developer_instructions"])
-            self.assertIn("delegate one focused read-only investigation to `explorer`", reviewer["developer_instructions"])
+            self.assertIn("broad mechanical evidence gathering", reviewer["developer_instructions"])
+            self.assertIn("parallel fanout", reviewer["developer_instructions"])
             self.assertIn("Never invoke `worker`", reviewer["developer_instructions"])
 
             agents = (output / "AGENTS.md").read_text()

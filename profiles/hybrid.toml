@@ -1,0 +1,64 @@
+version = 1
+name = "hybrid"
+addendum = "openai.md"
+harness = "pi"
+
+[control_plane.primary]
+model = "openai/gpt-5.6-sol"
+effort = "medium"
+
+[control_plane]
+small_model = "deepseek/deepseek-flash"
+
+[control_plane.builtins.build]
+model = "openai/gpt-5.6-sol"
+effort = "medium"
+
+[control_plane.builtins.plan]
+model = "openai/gpt-5.6-sol"
+effort = "high"
+
+[capabilities]
+native_vision = true
+primary_installable = true
+supported_variants = ["low", "medium", "high", "max", "xhigh"]
+
+[models.worker]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.worker-complex]
+model = "deepseek/deepseek-flash"
+variant = "max"
+
+[models.validator]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.debugger]
+model = "openai/gpt-5.6-sol"
+variant = "high"
+
+[models.explorer]
+model = "deepseek/deepseek-flash"
+variant = "low"
+
+[models.planner]
+model = "openai/gpt-5.6-sol"
+variant = "high"
+
+[models.spec-writer]
+model = "deepseek/deepseek-flash"
+variant = "low"
+
+[models.design-partner]
+model = "deepseek/deepseek-flash"
+variant = "high"
+
+[models.reviewer]
+model = "openai/gpt-5.6-sol"
+variant = "high"
+
+[models.ux-critic]
+model = "deepseek/deepseek-flash"
+variant = "high"

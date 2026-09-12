@@ -1,0 +1,25 @@
+{
+  "builtins": {
+    "build": {
+      "model": "openai-codex/gpt-5.6-sol",
+      "thinking": "medium"
+    },
+    "plan": {
+      "model": "openai-codex/gpt-5.6-sol",
+      "thinking": "high"
+    }
+  },
+  "installed": {
+    "builtins": false,
+    "primary": "launcher",
+    "roles": "agent-files",
+    "small_model": false
+  },
+  "note": "The profile launcher selects the primary model and pi-subagents agent files configure child roles. Pi cannot install the small-model or built-in mappings; those values are recorded as control-plane intent.",
+  "primary": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinking": "medium"
+  },
+  "profile": "hybrid",
+  "small_model": "deepseek/deepseek-flash"
+}

@@ -56,7 +56,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             },
             {
                 "worker": ("openai/gpt-5.6-luna", "high"),
-                "worker-complex": ("openai/gpt-5.6-sol", "medium"),
+                "worker-complex": ("openai/gpt-5.6-luna", "max"),
                 "debugger": ("openai/gpt-5.6-sol", "high"),
                 "explorer": ("openai/gpt-5.6-luna", "medium"),
                 "validator": ("openai/gpt-5.6-luna", "medium"),
@@ -112,6 +112,16 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("parallelism", policy)
         self.assertIn("independent risk separation", policy)
         self.assertIn("Delegated source-changing worker output always requires independent validator verification.", policy)
+        self.assertIn("Independent ready mutation lanes are parallel-by-default", policy)
+        self.assertIn("safe isolation", policy)
+        self.assertIn("record a concise reason", policy)
+        self.assertIn("broad mechanical evidence gathering", policy)
+        self.assertIn("two or three genuinely independent evidence scopes", policy)
+        self.assertIn("`worker` and `worker-complex` may author or update tests", policy)
+        self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", policy)
+        self.assertIn("`validator` exclusively executes verification", policy)
+        self.assertNotIn("SELF-CHECK", policy)
+        self.assertNotIn("self-check", policy)
 
         for contradictory_wording in (
             "low- or medium-risk",
@@ -121,6 +131,30 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "After implementation, give `validator`",
         ):
             self.assertNotIn(contradictory_wording, policy)
+
+    def test_role_contracts_separate_authoring_acceptance_and_heuristic_ux_audits(self):
+        worker = (ROOT / "roles" / "worker.md").read_text()
+        complex_worker = (ROOT / "roles" / "worker-complex.md").read_text()
+        validator = (ROOT / "roles" / "validator.md").read_text()
+        ux_critic = (ROOT / "roles" / "ux-critic.md").read_text()
+        planner = (ROOT / "roles" / "planner.md").read_text()
+        reviewer = (ROOT / "roles" / "reviewer.md").read_text()
+
+        for contract in (worker, complex_worker):
+            self.assertIn("author or update tests", contract)
+            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", contract)
+            self.assertNotIn("SELF-CHECK", contract)
+            self.assertNotIn("self-check", contract)
+        self.assertIn("predefined deterministic acceptance", validator)
+        self.assertIn("browser/device checks", validator)
+        self.assertIn("`PASS`, `FAIL`, or `BLOCKED`", validator)
+        self.assertIn("heuristic usability, accessibility, platform-fit, and parity", ux_critic)
+        self.assertIn("mechanical release gate", ux_critic)
+        self.assertIn("close implementation acceptance", ux_critic)
+        for contract in (planner, reviewer):
+            self.assertIn("broad mechanical evidence gathering", contract)
+            self.assertIn("two or three genuinely independent evidence scopes", contract)
+            self.assertIn("parallel fanout", contract)
 
     def test_renderers_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:

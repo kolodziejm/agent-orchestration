@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "adapter": "pi-subagents",
+  "adapter_format": "0.67.0",
+  "roles": [
+    "debugger",
+    "design-partner",
+    "explorer",
+    "planner",
+    "reviewer",
+    "spec-writer",
+    "ux-critic",
+    "validator",
+    "worker",
+    "worker-complex"
+  ],
+  "profiles": [
+    "hybrid"
+  ],
+  "launchers": [
+    "pi-hybrid"
+  ],
+  "managed_extensions": [
+    "extensions/agent-orchestration/deepseek-price-status.js",
+    "extensions/agent-orchestration/package.json"
+  ],
+  "workflows": [
+    "feature-workflow-pilot"
+  ],
+  "shared": [
+    "orchestration-core.md",
+    "control-plane.json",
+    "degradations.md"
+  ]
+}

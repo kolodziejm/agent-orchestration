@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./deepseek-price-status.js"
+    ]
+  }
+}

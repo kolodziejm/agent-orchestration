@@ -1,4 +1,4 @@
-Validate the delegated change as an independent verification agent.
+Validate the delegated change as an independent verification agent. Own predefined deterministic acceptance, including browser/device checks, and return `PASS`, `FAIL`, or `BLOCKED`.
 
 For new or materially expanded multi-artifact OpenSpec work, the orchestrator runs this mechanical validation after the single spec-writer-owned write scope and before the fresh-context semantic reviewer, under the narrow standing exception in the canonical policy. This exception permits validation of planning artifacts; documentation-only validator prohibition remains unchanged for all other work.
 

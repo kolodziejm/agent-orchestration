@@ -118,12 +118,15 @@ class OpenCodeRenderTests(unittest.TestCase):
             self.assertIn("spec-writer: allow", planner)
             self.assertNotIn("model:", planner)
 
+            worker = (output / "agents" / "worker.md").read_text()
             complex_worker = (output / "agents" / "worker-complex.md").read_text()
             self.assertIn('"vision-*": allow', complex_worker)
+            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", worker)
+            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", complex_worker)
 
             openai = json.loads((output / "profiles" / "openai" / "agent-routing.json").read_text())
             self.assertEqual(openai["agent"]["worker"]["variant"], "high")
-            self.assertEqual(openai["agent"]["worker-complex"]["variant"], "medium")
+            self.assertEqual(openai["agent"]["worker-complex"]["variant"], "max")
             self.assertEqual(openai["agent"]["spec-writer"]["model"], "openai/gpt-5.6-luna")
 
             core = output / "profiles" / "_shared" / "orchestration-core.md"
@@ -133,6 +136,7 @@ class OpenCodeRenderTests(unittest.TestCase):
             debugger = (output / "agents" / "debugger.md").read_text()
             self.assertIn('bash:\n    "*": ask', validator)
             self.assertIn('bash:\n    "*": ask', debugger)
+
 
     def test_renderer_exports_the_profile_control_plane_separately(self):
         """This test will fail when OpenCode drops primary, small-model, or built-in intent."""

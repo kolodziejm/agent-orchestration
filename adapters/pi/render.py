@@ -27,9 +27,24 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = ROOT / "generated" / "pi"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 WORKFLOW_NAME = "feature-workflow-pilot"
-SUPPORTED_PROFILES = {"openai": "openai", "deepseek": "deepseek"}
+SUPPORTED_PROFILES = {
+    "hybrid": frozenset({"openai", "deepseek"}),
+    "openai": frozenset({"openai"}),
+    "deepseek": frozenset({"deepseek"}),
+}
+PROFILE_STATUS_EXTENSIONS = {
+    "hybrid": (("deepseek-price-status.js", "deepseek-price-status.js"),),
+    "openai": (
+        ("codex-pace-status.js", "codex-pace-core.mjs"),
+        ("codex-pace-loader.ts", "codex-pace-loader.ts"),
+    ),
+}
+PROFILE_STATUS_ENTRYPOINTS = {
+    "hybrid": "./deepseek-price-status.js",
+    "openai": "./codex-pace-loader.ts",
+}
 READ_TOOLS = ["read", "grep", "find", "ls"]
-SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+SAFE_MODEL_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def load_toml(path: Path) -> dict:
@@ -37,17 +52,16 @@ def load_toml(path: Path) -> dict:
         return tomllib.load(handle)
 
 
-def pi_model(model: str, provider: str) -> str:
-    mappings = {"openai": ("openai/", "openai-codex/"), "deepseek": ("deepseek/", "deepseek/")}
-    if provider not in mappings:
-        raise SystemExit(f"Unsupported Pi provider: {provider!r}")
-    prefix, destination = mappings[provider]
-    if not model.startswith(prefix) or len(model) == len(prefix):
-        raise SystemExit(f"Pi {provider} profile requires an {prefix}<model-id> model, got {model!r}")
-    mapped = f"{destination}{model[len(prefix):]}"
-    if not SAFE_MODEL.fullmatch(mapped):
-        raise SystemExit(f"Unsafe Pi model token: {mapped!r}")
-    return mapped
+def pi_model(model: str, allowed_providers: frozenset[str]) -> str:
+    if not isinstance(model, str) or model.count("/") != 1:
+        raise SystemExit(f"Malformed Pi model token: {model!r}")
+    provider, model_id = model.split("/", 1)
+    if provider not in allowed_providers:
+        raise SystemExit(f"Unsupported Pi model provider prefix: {provider!r}")
+    if SAFE_MODEL_PART.fullmatch(provider) is None or SAFE_MODEL_PART.fullmatch(model_id) is None:
+        raise SystemExit(f"Unsafe Pi model token: {model!r}")
+    destination = "openai-codex" if provider == "openai" else provider
+    return f"{destination}/{model_id}"
 
 
 def tools_for(role: str, config: dict) -> list[str]:
@@ -65,13 +79,13 @@ def tools_for(role: str, config: dict) -> list[str]:
     return tools
 
 
-def frontmatter(role: str, config: dict, model_config: dict, provider: str) -> str:
+def frontmatter(role: str, config: dict, model_config: dict, allowed_providers: frozenset[str]) -> str:
     return "\n".join(
         [
             "---",
             f"name: {json.dumps(role)}",
             f"description: {json.dumps(config['description'])}",
-            f"model: {pi_model(model_config['model'], provider)}",
+            f"model: {pi_model(model_config['model'], allowed_providers)}",
             f"thinking: {model_config['variant']}",
             f"tools: {', '.join(tools_for(role, config))}",
             "defaultContext: fresh",
@@ -84,18 +98,18 @@ def frontmatter(role: str, config: dict, model_config: dict, provider: str) -> s
     )
 
 
-def control_plane(profile: dict, provider: str) -> dict:
+def control_plane(profile: dict, allowed_providers: frozenset[str]) -> dict:
     source = profile["control_plane"]
     return {
         "profile": profile["name"],
         "primary": {
-            "model": pi_model(source["primary"]["model"], provider),
+            "model": pi_model(source["primary"]["model"], allowed_providers),
             "thinking": source["primary"]["effort"],
         },
-        "small_model": pi_model(source["small_model"], provider),
+        "small_model": pi_model(source["small_model"], allowed_providers),
         "builtins": {
             name: {
-                "model": pi_model(config["model"], provider),
+                "model": pi_model(config["model"], allowed_providers),
                 "thinking": config["effort"],
             }
             for name, config in source["builtins"].items()
@@ -114,13 +128,13 @@ def control_plane(profile: dict, provider: str) -> dict:
     }
 
 
-def assert_safe_output(output: Path, profile_name: str = "openai") -> Path:
+def assert_safe_output(output: Path, profile_name: str = "hybrid") -> Path:
     return shared_assert_safe_output(output, DEFAULT_OUTPUT_ROOT / profile_name, TEMP_ROOT)
 
 
-def render_into(output: Path, profile_name: str = "openai") -> None:
-    provider = SUPPORTED_PROFILES.get(profile_name)
-    if provider is None:
+def render_into(output: Path, profile_name: str = "hybrid") -> None:
+    allowed_providers = SUPPORTED_PROFILES.get(profile_name)
+    if allowed_providers is None:
         raise SystemExit(f"Unsupported Pi profile: {profile_name!r}")
     routing = load_toml(ROOT / "policy" / "routing.toml")
     roles = routing["roles"]
@@ -149,7 +163,7 @@ def render_into(output: Path, profile_name: str = "openai") -> None:
         f"{policy}\n\n{addendum}\n"
     )
     (output / "_shared" / "control-plane.json").write_text(
-        json.dumps(control_plane(profile, provider), indent=2, sort_keys=True) + "\n"
+        json.dumps(control_plane(profile, allowed_providers), indent=2, sort_keys=True) + "\n"
     )
     (output / "_shared" / "degradations.md").write_text(
         """# Pi adapter degradations
@@ -181,7 +195,7 @@ def render_into(output: Path, profile_name: str = "openai") -> None:
         if not contract.is_file():
             raise SystemExit(f"Missing role contract: {contract}")
         (output / "agents" / f"{role}.md").write_text(
-            frontmatter(role, config, profile["models"][role], provider) + contract.read_text()
+            frontmatter(role, config, profile["models"][role], allowed_providers) + contract.read_text()
         )
 
     launcher = ROOT / "adapters" / "pi" / "templates" / f"pi-{profile_name}"
@@ -190,6 +204,25 @@ def render_into(output: Path, profile_name: str = "openai") -> None:
     launcher_output = output / launcher.name
     shutil.copy2(launcher, launcher_output)
     launcher_output.chmod(0o755)
+
+    managed_extensions: list[str] = []
+    status_extensions = PROFILE_STATUS_EXTENSIONS.get(profile_name)
+    if status_extensions:
+        extension_output = output / "extensions" / "agent-orchestration"
+        extension_output.mkdir(parents=True)
+        extension_source = ROOT / "adapters" / "pi" / "extensions"
+        for source_name, output_name in status_extensions:
+            source = extension_source / source_name
+            if not source.is_file():
+                raise SystemExit(f"Missing Pi status extension source: {source}")
+            shutil.copy2(source, extension_output / output_name)
+            managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
+        package_output = extension_output / "package.json"
+        package_output.write_text(json.dumps({
+            "type": "module",
+            "pi": {"extensions": [PROFILE_STATUS_ENTRYPOINTS[profile_name]]},
+        }, indent=2) + "\n")
+        managed_extensions.append("extensions/agent-orchestration/package.json")
 
     (output / "manifest.json").write_text(
         json.dumps(
@@ -200,6 +233,7 @@ def render_into(output: Path, profile_name: str = "openai") -> None:
                 "roles": sorted(roles),
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
+                "managed_extensions": managed_extensions,
                 "workflows": [WORKFLOW_NAME],
                 "shared": [
                     "orchestration-core.md",
@@ -213,7 +247,7 @@ def render_into(output: Path, profile_name: str = "openai") -> None:
     )
 
 
-def render(output: Path, profile_name: str = "openai") -> None:
+def render(output: Path, profile_name: str = "hybrid") -> None:
     if profile_name not in SUPPORTED_PROFILES:
         raise SystemExit(f"Unsupported Pi profile: {profile_name!r}")
     output = assert_safe_output(output, profile_name)
@@ -250,7 +284,7 @@ def render(output: Path, profile_name: str = "openai") -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", default="openai")
+    parser.add_argument("--profile", default="hybrid")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     render(args.output or DEFAULT_OUTPUT_ROOT / args.profile, args.profile)

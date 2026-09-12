@@ -9,5 +9,6 @@ PYTHON="${PYTHON:-python3}"
 "$PYTHON" "$ROOT/adapters/opencode/render.py" --output "$ROOT/generated/opencode"
 "$PYTHON" "$ROOT/adapters/codex/render.py" --output "$ROOT/generated/codex" --profile openai
 "$PYTHON" "$ROOT/adapters/claude-code/render.py" --output "$ROOT/generated/claude-code"
+"$PYTHON" "$ROOT/adapters/pi/render.py" --profile hybrid --output "$ROOT/generated/pi/hybrid"
 "$PYTHON" "$ROOT/adapters/pi/render.py" --profile openai --output "$ROOT/generated/pi/openai"
 "$PYTHON" "$ROOT/adapters/pi/render.py" --profile deepseek --output "$ROOT/generated/pi/deepseek"

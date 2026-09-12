@@ -46,11 +46,15 @@ orchestrator
 Delegation is for leverage, not ceremony. The primary may directly execute a coherent,
 bounded low- or medium-risk change when no context-protection, independent-verification,
 real parallelism, specialization, or risk separation reason requires delegation. Delegated
-source-changing worker output still requires an independent validator; a direct low-risk
-primary change may use targeted self-checks. `worker` is the routine executor and
+source-changing worker output still requires an independent validator. Workers may author
+tests in scope but must not execute verification; `validator` owns predefined deterministic
+acceptance, including browser/device checks. `worker` is the routine executor and
 `worker-complex` is reserved for sufficiently specified changes whose implementation
 requires unusually difficult reasoning. A stronger worker must not compensate for unclear
-product intent.
+product intent. Independent ready mutation lanes are parallel-by-default when the harness
+provides safe isolation; otherwise they are serialized with a concise reason. Planner and
+reviewer delegate broad mechanical evidence gathering to `explorer` and prefer parallel
+fanout for two or three genuinely independent scopes when the harness supports it.
 
 ## OpenCode adapter
 
@@ -189,7 +193,7 @@ unrelated agents or CLAUDE.md content.
 ## Generated snapshots
 
 `generated/opencode/`, `generated/codex/`, `generated/claude-code/`, and the isolated
-`generated/pi/openai/` and `generated/pi/deepseek/` bundles are committed snapshots,
+`generated/pi/hybrid/`, `generated/pi/openai/`, and `generated/pi/deepseek/` bundles are committed snapshots,
 intentionally. They include the separately
 packaged optional workflow and the harness-specific control-plane artifact. A policy or
 profile change must show both:
@@ -202,10 +206,16 @@ CI rerenders snapshots and fails on drift.
 ## Pi adapter
 
 The Pi adapter requires a locally installed `pi-subagents` release at or above the
-v0.67.0 minimum-supported, tested baseline in each profile directory. It renders
-isolated OpenAI and DeepSeek bundles. Provider mapping is explicit and fail-closed:
+v0.67.0 minimum-supported, tested baseline in each profile directory. It renders a
+default hybrid bundle plus provider-pure OpenAI and DeepSeek alternatives. The provider-pure
+OpenAI profile routes `worker-complex` to GPT-5.6 Luna with maximum reasoning. The hybrid
+profile keeps its primary, built-ins, debugger, planner, and reviewer on GPT-5.6 Sol
+while routing the small model, routine and complex workers, validator, explorer,
+spec-writer, design-partner, and UX critic to direct DeepSeek V4.1 Flash. The complex
+worker uses the model's maximum reasoning level. Provider mapping is explicit and fail-closed:
 `openai/<id>` becomes `openai-codex/<id>` and `deepseek/<id>` remains
-`deepseek/<id>`; cross-provider and unknown tokens are rejected. Each bundle bakes the
+`deepseek/<id>`; only the hybrid profile permits both prefixes, while provider-pure
+profiles reject cross-provider, unknown, and malformed tokens. Each bundle bakes the
 role's mapped model and variant (as `thinking`) into exactly ten `agents/*.md`
 definitions. Every role explicitly uses
 `defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
@@ -223,28 +233,51 @@ uv run --locked ./scripts/check
 Preview a user installation without changing it:
 
 ```bash
+./scripts/install-pi --profile hybrid --dry-run
 ./scripts/install-pi --profile openai --dry-run
 ./scripts/install-pi --profile deepseek --dry-run
 ```
 
-The default target is `~/.pi/agent` for OpenAI and `~/.pi/profiles/deepseek` for
-DeepSeek; use `--target` for an isolated fixture. The installer places the matching
-`pi-openai` or `pi-deepseek` launcher in `~/.local/bin` by default; use `--bin-dir`
-for an isolated fixture. Launchers invoke
-`$HOME/.nvm/versions/node/v24.15.0/bin/pi`, share sessions under
+The default profile is `hybrid`, and its target is the main bare-Pi runtime at
+`~/.pi/agent`. Provider-pure OpenAI and DeepSeek target `~/.pi/profiles/openai` and
+`~/.pi/profiles/deepseek`; use `--target` for an isolated fixture. The installer places the matching
+`pi-hybrid`, `pi-openai`, or `pi-deepseek` launcher in `~/.local/bin` by default; use `--bin-dir`
+for an isolated fixture. Launchers invoke `$HOME/.nvm/versions/node/v24.15.0/bin/pi` with its colocated
+Node runtime rather than ambient `PATH`, share sessions under
 `$HOME/.pi/agent/sessions`, forward all arguments exactly, and contain no credentials.
-Authenticate through the provider environment or Pi's `/login` flow; the installer
-never reads or copies `auth.json`.
+Install both switchable profiles, then exit the current Pi process before starting the
+other launcher (profile roots are selected only at process startup):
 
-A real install first reads `<target>/npm/node_modules/pi-subagents/package.json` and fails
-closed unless it reports a valid release at or above v0.67.0; `--dry-run` remains
-available as a metadata-free preview. On first installation, existing files at managed
+```bash
+./scripts/install-pi --profile hybrid
+./scripts/install-pi --profile openai --source ~/.pi/agent
+pi-hybrid   # mixed OpenAI + DeepSeek routing at ~/.pi/agent
+pi-openai   # OpenAI-only routing at ~/.pi/profiles/openai
+```
+
+The OpenAI bootstrap validates the working hybrid runtime, resolves every configured
+package to its real package root, installs provider-pure settings and model metadata,
+and copies only the `openai-codex` OAuth record into the isolated root with mode `0600`.
+Credential values are never printed or written to repository artifacts. The OpenAI
+profile requires `@narumitw/pi-usage` 0.31.1 or newer with its public
+`adapterForProvider`, `resolveUsageAuth`, and `queryProviderUsage` exports.
+
+A real hybrid install reads `<target>/npm/node_modules/pi-subagents/package.json`; an
+OpenAI install bootstraps that runtime metadata from the validated `--source` (default
+`~/.pi/agent`). Both fail closed unless it reports a valid release at or above v0.67.0.
+On first installation, existing files at managed
 role or artifact names require explicit `--adopt`. The installer backs up every changed
 or removed file under a unique
 `~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
 validates the installed definitions, removes only stale roles recorded in its own
-manifest, and rolls back validation failures and interruptions. OpenAI settings remain
-untouched. For DeepSeek, it merges the required source packages into `settings.json`
+manifest, and rolls back validation failures and interruptions. Hybrid settings remain
+untouched; OpenAI settings are generated from validated package roots and forced to
+OpenAI-only defaults. The hybrid installer preserves a valid existing direct
+DeepSeek catalog entry (including valid newer data), otherwise seeds the committed
+credential-free official DeepSeek V4.1 Flash entry; `--source` can instead supply a
+validated provider entry from another `models-store.json`. A manifest-owned legacy OpenAI
+installation at the main target is migrated in place to the hybrid profile; other profile
+mismatches still fail closed. For DeepSeek, it merges the required source packages into `settings.json`
 and seeds the validated `deepseek` provider/model entry from the source
 `models-store.json`, preserving unrelated settings, providers, packages, extensions,
 and agent files. An existing valid DeepSeek catalog entry is retained so a newer local
@@ -252,6 +285,23 @@ catalog is not downgraded. Catalog bootstrap does not authenticate the provider:
 configure a provider environment variable or complete Pi's `/login deepseek` flow
 manually. Shared policy, control-plane intent, degradation notes, and the optional
 workflow are namespaced under `<target>/agent-orchestration/`.
+
+### Pi profile status indicators
+
+The indicators are versioned adapter sources, rendered into snapshots, and installed as
+profile-owned extensions rather than patches to `node_modules`:
+
+- Hybrid shows `DS peak ×1` during 01:00–04:00 and 06:00–10:00 UTC Monday–Friday.
+  Every boundary outside those half-open periods, plus all weekend hours, shows
+  `DS off-peak ×0.5`. This deterministic clock-only indicator makes the official
+  half-price off-peak schedule visible without an API request and refreshes every minute.
+- OpenAI keeps `@narumitw/pi-usage`'s remaining/reset status and adds weekly Codex pace.
+  `pace` is `consumed% − elapsed%` in percentage points, so a positive value means usage
+  is ahead of schedule. `proj` is projected end utilization (`consumed / elapsed × 100`)
+  once at least 1% of the weekly window has elapsed. It refreshes at session start, model
+  change, and every five minutes. Missing, stale, invalid, or failed weekly data renders
+  `pace unavailable`; immediately after reset, projection is shown as `—`. Error bodies
+  and OAuth values are never displayed or persisted.
 
 Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
 an agent's tool list, pi-subagents always passes it through. The adapter therefore omits

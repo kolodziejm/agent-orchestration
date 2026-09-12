@@ -20,6 +20,7 @@
   "launchers": [
     "pi-deepseek"
   ],
+  "managed_extensions": [],
   "workflows": [
     "feature-workflow-pilot"
   ],
