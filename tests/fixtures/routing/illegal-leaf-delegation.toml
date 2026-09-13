@@ -1,0 +1,15 @@
+version = 1
+
+[roles.validator]
+description = "Validator"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = ["explorer"]
+
+[roles.explorer]
+description = "Explorer"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = []

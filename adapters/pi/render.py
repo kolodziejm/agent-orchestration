@@ -43,6 +43,15 @@ PROFILE_STATUS_ENTRYPOINTS = {
     "hybrid": "./deepseek-price-status.js",
     "openai": "./codex-pace-loader.ts",
 }
+DELEGATION_CHILD_EXTENSIONS = {
+    "planner": "delegation-ceiling-planner.js",
+    "reviewer": "delegation-ceiling-reviewer.js",
+}
+DELEGATION_EXTENSION_FILES = (
+    "delegation-ceiling-core.js",
+    "delegation-ceiling-planner.js",
+    "delegation-ceiling-reviewer.js",
+)
 READ_TOOLS = ["read", "grep", "find", "ls"]
 # Pi's MCP directTools expose these concrete names. This is intentionally a
 # role-specific exception rather than a general capability abstraction: the
@@ -125,22 +134,29 @@ def tools_for(role: str, config: dict) -> list[str]:
 
 
 def frontmatter(role: str, config: dict, model_config: dict, allowed_providers: frozenset[str]) -> str:
-    return "\n".join(
-        [
-            "---",
-            f"name: {json.dumps(role)}",
-            f"description: {json.dumps(config['description'])}",
-            f"model: {pi_model(model_config['model'], allowed_providers)}",
-            f"thinking: {model_config['variant']}",
-            f"tools: {', '.join(tools_for(role, config))}",
-            "defaultContext: fresh",
-            "systemPromptMode: replace",
-            "inheritProjectContext: false",
-            "inheritSkills: false",
-            "---",
-            "",
-        ]
-    )
+    lines = [
+        "---",
+        f"name: {json.dumps(role)}",
+        f"description: {json.dumps(config['description'])}",
+        f"model: {pi_model(model_config['model'], allowed_providers)}",
+        f"thinking: {model_config['variant']}",
+        f"tools: {', '.join(tools_for(role, config))}",
+    ]
+    child_extension = DELEGATION_CHILD_EXTENSIONS.get(role)
+    if child_extension is not None:
+        lines.append(
+            "subagentOnlyExtensions: "
+            f"../extensions/agent-orchestration/{child_extension}"
+        )
+    lines.extend([
+        "defaultContext: fresh",
+        "systemPromptMode: replace",
+        "inheritProjectContext: false",
+        "inheritSkills: false",
+        "---",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def control_plane(profile: dict, allowed_providers: frozenset[str]) -> dict:
@@ -231,9 +247,15 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
   it receives no `edit`, `write`, or shell tools. The primary must supply the
   running URL/session, device, scope, identity, reference, and screenshot
   destination first.
-- The selected profile has no concrete `vision-*` role among its ten canonical roles.
-  Wildcard visual delegation is therefore guidance only; no nonexistent agent is
-  advertised in a strict tool allowlist.
+- Planner and reviewer receive the `subagent` tool plus a child-only,
+  profile-owned capability ceiling. The planner ceiling allows only `explorer`
+  and `spec-writer`; the reviewer ceiling allows only `explorer`. The guard
+  resolves pi-subagents through its public `./capability-ceiling` export and
+  fails closed if that package or registration is unavailable. This is a
+  child-selection boundary, not an OS sandbox or a command-level shell policy.
+- Every other canonical role is a leaf and receives no `subagent` tool. The
+  selected profile has no concrete `vision-*` role among its ten canonical
+  roles, so wildcard visual delegation remains guidance only.
 """
     )
 
@@ -258,23 +280,30 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     launcher_output.chmod(0o755)
 
     managed_extensions: list[str] = []
-    status_extensions = PROFILE_STATUS_EXTENSIONS.get(profile_name)
-    if status_extensions:
-        extension_output = output / "extensions" / "agent-orchestration"
-        extension_output.mkdir(parents=True)
-        extension_source = ROOT / "adapters" / "pi" / "extensions"
-        for source_name, output_name in status_extensions:
-            source = extension_source / source_name
-            if not source.is_file():
-                raise SystemExit(f"Missing Pi status extension source: {source}")
-            shutil.copy2(source, extension_output / output_name)
-            managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
-        package_output = extension_output / "package.json"
-        package_output.write_text(json.dumps({
-            "type": "module",
-            "pi": {"extensions": [PROFILE_STATUS_ENTRYPOINTS[profile_name]]},
-        }, indent=2) + "\n")
-        managed_extensions.append("extensions/agent-orchestration/package.json")
+    extension_output = output / "extensions" / "agent-orchestration"
+    extension_output.mkdir(parents=True)
+    extension_source = ROOT / "adapters" / "pi" / "extensions"
+    for source_name in DELEGATION_EXTENSION_FILES:
+        source = extension_source / source_name
+        if not source.is_file():
+            raise SystemExit(f"Missing Pi delegation extension source: {source}")
+        shutil.copy2(source, extension_output / source_name)
+        managed_extensions.append(f"extensions/agent-orchestration/{source_name}")
+
+    status_extensions = PROFILE_STATUS_EXTENSIONS.get(profile_name, ())
+    for source_name, output_name in status_extensions:
+        source = extension_source / source_name
+        if not source.is_file():
+            raise SystemExit(f"Missing Pi status extension source: {source}")
+        shutil.copy2(source, extension_output / output_name)
+        managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
+    package_output = extension_output / "package.json"
+    status_entrypoint = PROFILE_STATUS_ENTRYPOINTS.get(profile_name)
+    package_output.write_text(json.dumps({
+        "type": "module",
+        "pi": {"extensions": [status_entrypoint] if status_entrypoint else []},
+    }, indent=2) + "\n")
+    managed_extensions.append("extensions/agent-orchestration/package.json")
 
     (output / "manifest.json").write_text(
         json.dumps(

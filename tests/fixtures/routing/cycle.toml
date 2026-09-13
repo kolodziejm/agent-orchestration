@@ -1,0 +1,15 @@
+version = 1
+
+[roles.planner]
+description = "Planner"
+mode = "subagent"
+edit = "allow"
+bash = "ask"
+delegates = ["reviewer"]
+
+[roles.reviewer]
+description = "Reviewer"
+mode = "subagent"
+edit = "deny"
+bash = "ask"
+delegates = ["planner"]

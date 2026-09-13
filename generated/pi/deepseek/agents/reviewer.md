@@ -4,6 +4,7 @@ description: "Senior read-only reviewer and reasoning principal"
 model: deepseek/deepseek-flash
 thinking: max
 tools: read, grep, find, ls, subagent
+subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-reviewer.js
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false

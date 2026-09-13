@@ -20,7 +20,12 @@
   "launchers": [
     "pi-deepseek"
   ],
-  "managed_extensions": [],
+  "managed_extensions": [
+    "extensions/agent-orchestration/delegation-ceiling-core.js",
+    "extensions/agent-orchestration/delegation-ceiling-planner.js",
+    "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
+    "extensions/agent-orchestration/package.json"
+  ],
   "workflows": [
     "feature-workflow-pilot"
   ],

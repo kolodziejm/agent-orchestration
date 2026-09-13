@@ -18,6 +18,12 @@
   it receives no `edit`, `write`, or shell tools. The primary must supply the
   running URL/session, device, scope, identity, reference, and screenshot
   destination first.
-- The selected profile has no concrete `vision-*` role among its ten canonical roles.
-  Wildcard visual delegation is therefore guidance only; no nonexistent agent is
-  advertised in a strict tool allowlist.
+- Planner and reviewer receive the `subagent` tool plus a child-only,
+  profile-owned capability ceiling. The planner ceiling allows only `explorer`
+  and `spec-writer`; the reviewer ceiling allows only `explorer`. The guard
+  resolves pi-subagents through its public `./capability-ceiling` export and
+  fails closed if that package or registration is unavailable. This is a
+  child-selection boundary, not an OS sandbox or a command-level shell policy.
+- Every other canonical role is a leaf and receives no `subagent` tool. The
+  selected profile has no concrete `vision-*` role among its ten canonical
+  roles, so wildcard visual delegation remains guidance only.

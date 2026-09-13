@@ -816,6 +816,16 @@ class PiInstallTests(unittest.TestCase):
                 target_catalog["deepseek"],
                 source_catalog["deepseek"],
             )
+            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+            for extension in (
+                "delegation-ceiling-core.js",
+                "delegation-ceiling-planner.js",
+                "delegation-ceiling-reviewer.js",
+                "package.json",
+            ):
+                relative = f"extensions/agent-orchestration/{extension}"
+                self.assertIn(relative, manifest["managed_extensions"])
+                self.assertTrue((target / relative).is_file())
 
     def test_deepseek_seeds_exact_model_catalog_and_preserves_unrelated_top_level_entries(self):
         """This test will fail when DeepSeek bootstrap loses catalog metadata or unrelated entries."""

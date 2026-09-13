@@ -86,6 +86,11 @@ class ToolingContractTests(unittest.TestCase):
         self.assertTrue(
             "PyYAML==6.0.2" in dependencies or "PyYAML==6.0.2" in dev_dependencies
         )
+        self.assertIn("jsonschema==4.25.1", dev_dependencies)
+        self.assertIn("jsonschema==4.25.1", (ROOT / "requirements-dev.txt").read_text())
+        lock_text = (ROOT / "uv.lock").read_text()
+        self.assertIn('name = "jsonschema"', lock_text)
+        self.assertIn('specifier = "==4.25.1"', lock_text)
         self.assertTrue((ROOT / "uv.lock").is_file())
 
     def test_source_validation_command_accepts_all_versioned_profiles(self):

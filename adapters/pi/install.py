@@ -86,7 +86,8 @@ PACKAGE_OBJECT_KEYS = {"source", "autoload", "extensions", "skills", "prompts", 
 SAFE_MANAGED_EXTENSION = re.compile(
     r"^extensions/(?:[A-Za-z0-9][A-Za-z0-9._-]*/(?:config|package)\.json|"
     r"agent-orchestration/(?:deepseek-price-status\.js|codex-pace-status\.js|"
-    r"codex-pace-core\.mjs|codex-pace-loader\.ts))$"
+    r"codex-pace-core\.mjs|codex-pace-loader\.ts|delegation-ceiling-core\.js|"
+    r"delegation-ceiling-planner\.js|delegation-ceiling-reviewer\.js))$"
 )
 
 
@@ -774,23 +775,59 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     status_entrypoints = {
         "hybrid": "./deepseek-price-status.js",
         "openai": "./codex-pace-loader.ts",
+        "deepseek": None,
     }
     expected_status_entrypoint = status_entrypoints.get(profile)
+    package_path = target / "extensions/agent-orchestration/package.json"
+    try:
+        status_package = json.loads(package_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("Invalid installed Pi status extension package") from error
+    expected_status_package = {
+        "type": "module",
+        "pi": {"extensions": [expected_status_entrypoint] if expected_status_entrypoint else []},
+    }
+    if status_package != expected_status_package:
+        raise RuntimeError("Invalid installed Pi status extension package")
     if expected_status_entrypoint is not None:
-        package_path = target / "extensions/agent-orchestration/package.json"
-        try:
-            status_package = json.loads(package_path.read_text())
-        except (OSError, json.JSONDecodeError) as error:
-            raise RuntimeError("Invalid installed Pi status extension package") from error
-        expected_status_package = {
-            "type": "module",
-            "pi": {"extensions": [expected_status_entrypoint]},
-        }
-        if status_package != expected_status_package:
-            raise RuntimeError("Invalid installed Pi status extension package")
         entrypoint_path = package_path.parent / expected_status_entrypoint
         if not entrypoint_path.is_file():
             raise RuntimeError("Missing installed Pi status extension entrypoint")
+
+    child_extensions = {
+        "planner": "delegation-ceiling-planner.js",
+        "reviewer": "delegation-ceiling-reviewer.js",
+    }
+    managed_extensions = set(manifest.get("managed_extensions", []))
+    for extension_name in (
+        "delegation-ceiling-core.js",
+        *child_extensions.values(),
+        "package.json",
+    ):
+        managed_reference = f"extensions/agent-orchestration/{extension_name}"
+        if managed_reference not in managed_extensions:
+            raise RuntimeError("Pi child-only extension is not manifest-owned")
+        if not (target / managed_reference).is_file():
+            raise RuntimeError("Missing installed Pi child-only extension")
+    for role, extension_name in child_extensions.items():
+        agent_path = target / "agents" / f"{role}.md"
+        expected_reference = f"../extensions/agent-orchestration/{extension_name}"
+        reference = next(
+            (
+                line.split(": ", 1)[1]
+                for line in agent_path.read_text().splitlines()
+                if line.startswith("subagentOnlyExtensions: ")
+            ),
+            None,
+        )
+        if reference != expected_reference:
+            raise RuntimeError(f"Invalid Pi child-only extension reference: {agent_path}")
+        managed_reference = f"extensions/agent-orchestration/{extension_name}"
+        if managed_reference not in managed_extensions:
+            raise RuntimeError("Pi child-only extension is not manifest-owned")
+        extension_path = agent_path.parent / reference
+        if not extension_path.is_file():
+            raise RuntimeError("Missing installed Pi child-only extension")
     launcher_name = f"pi-{profile}"
     launchers = [path for path in files if path.name == launcher_name]
     if launchers and (len(launchers) != 1 or not os.access(launchers[0], os.X_OK)):
@@ -924,7 +961,10 @@ def install(
             settings_content, catalog_content, extension_contents = source_files
             rendered_manifest_path = rendered / "manifest.json"
             rendered_manifest = json.loads(rendered_manifest_path.read_text())
-            rendered_manifest["managed_extensions"] = list(DEEPSEEK_MANAGED_EXTENSIONS)
+            rendered_manifest["managed_extensions"] = sorted(
+                set(rendered_manifest.get("managed_extensions", []))
+                | set(DEEPSEEK_MANAGED_EXTENSIONS)
+            )
             rendered_manifest_path.write_text(json.dumps(rendered_manifest, indent=2) + "\n")
             for relative, content in extension_contents.items():
                 destination = rendered / relative

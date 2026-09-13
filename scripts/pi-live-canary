@@ -1,0 +1,880 @@
+#!/usr/bin/env python3
+"""Run the explicitly acknowledged, local-only OpenAI Pi delegation canary."""
+
+from __future__ import annotations
+
+import json
+import os
+import queue
+import re
+import signal
+import shutil
+import stat
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+ACKNOWLEDGEMENT = "I_ACCEPT_OPENAI_USAGE"
+ENABLE_VARIABLE = "AGENT_ORCHESTRATION_PI_LIVE_CANARY"
+ACK_VARIABLE = "AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK"
+LAUNCHER_VARIABLE = "AGENT_ORCHESTRATION_PI_LIVE_CANARY_LAUNCHER"
+TIMEOUT_VARIABLE = "AGENT_ORCHESTRATION_PI_LIVE_CANARY_TIMEOUT_SECONDS"
+OUTPUT_VARIABLE = "AGENT_ORCHESTRATION_PI_LIVE_CANARY_MAX_OUTPUT_BYTES"
+DEFAULT_TIMEOUT_SECONDS = 5 * 60.0
+MAX_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
+DEFAULT_MAX_OUTPUT_BYTES = 1 * 1024 * 1024
+MAX_MAX_OUTPUT_BYTES = DEFAULT_MAX_OUTPUT_BYTES
+MAX_ARTIFACT_BYTES = DEFAULT_MAX_OUTPUT_BYTES
+MAX_SUBAGENT_SPAWNS = 3
+# Retained Pi records can wrap an event several layers deep.  Keep traversal and
+# the only string-to-JSON coercion (argsPayload) independently bounded.
+MAX_NESTED_EVENT_DEPTH = 8
+MAX_NESTED_EVENT_NODES = 256
+MAX_ARGS_PAYLOAD_BYTES = 16 * 1024
+CANARY_TOKEN = "AGENT_ORCHESTRATION_PI_LIVE_CANARY_MARKER_V1"
+KNOWN_AGENT_NAMES = frozenset(
+    {
+        "planner",
+        "explorer",
+        "spec-writer",
+        "validator",
+        "worker",
+        "worker-complex",
+        "reviewer",
+        "debugger",
+        "design-partner",
+        "ux-critic",
+    }
+)
+TOOL_START_KINDS = frozenset({"tool_execution_start"})
+TOOL_END_KINDS = frozenset({"tool_execution_end"})
+TARGET_KEYS = frozenset(
+    {
+        "agent",
+        "agentname",
+        "agent_name",
+        "agenttype",
+        "agent_type",
+        "role",
+        "subagent",
+        "subagentname",
+        "subagent_name",
+        "subagenttype",
+        "subagent_type",
+        "target",
+        "targetagent",
+        "target_agent",
+    }
+)
+TOOL_KEYS = frozenset({"tool", "toolname", "tool_name", "name"})
+ARGS_PAYLOAD_KEYS = frozenset({"argspayload", "args_payload"})
+SOURCE_EVENT_TYPE_KEYS = frozenset({"sourceeventtype", "source_event_type"})
+RECORD_TYPE_KEYS = frozenset({"recordtype", "record_type"})
+GENERIC_RECORD_KINDS = frozenset({"event", "record", "session", "message"})
+EVENT_KINDS = TOOL_START_KINDS | TOOL_END_KINDS
+
+
+class CanaryError(Exception):
+    """An internal failure represented by a fixed public category."""
+
+    def __init__(self, category: str):
+        super().__init__(category)
+        self.category = category
+
+
+def _summary(
+    *,
+    ok: bool,
+    category: str,
+    duration_ms: int = 0,
+    evidence: dict[str, object] | None = None,
+) -> dict[str, object]:
+    values = {
+        "ok": bool(ok),
+        "category": category,
+        "duration_ms": max(0, min(int(duration_ms), 24 * 60 * 60 * 1000)),
+    }
+    for key, value in (evidence or {}).items():
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z_]+", key):
+            continue
+        if isinstance(value, bool):
+            values[key] = value
+        elif isinstance(value, int) and key.endswith("_count"):
+            # Counters are public, bounded metadata; never expose arbitrary
+            # values from a retained record or provider response.
+            values[key] = max(0, min(value, MAX_NESTED_EVENT_NODES))
+    return values
+
+
+def emit_summary(summary: dict[str, object]) -> None:
+    """Emit only the bounded public result; never forward child output."""
+    print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+
+
+def _configuration_limit(name: str, default: float, maximum: float) -> float:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        parsed = float(value)
+    except ValueError as error:
+        raise CanaryError("invalid-configuration") from error
+    if not (0 < parsed <= maximum):
+        raise CanaryError("invalid-configuration")
+    return parsed
+
+
+def _configuration_int(name: str, default: int, maximum: int) -> int:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise CanaryError("invalid-configuration") from error
+    if not (0 < parsed <= maximum):
+        raise CanaryError("invalid-configuration")
+    return parsed
+
+
+def preflight() -> tuple[Path, float, int] | tuple[None, str, None]:
+    """Check all opt-in gates without looking at authentication state."""
+    if os.environ.get(ENABLE_VARIABLE) != "1":
+        return None, "not-enabled", None
+    if os.environ.get(ACK_VARIABLE) != ACKNOWLEDGEMENT:
+        return None, "acknowledgement-required", None
+    if os.environ.get("CI", ""):
+        return None, "ci-refused", None
+
+    launcher_value = os.environ.get(LAUNCHER_VARIABLE)
+    launcher = Path(launcher_value).expanduser() if launcher_value else Path.home() / ".local" / "bin" / "pi-openai"
+    if launcher.name != "pi-openai" or not launcher.is_absolute():
+        return None, "openai-launcher-required", None
+    if not launcher.is_file() or not os.access(launcher, os.X_OK):
+        return None, "launcher-unavailable", None
+    try:
+        timeout = _configuration_limit(
+            TIMEOUT_VARIABLE, DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS
+        )
+        output_limit = _configuration_int(
+            OUTPUT_VARIABLE, DEFAULT_MAX_OUTPUT_BYTES, MAX_MAX_OUTPUT_BYTES
+        )
+    except CanaryError as error:
+        return None, error.category, None
+    return launcher, timeout, output_limit
+
+
+def _normalized_key(key: object) -> str:
+    return key.lower().replace("-", "_") if isinstance(key, str) else ""
+
+
+def _decode_args_payload(value: object) -> object | None:
+    """Decode only the bounded JSON string used by retained Pi tool records."""
+    if not isinstance(value, str):
+        return None
+    try:
+        if len(value.encode("utf-8")) > MAX_ARGS_PAYLOAD_BYTES:
+            return None
+    except UnicodeEncodeError:
+        return None
+    try:
+        decoded = json.loads(value)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return None
+    return decoded if isinstance(decoded, (dict, list)) else None
+
+
+def _iter_nested_values(value: object):
+    """Walk JSON containers with a depth/node bound and no raw-string parsing."""
+    pending: list[tuple[object, int]] = [(value, 0)]
+    seen: set[int] = set()
+    visited = 0
+    while pending and visited < MAX_NESTED_EVENT_NODES:
+        current, depth = pending.pop()
+        if isinstance(current, (dict, list)):
+            identity = id(current)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            visited += 1
+            yield current
+            if depth >= MAX_NESTED_EVENT_DEPTH:
+                continue
+            if isinstance(current, dict):
+                children = list(current.items())
+                for key, child in reversed(children):
+                    normalized = _normalized_key(key)
+                    if normalized in ARGS_PAYLOAD_KEYS and isinstance(child, str):
+                        decoded = _decode_args_payload(child)
+                        if decoded is not None:
+                            pending.append((decoded, depth + 1))
+                    elif isinstance(child, (dict, list)):
+                        pending.append((child, depth + 1))
+            else:
+                for child in reversed(current):
+                    if isinstance(child, (dict, list)):
+                        pending.append((child, depth + 1))
+
+
+def _direct_event_kind(event: dict[str, Any]) -> str | None:
+    # sourceEventType is the authoritative event kind on retained records.
+    for key, value in event.items():
+        if _normalized_key(key) in SOURCE_EVENT_TYPE_KEYS and isinstance(value, str):
+            return value
+    for key, value in event.items():
+        if _normalized_key(key) in {"type", "event", "kind", "method"} and isinstance(value, str):
+            return value
+    # Some retained records put the event kind in recordType directly.  Do
+    # not mistake the ordinary ``recordType: event`` envelope for a tool event.
+    for key, value in event.items():
+        if _normalized_key(key) in RECORD_TYPE_KEYS and isinstance(value, str):
+            if value in EVENT_KINDS:
+                return value
+            return value
+    return None
+
+
+def _event_kind(event: dict[str, Any]) -> str | None:
+    direct = _direct_event_kind(event)
+    if direct is not None and direct.casefold() not in GENERIC_RECORD_KINDS:
+        return direct
+    for value in _iter_nested_values(event):
+        if value is event or not isinstance(value, dict):
+            continue
+        nested = _direct_event_kind(value)
+        if nested in EVENT_KINDS:
+            return nested
+    return direct
+
+
+def _direct_tool_name(event: dict[str, Any]) -> str | None:
+    for preferred in ("toolName", "tool_name", "tool", "name"):
+        value = event.get(preferred)
+        if isinstance(value, str):
+            return value
+    for key, value in event.items():
+        if _normalized_key(key) in TOOL_KEYS and isinstance(value, str):
+            return value
+    return None
+
+
+def _tool_name(event: dict[str, Any]) -> str | None:
+    for value in _iter_nested_values(event):
+        if isinstance(value, dict):
+            name = _direct_tool_name(value)
+            if name is not None:
+                return name
+    return None
+
+
+def _direct_event_id(event: dict[str, Any]) -> str | None:
+    for key, value in event.items():
+        if _normalized_key(key) in {
+            "toolcallid",
+            "tool_call_id",
+            "callid",
+            "call_id",
+            "id",
+        } and isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _iter_tool_events(
+    events: list[dict[str, Any]], kinds: frozenset[str]
+) -> list[dict[str, Any]]:
+    """Flatten retained event envelopes into bounded tool-event views."""
+    pending: list[tuple[object, str | None, str | None, int]] = [
+        (event, None, None, 0) for event in reversed(events)
+    ]
+    seen: set[int] = set()
+    visited = 0
+    results: list[dict[str, Any]] = []
+    while pending and visited < MAX_NESTED_EVENT_NODES:
+        current, inherited_kind, inherited_id, depth = pending.pop()
+        if not isinstance(current, (dict, list)):
+            continue
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        visited += 1
+        if isinstance(current, list):
+            if depth < MAX_NESTED_EVENT_DEPTH:
+                for child in reversed(current):
+                    if isinstance(child, (dict, list)):
+                        pending.append((child, inherited_kind, inherited_id, depth + 1))
+            continue
+
+        own_kind = _direct_event_kind(current)
+        if own_kind in kinds:
+            effective_kind = own_kind
+        elif own_kind is None or own_kind.casefold() in GENERIC_RECORD_KINDS:
+            effective_kind = inherited_kind
+        else:
+            effective_kind = None
+        own_id = _direct_event_id(current)
+        effective_id = own_id or inherited_id
+        tool_name = _direct_tool_name(current)
+        nested_tool_name = _tool_name(current)
+        has_own_event_kind = own_kind in kinds
+        if effective_kind in kinds and (
+            tool_name is not None
+            or (has_own_event_kind and nested_tool_name is None)
+        ):
+            candidate = current
+            if own_kind != effective_kind or (effective_id and own_id is None):
+                candidate = dict(current)
+                if own_kind != effective_kind:
+                    candidate["type"] = effective_kind
+                if effective_id and own_id is None:
+                    candidate["id"] = effective_id
+            results.append(candidate)
+
+        child_kind = effective_kind if effective_kind in EVENT_KINDS else None
+        child_id = effective_id
+        if depth >= MAX_NESTED_EVENT_DEPTH:
+            continue
+        children = list(current.items())
+        for key, child in reversed(children):
+            normalized = _normalized_key(key)
+            if normalized in ARGS_PAYLOAD_KEYS and isinstance(child, str):
+                decoded = _decode_args_payload(child)
+                if decoded is not None:
+                    pending.append((decoded, child_kind, child_id, depth + 1))
+            elif isinstance(child, (dict, list)):
+                pending.append((child, child_kind, child_id, depth + 1))
+    return results
+
+
+def is_subagent_tool_event(event: dict[str, Any]) -> bool:
+    name = _tool_name(event)
+    if name is None:
+        return False
+    normalized = name.lower().replace("-", "_")
+    return normalized in {"subagent", "subagents", "delegate", "delegation"}
+
+
+def tool_starts(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in _iter_tool_events(events, TOOL_START_KINDS)
+        if is_subagent_tool_event(event)
+    ]
+
+
+def _find_target(value: object, *, keyed: bool = False) -> str | None:
+    pending: list[tuple[object, bool, int]] = [(value, keyed, 0)]
+    seen: set[int] = set()
+    visited = 0
+    while pending and visited < MAX_NESTED_EVENT_NODES:
+        current, current_keyed, depth = pending.pop()
+        if isinstance(current, str):
+            if current_keyed and current in KNOWN_AGENT_NAMES:
+                return current
+            continue
+        if not isinstance(current, (dict, list)):
+            continue
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        visited += 1
+        if depth >= MAX_NESTED_EVENT_DEPTH:
+            continue
+        if isinstance(current, list):
+            for child in reversed(current):
+                pending.append((child, current_keyed, depth + 1))
+            continue
+        children = list(current.items())
+        for key, child in reversed(children):
+            normalized = _normalized_key(key)
+            child_keyed = current_keyed or normalized in TARGET_KEYS
+            if isinstance(child, str) and child_keyed and child in KNOWN_AGENT_NAMES:
+                return child
+            if isinstance(child, (dict, list)):
+                pending.append((child, child_keyed, depth + 1))
+            elif normalized in ARGS_PAYLOAD_KEYS and isinstance(child, str):
+                decoded = _decode_args_payload(child)
+                if decoded is not None:
+                    pending.append((decoded, child_keyed, depth + 1))
+    return None
+
+
+def target_of_event(event: dict[str, Any]) -> str | None:
+    return _find_target(event)
+
+
+def event_id(event: dict[str, Any]) -> str | None:
+    for value in _iter_nested_values(event):
+        if isinstance(value, dict):
+            identifier = _direct_event_id(value)
+            if identifier is not None:
+                return identifier
+    return None
+
+
+def parse_jsonl(data: bytes) -> tuple[list[dict[str, Any]], bool]:
+    """Parse JSONL without retaining malformed/raw output in diagnostics."""
+    events: list[dict[str, Any]] = []
+    malformed = False
+    for line in data.splitlines():
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+            malformed = True
+            continue
+        if not isinstance(value, dict):
+            malformed = True
+            continue
+        events.append(value)
+    return events, malformed
+
+
+def _artifact_files(session_dir: Path) -> tuple[list[tuple[Path, bytes]], bool]:
+    """Read only bounded, non-linked files inside the dedicated session root."""
+    files: list[tuple[Path, bytes]] = []
+    total = 0
+    try:
+        paths = sorted(session_dir.rglob("*"))
+    except OSError as error:
+        raise CanaryError("artifact-boundary") from error
+    for path in paths:
+        try:
+            if path.is_symlink():
+                raise CanaryError("artifact-boundary")
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise CanaryError("artifact-boundary")
+            if path.name.casefold() in {"auth.json", ".env", ".env.local"}:
+                raise CanaryError("artifact-boundary")
+            resolved = path.resolve()
+            resolved.relative_to(session_dir.resolve())
+            size = path.stat().st_size
+            if size < 0 or size > MAX_ARTIFACT_BYTES or total + size > MAX_ARTIFACT_BYTES:
+                raise CanaryError("artifact-bound")
+            content = path.read_bytes()
+            if total + len(content) > MAX_ARTIFACT_BYTES:
+                raise CanaryError("artifact-bound")
+        except CanaryError:
+            raise
+        except (OSError, ValueError) as error:
+            raise CanaryError("artifact-boundary") from error
+        total += len(content)
+        files.append((path, content))
+    return files, False
+
+
+def _artifact_events(files: list[tuple[Path, bytes]]) -> tuple[list[dict[str, Any]], bool]:
+    events: list[dict[str, Any]] = []
+    malformed = False
+    for _path, content in files:
+        full_document = True
+        try:
+            value = json.loads(content)
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+            full_document = False
+            value = None
+        if isinstance(value, dict):
+            events.append(value)
+            continue
+        if isinstance(value, list):
+            # A retained session may be one bounded JSON array of records
+            # rather than JSONL.  Keep only object records and fail closed on
+            # any other array member.
+            for item in value:
+                if isinstance(item, dict):
+                    events.append(item)
+                else:
+                    malformed = True
+            continue
+        if full_document:
+            malformed = True
+            continue
+        parsed, invalid = parse_jsonl(content)
+        events.extend(parsed)
+        malformed = malformed or invalid
+        if not parsed and value is not None:
+            malformed = True
+    return events, malformed
+
+
+def _contains_all(text: str, *needles: str) -> bool:
+    folded = text.casefold()
+    return all(needle.casefold() in folded for needle in needles)
+
+
+def evaluate_evidence(
+    parent_events: list[dict[str, Any]],
+    artifact_files: list[tuple[Path, bytes]],
+    *,
+    nonce: str,
+    token: str,
+    marker_unchanged: bool,
+    workspace_clean: bool,
+    parse_failed: bool = False,
+) -> tuple[dict[str, object], str]:
+    """Evaluate only the canary's fixed observable claims."""
+    artifact_events, artifact_parse_failed = _artifact_events(artifact_files)
+    parent_tool_starts = _iter_tool_events(parent_events, TOOL_START_KINDS)
+    parent_child_starts = [
+        event for event in parent_tool_starts if is_subagent_tool_event(event)
+    ]
+    artifact_child_starts = tool_starts(artifact_events)
+    child_starts = parent_child_starts + artifact_child_starts
+
+    # The parent is intentionally given only the subagent tool.  Its one and
+    # only tool start must therefore be a planner delegation, and it must be
+    # the first start observed.  Report only a bounded count, never tool names
+    # or provider text.
+    planner_starts = [
+        event for event in parent_child_starts if target_of_event(event) == "planner"
+    ]
+    # Reserve one planner start as the expected action when present.  Any
+    # other parent start is counted, while ordering is checked separately by
+    # requiring the exact one-start shape below.
+    unexpected_parent_tool_count = max(
+        0, len(parent_tool_starts) - (1 if planner_starts else 0)
+    )
+    planner_ids = {event_id(event) for event in planner_starts} - {None}
+    parent_tool_ends = _iter_tool_events(parent_events, TOOL_END_KINDS)
+    planner_completed = any(
+        is_subagent_tool_event(event)
+        and (
+            target_of_event(event) == "planner"
+            or (event_id(event) is not None and event_id(event) in planner_ids)
+        )
+        for event in parent_tool_ends
+    )
+    planner_delegation = bool(planner_starts)
+    validator_started = any(target_of_event(event) == "validator" for event in child_starts)
+
+    explorer_result = False
+    validator_denied = False
+    validator_receipt = False
+    artifact_explorer_started = any(
+        target_of_event(event) == "explorer" for event in artifact_child_starts
+    )
+    planner_transcript_found = artifact_explorer_started or any(
+        target_of_event(event) == "planner" for event in artifact_events
+    )
+    for path, content in artifact_files:
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        lower_name = path.name.casefold()
+        # Keep the filename/text fallback for older Pi session artifacts, but
+        # also accept structured planner records whose filename is opaque.
+        is_planner = planner_transcript_found or "planner" in lower_name or _contains_all(
+            text, "planner"
+        )
+        if is_planner:
+            planner_transcript_found = True
+            explorer_result = explorer_result or _contains_all(text, "explorer", nonce, token)
+            validator_denied = validator_denied or _contains_all(
+                text, "validator", "capability ceiling"
+            )
+        if _contains_all(lower_name, "validator", "receipt") or _contains_all(
+            lower_name, "validator", "run"
+        ):
+            validator_receipt = True
+
+    # A structured receipt is authoritative even when its filename is opaque.
+    validator_receipt = validator_receipt or any(
+        target_of_event(event) == "validator" for event in artifact_child_starts
+    )
+    evidence: dict[str, object] = {
+        "planner_delegation": planner_delegation,
+        "planner_completed": planner_completed,
+        "planner_transcript": planner_transcript_found,
+        "explorer_result": explorer_result,
+        "validator_denied": validator_denied,
+        "validator_started": validator_started,
+        "validator_receipt": validator_receipt,
+        "marker_unchanged": marker_unchanged,
+        "workspace_clean": workspace_clean,
+        "unexpected_parent_tool_count": unexpected_parent_tool_count,
+    }
+    if len(child_starts) > MAX_SUBAGENT_SPAWNS:
+        return evidence, "spawn-bound"
+    if unexpected_parent_tool_count:
+        return evidence, "unexpected-parent-tool"
+    if parse_failed or artifact_parse_failed:
+        return evidence, "jsonl-parse-failed"
+    if not (planner_delegation and planner_completed):
+        return evidence, "evidence-failed"
+    if not (planner_transcript_found and explorer_result and validator_denied):
+        return evidence, "evidence-failed"
+    if validator_started or validator_receipt:
+        return evidence, "validator-started"
+    if not marker_unchanged:
+        return evidence, "marker-changed"
+    if not workspace_clean:
+        return evidence, "workspace-dirty"
+    return evidence, "passed"
+
+
+def _read_incremental_lines(buffer: bytearray, data: bytes, events: list[dict[str, Any]]) -> bool:
+    buffer.extend(data)
+    malformed = False
+    while b"\n" in buffer:
+        raw, _, remainder = buffer.partition(b"\n")
+        buffer[:] = remainder
+        parsed, invalid = parse_jsonl(raw)
+        malformed = malformed or invalid
+        events.extend(parsed)
+    return malformed
+
+
+def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            process.terminate()
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            process.terminate()
+        except OSError:
+            return
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            process.kill()
+        process.wait(timeout=2)
+
+
+def _run_launcher(
+    launcher: Path,
+    prompt: str,
+    workspace: Path,
+    session_dir: Path,
+    *,
+    timeout_seconds: float,
+    max_output_bytes: int,
+) -> tuple[list[dict[str, Any]], bool, str | None, int]:
+    command = [
+        str(launcher),
+        "--mode",
+        "json",
+        "--tools",
+        "subagent",
+        "--session-dir",
+        str(session_dir),
+        "--no-context-files",
+        prompt,
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=workspace,
+            env=os.environ.copy(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=os.name != "nt",
+        )
+    except OSError as error:
+        raise CanaryError("launcher-failed") from error
+    events: list[dict[str, Any]] = []
+    stdout_buffer = bytearray()
+    output_bytes = 0
+    malformed = False
+    stream_queue: queue.Queue[tuple[str, bytes | None]] = queue.Queue(maxsize=32)
+    active = {"stdout", "stderr"}
+
+    def pump(name: str, stream: Any) -> None:
+        try:
+            while True:
+                data = stream.read(4096)
+                if not data:
+                    break
+                stream_queue.put((name, data))
+        finally:
+            stream_queue.put((name, None))
+
+    threads = [
+        threading.Thread(target=pump, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=pump, args=("stderr", process.stderr), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    category: str | None = None
+    deadline = time.monotonic() + timeout_seconds
+    while active:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            category = "timeout"
+            _stop_process(process)
+            break
+        try:
+            name, data = stream_queue.get(timeout=min(0.1, remaining))
+        except queue.Empty:
+            if process.poll() is not None and not active:
+                break
+            continue
+        if data is None:
+            active.discard(name)
+            continue
+        output_bytes += len(data)
+        if output_bytes > max_output_bytes:
+            category = "output-bound"
+            _stop_process(process)
+            break
+        if name == "stdout":
+            malformed = _read_incremental_lines(stdout_buffer, data, events) or malformed
+        # Stderr contributes to the combined output bound but is never
+        # retained or forwarded because provider failures may contain secrets.
+    if category is not None:
+        _stop_process(process)
+    for thread in threads:
+        thread.join(timeout=2)
+    if process.poll() is None:
+        _stop_process(process)
+    if stdout_buffer:
+        parsed, invalid = parse_jsonl(bytes(stdout_buffer))
+        events.extend(parsed)
+        malformed = malformed or invalid
+    if category is None and process.returncode != 0:
+        category = "launcher-failed"
+    return events, malformed, category, output_bytes
+
+
+def _write_marker(workspace: Path) -> tuple[Path, str, bytes]:
+    nonce = os.urandom(16).hex()
+    marker = workspace / "immutable-marker.json"
+    content = json.dumps({"nonce": nonce, "token": CANARY_TOKEN}, sort_keys=True).encode() + b"\n"
+    descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    try:
+        os.write(descriptor, content)
+    finally:
+        os.close(descriptor)
+    marker.chmod(stat.S_IRUSR)
+    return marker, nonce, content
+
+
+def _workspace_clean(workspace: Path, marker: Path) -> bool:
+    try:
+        for path in workspace.rglob("*"):
+            if path.is_symlink():
+                return False
+            if path.is_file() and path != marker:
+                return False
+    except OSError:
+        return False
+    return True
+
+
+def _prompt(workspace: Path, session_dir: Path, marker: Path) -> str:
+    return (
+        "OpenAI Pi local canary. Work only in the supplied temporary workspace and do not "
+        "create files outside it. Your first action must be exactly one invocation of the "
+        "subagent tool targeting planner, and it must be your only parent action; do not use "
+        "any parent tool "
+        "before or after that invocation. The only enabled parent tool is subagent. Run it "
+        "in the foreground with full progress and this dedicated sessionDir: "
+        f"{session_dir}. The planner must launch exactly one explorer child to read "
+        f"{marker} and return its nonce and fixed token, then attempt exactly one validator "
+        "selection. The planner's capability ceiling must deny validator before a validator "
+        "child starts. Do not launch any other child or use any other delegation target. "
+        f"Parent workspace: {workspace}."
+    )
+
+
+def run_canary(launcher: Path, timeout_seconds: float, max_output_bytes: int) -> dict[str, object]:
+    started = time.monotonic()
+    root = Path(tempfile.mkdtemp(prefix="agent-orchestration-pi-canary-"))
+    workspace = root / "workspace"
+    session_dir = root / "session"
+    evidence: dict[str, object] = {
+        "planner_delegation": False,
+        "planner_completed": False,
+        "planner_transcript": False,
+        "explorer_result": False,
+        "validator_denied": False,
+        "validator_started": False,
+        "validator_receipt": False,
+        "marker_unchanged": False,
+        "workspace_clean": False,
+        "unexpected_parent_tool_count": 0,
+    }
+    category = "internal-error"
+    try:
+        workspace.mkdir(mode=0o700)
+        session_dir.mkdir(mode=0o700)
+        marker, nonce, marker_before = _write_marker(workspace)
+        events, parse_failed, process_category, _output_bytes = _run_launcher(
+            launcher,
+            _prompt(workspace, session_dir, marker),
+            workspace,
+            session_dir,
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=max_output_bytes,
+        )
+        try:
+            marker_unchanged = marker.exists() and marker.read_bytes() == marker_before
+        except OSError:
+            marker_unchanged = False
+        workspace_clean = _workspace_clean(workspace, marker)
+        try:
+            artifact_files, _ = _artifact_files(session_dir)
+            evidence, evaluated_category = evaluate_evidence(
+                events,
+                artifact_files,
+                nonce=nonce,
+                token=CANARY_TOKEN,
+                marker_unchanged=marker_unchanged,
+                workspace_clean=workspace_clean,
+                parse_failed=parse_failed,
+            )
+            # Process safety bounds are authoritative and must not be masked
+            # by the incomplete evidence left after a forced termination.
+            category = process_category or evaluated_category
+        except CanaryError as error:
+            category = error.category
+            evidence["marker_unchanged"] = marker_unchanged
+            evidence["workspace_clean"] = workspace_clean
+    except CanaryError as error:
+        category = error.category
+    except Exception:
+        category = "internal-error"
+    finally:
+        # The canary never retains transcripts, prompts, or temporary paths.
+        shutil.rmtree(root, ignore_errors=True)
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return _summary(
+        ok=category == "passed",
+        category=category,
+        duration_ms=duration_ms,
+        evidence=evidence,
+    )
+
+
+def main() -> int:
+    result = preflight()
+    launcher, timeout_or_category, max_output = result
+    if launcher is None:
+        emit_summary(_summary(ok=False, category=str(timeout_or_category)))
+        return 1
+    assert max_output is not None
+    summary = run_canary(launcher, float(timeout_or_category), max_output)
+    emit_summary(summary)
+    return 0 if summary.get("ok") is True else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

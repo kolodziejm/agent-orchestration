@@ -1,0 +1,8 @@
+version = 1
+
+[roles.planner]
+description = "Planner"
+mode = "subagent"
+edit = "allow"
+bash = "ask"
+delegates = ["missing-role"]

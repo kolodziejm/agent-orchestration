@@ -4,6 +4,7 @@ description: "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
 model: openai-codex/gpt-5.6-sol
 thinking: high
 tools: read, grep, find, ls, edit, write, bash, subagent
+subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-planner.js
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false

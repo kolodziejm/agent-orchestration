@@ -21,6 +21,10 @@ policy + role contracts + logical model profiles
   including the separate `[control_plane]` intent for the primary model, small model,
   and built-in `build`/`plan` mappings.
 - `profiles/*.md` — profile-specific capability addenda.
+- `adapters/validate.py` executes both Draft 2020-12 schemas before semantic
+  checks, then validates the exact delegation graph: only known roles and the
+  literal `vision-*` target are accepted, cycles fail closed, and every role
+  outside the canonical delegator allowlist must remain a leaf.
 
 Model identifiers belong only in profiles. Role contracts must not name providers.
 
@@ -72,8 +76,9 @@ Run contract tests and ensure snapshots are current in the reproducible uv envir
 uv run --locked ./scripts/check
 ```
 
-The project requires Python 3.11 or newer and pins PyYAML 6.0.2 in `pyproject.toml` and
-`uv.lock`. The scripts also work when invoked directly with a 3.11+ `python3`; on macOS
+The project requires Python 3.11 or newer and pins PyYAML 6.0.2 and jsonschema 4.25.1
+in `pyproject.toml` and `uv.lock`. The scripts also work when invoked directly with a
+3.11+ `python3`; on macOS
 systems whose `/usr/bin/python3` is 3.9, use the uv command above. Scripts detect an
 already-active uv environment and do not recursively invoke uv.
 
@@ -307,12 +312,31 @@ Pi's native child permissions deliberately reject `permissions.bash`; if `bash` 
 an agent's tool list, pi-subagents always passes it through. The adapter therefore omits
 `bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Use a
 separately configured permission wrapper for command-level policy. Pi agent files
-configure child roles and each profile launcher selects the primary model. Pi cannot
-install the small model or built-in build/plan mappings, so each bundle's
-`_shared/control-plane.json` records those values as non-installed intent. Neither
-profile has a concrete `vision-*` agent among the canonical ten; both selected models
-declare native vision, so wildcard visual delegation remains guidance rather than an
-advertised runtime agent.
+configure child roles and each profile launcher selects the primary model. Planner and
+reviewer additionally load child-only, profile-owned guards through pi-subagents'
+public `./capability-ceiling` export: planner allows only `explorer` and
+`spec-writer`, while reviewer allows only `explorer`. Missing package resolution or
+registration fails closed, and the guard is a child-selection boundary rather than an
+OS sandbox or general command classifier. All other canonical roles lack `subagent`,
+so they are leaves at the Pi tool boundary. Pi cannot install the small model or
+built-in build/plan mappings, so each bundle's `_shared/control-plane.json` records
+those values as non-installed intent. Neither profile has a concrete `vision-*` agent
+among the canonical ten; both selected models declare native vision, so wildcard
+visual delegation remains guidance rather than an advertised runtime agent.
+
+The normal `./scripts/check` / `uv run --locked ./scripts/check` path is deterministic,
+credential-free, and never invokes a provider. An optional paid OpenAI integration
+canary is deliberately separate and local-only; it is available but not run by
+CI/default checks. It refuses without both explicit opt-in and acknowledgement,
+refuses whenever `CI` is set, requires the existing `pi-openai` launcher, and bounds
+its temporary workspace, runtime, output, and child count. Run it only when you
+accept OpenAI usage:
+
+```bash
+AGENT_ORCHESTRATION_PI_LIVE_CANARY=1 \
+AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK=I_ACCEPT_OPENAI_USAGE \
+./scripts/pi-live-canary
+```
 
 ## Adding a role
 

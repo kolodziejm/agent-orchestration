@@ -273,14 +273,35 @@ console.log(JSON.stringify({ queries, statuses }));
         """Hybrid gets DeepSeek pricing, OpenAI gets Codex pace, and neither leaks across profiles."""
         expected = {
             "hybrid": (
-                ["deepseek-price-status.js", "package.json"],
+                [
+                    "delegation-ceiling-core.js",
+                    "delegation-ceiling-planner.js",
+                    "delegation-ceiling-reviewer.js",
+                    "deepseek-price-status.js",
+                    "package.json",
+                ],
                 {"type": "module", "pi": {"extensions": ["./deepseek-price-status.js"]}},
             ),
             "openai": (
-                ["codex-pace-core.mjs", "codex-pace-loader.ts", "package.json"],
+                [
+                    "codex-pace-core.mjs",
+                    "codex-pace-loader.ts",
+                    "delegation-ceiling-core.js",
+                    "delegation-ceiling-planner.js",
+                    "delegation-ceiling-reviewer.js",
+                    "package.json",
+                ],
                 {"type": "module", "pi": {"extensions": ["./codex-pace-loader.ts"]}},
             ),
-            "deepseek": ([], None),
+            "deepseek": (
+                [
+                    "delegation-ceiling-core.js",
+                    "delegation-ceiling-planner.js",
+                    "delegation-ceiling-reviewer.js",
+                    "package.json",
+                ],
+                {"type": "module", "pi": {"extensions": []}},
+            ),
         }
         for profile_name, (expected_names, expected_package) in expected.items():
             with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
@@ -515,6 +536,122 @@ console.log(JSON.stringify({ queries, statuses }));
                 self.assertEqual(tools_line, f"tools: {', '.join(UX_CRITIC_TOOLS)}")
                 self.assertTrue(set(UX_CRITIC_TOOLS).isdisjoint(forbidden))
 
+    def test_child_ceiling_wrappers_register_exact_targets_and_dispose_lifecycle_handles(self):
+        """This test will fail when a child guard widens targets or leaks a registration."""
+        for role, expected in {
+            "planner": ["explorer", "spec-writer"],
+            "reviewer": ["explorer"],
+        }.items():
+            with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                profile = root / "profile"
+                package = profile / "npm/node_modules/pi-subagents"
+                package.mkdir(parents=True)
+                (package / "package.json").write_text(json.dumps({
+                    "name": "pi-subagents",
+                    "type": "module",
+                    "exports": {"./capability-ceiling": "./capability-ceiling.js"},
+                }))
+                (package / "capability-ceiling.js").write_text(
+                    "globalThis.calls = []; globalThis.disposals = [];\n"
+                    "export function registerSubagentCapabilityCeiling(options) {\n"
+                    "  globalThis.calls.push({sessionId: options.sessionId, source: options.source, allowedAgents: [...options.ceiling.allowedAgents]});\n"
+                    "  return {dispose() { globalThis.disposals.push(options.source); }};\n"
+                    "}\n"
+                )
+                wrapper = ROOT / "adapters/pi/extensions" / f"delegation-ceiling-{role}.js"
+                script = """
+import extension from %s;
+const handlers = {};
+extension({on(name, callback) { handlers[name] = callback; }});
+const context = {sessionManager: {getSessionId: () => "session-1"}};
+handlers.session_start({}, context);
+handlers.session_start({}, context);
+handlers.session_shutdown({}, context);
+console.log(JSON.stringify({calls: globalThis.calls, disposals: globalThis.disposals}));
+""" % json.dumps(wrapper.as_uri())
+                environment = os.environ.copy()
+                environment["PI_CODING_AGENT_DIR"] = str(profile)
+                result = subprocess.run(
+                    ["node", "--input-type=module", "--eval", script],
+                    cwd=ROOT, env=environment, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(
+                    [call["allowedAgents"] for call in payload["calls"]],
+                    [expected, expected],
+                )
+                self.assertEqual(
+                    [call["sessionId"] for call in payload["calls"]],
+                    ["session-1", "session-1"],
+                )
+                self.assertEqual(len(payload["disposals"]), 2)
+
+    def test_child_ceiling_rejects_public_export_resolution_failures_and_supports_absolute_package_sources(self):
+        """This test will fail when the guard swallows package failures or reaches private paths."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = root / "profile"
+            package = root / "absolute-package"
+            package.mkdir(parents=True)
+            profile.mkdir()
+            (package / "package.json").write_text(json.dumps({
+                "name": "pi-subagents",
+                "type": "module",
+                "exports": {"./capability-ceiling": "./capability-ceiling.js"},
+            }))
+            (package / "capability-ceiling.js").write_text(
+                "export function registerSubagentCapabilityCeiling(options) {\n"
+                "  globalThis.received = options;\n"
+                "  return {dispose() {}};\n"
+                "}\n"
+            )
+            (profile / "settings.json").write_text(json.dumps({
+                "packages": [{"source": str(package)}],
+            }))
+            wrapper = ROOT / "adapters/pi/extensions/delegation-ceiling-planner.js"
+            script = """
+import extension from %s;
+const handlers = {};
+extension({on(name, callback) { handlers[name] = callback; }});
+handlers.session_start({}, {sessionManager: {getSessionId: () => "absolute"}});
+const allowed = globalThis.received.ceiling.allowedAgents;
+console.log(JSON.stringify({allowed, acceptsExplorer: allowed.includes("explorer"), deniesValidator: !allowed.includes("validator")}));
+""" % json.dumps(wrapper.as_uri())
+            environment = os.environ.copy()
+            environment["PI_CODING_AGENT_DIR"] = str(profile)
+            result = subprocess.run(
+                ["node", "--input-type=module", "--eval", script],
+                cwd=ROOT, env=environment, text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {
+                "allowed": ["explorer", "spec-writer"],
+                "acceptsExplorer": True,
+                "deniesValidator": True,
+            })
+
+            broken = root / "broken-profile/npm/node_modules/pi-subagents"
+            broken.mkdir(parents=True)
+            (broken / "package.json").write_text(json.dumps({
+                "name": "pi-subagents",
+                "type": "module",
+                "exports": {"./capability-ceiling": "./missing.js"},
+            }))
+            broken_environment = environment.copy()
+            broken_environment["PI_CODING_AGENT_DIR"] = str(root / "broken-profile")
+            broken_result = subprocess.run(
+                ["node", "--input-type=module", "--eval", "import %s;" % json.dumps(wrapper.as_uri())],
+                cwd=ROOT, env=broken_environment, text=True, capture_output=True,
+            )
+            self.assertNotEqual(broken_result.returncode, 0)
+            self.assertTrue(
+                "ERR_MODULE_NOT_FOUND" in broken_result.stderr
+                or "missing.js" in broken_result.stderr
+            )
+            self.assertEqual(broken_result.stdout, "")
+
     def test_renderer_emits_complete_default_hybrid_pi_bundle(self):
         """This test will fail when the Pi bundle omits a canonical artifact or role."""
         with (ROOT / "policy" / "routing.toml").open("rb") as handle:
@@ -563,7 +700,18 @@ console.log(JSON.stringify({ queries, statuses }));
                 self.assertIn("defaultContext: fresh", frontmatter)
                 self.assertIn("inheritProjectContext: false", frontmatter)
                 self.assertIn("inheritSkills: false", frontmatter)
-                self.assertNotIn("extensions:", frontmatter)
+                if role == "planner":
+                    self.assertIn(
+                        "subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-planner.js",
+                        frontmatter,
+                    )
+                elif role == "reviewer":
+                    self.assertIn(
+                        "subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-reviewer.js",
+                        frontmatter,
+                    )
+                else:
+                    self.assertNotIn("subagentOnlyExtensions:", frontmatter)
                 self.assertIn((ROOT / "roles" / f"{role}.md").read_text(), content)
 
     def test_bundle_documents_pi_permission_and_control_plane_degradation(self):

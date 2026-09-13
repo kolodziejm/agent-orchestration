@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Orchestration — audyt wyjaśniony</title>
+<style>
+:root{--p1:#ef4444;--p2:#f59e0b;--p3:#60a5fa;--good:#22c55e;--violet:#a78bfa;--cyan:#22d3ee;--panel:color-mix(in srgb,var(--card,#ffffff) 88%,transparent);--soft:color-mix(in srgb,var(--foreground,#111827) 7%,transparent)}
+*{box-sizing:border-box}body{color:var(--foreground,#111827);line-height:1.48}button{font:inherit}.shell{width:min(1180px,calc(100vw - 20px));padding:18px 0 28px}.eyebrow{font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--accent,#2563eb)}h1{font-size:clamp(30px,5vw,58px);line-height:1.02;letter-spacing:-.045em;margin:10px 0 12px;max-width:850px}h2{font-size:clamp(22px,3vw,34px);letter-spacing:-.025em;margin:0 0 8px}h3{font-size:17px;margin:0 0 6px}.lead{font-size:18px;color:var(--muted-foreground,#4b5563);max-width:850px;margin:0}.meta{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 28px}.pill{border:1px solid var(--border,#d1d5db);background:var(--soft);border-radius:999px;padding:6px 10px;font:650 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}.pill.good{border-color:color-mix(in srgb,var(--good) 50%,var(--border,#d1d5db));color:var(--good)}.pill.warn{border-color:color-mix(in srgb,var(--p2) 50%,var(--border,#d1d5db));color:var(--p2)}.section{margin-top:38px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;border-bottom:1px solid var(--border,#d1d5db);padding-bottom:12px;margin-bottom:16px}.section-head p{margin:0;color:var(--muted-foreground,#4b5563);max-width:570px}.diagram{border:1px solid var(--border,#d1d5db);background:var(--panel);border-radius:14px;padding:18px;overflow:auto}.flow{min-width:910px;display:grid;grid-template-columns:1fr 42px 1fr 42px 1fr;align-items:stretch;gap:10px}.arrow{display:grid;place-items:center;color:var(--muted-foreground,#4b5563);font-size:24px}.layer{border:1px solid var(--border,#d1d5db);border-radius:12px;padding:14px;background:var(--card,#ffffff);min-height:194px}.layer strong{display:block;margin-bottom:10px}.layer ul{padding-left:18px;margin:0;color:var(--muted-foreground,#4b5563)}.layer li+li{margin-top:5px}.layer.policy{border-color:color-mix(in srgb,var(--violet) 45%,var(--border,#d1d5db))}.layer.adapter{border-color:color-mix(in srgb,var(--cyan) 45%,var(--border,#d1d5db))}.layer.runtime{border-color:color-mix(in srgb,var(--p2) 50%,var(--border,#d1d5db))}.status{display:inline-flex;align-items:center;gap:7px;font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:9px}.dot{width:7px;height:7px;border-radius:50%;background:currentColor}.concept{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.concept article{border:1px solid var(--border,#d1d5db);border-radius:12px;padding:16px;background:var(--panel)}.concept .bad{border-color:color-mix(in srgb,var(--p1) 45%,var(--border,#d1d5db))}.concept .good{border-color:color-mix(in srgb,var(--good) 45%,var(--border,#d1d5db))}.code{font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:color-mix(in srgb,var(--foreground,#111827) 5%,transparent);padding:12px;border-radius:8px;white-space:pre-wrap;margin-top:10px;color:var(--muted-foreground,#4b5563)}.findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.finding{position:relative;border:1px solid var(--border,#d1d5db);border-radius:13px;padding:16px;background:var(--panel);overflow:hidden}.finding:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sev)}.finding[data-sev="P1"]{--sev:var(--p1)}.finding[data-sev="P2"]{--sev:var(--p2)}.finding[data-sev="P3"]{--sev:var(--p3)}.f-top{display:flex;justify-content:space-between;gap:12px;align-items:start}.sev{font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sev);border:1px solid color-mix(in srgb,var(--sev) 55%,var(--border,#d1d5db));padding:5px 7px;border-radius:6px}.finding p{margin:9px 0;color:var(--muted-foreground,#4b5563)}.finding dl{display:grid;grid-template-columns:74px 1fr;gap:6px 10px;margin:12px 0 0;font-size:13px}.finding dt{font-weight:750}.finding dd{margin:0;color:var(--muted-foreground,#4b5563)}code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:2px 5px;border-radius:5px}.roadmap{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;counter-reset:phase}.phase{counter-increment:phase;border:1px solid var(--border,#d1d5db);border-radius:13px;padding:16px;background:var(--panel)}.phase:before{content:"0" counter(phase);font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent,#2563eb)}.phase h3{margin-top:10px}.phase ol{padding-left:19px;margin:10px 0 0;color:var(--muted-foreground,#4b5563)}.phase li+li{margin-top:6px}.matrix{width:100%;border-collapse:collapse;font-size:13px}.matrix th,.matrix td{text-align:left;border-bottom:1px solid var(--border,#d1d5db);padding:10px 8px;vertical-align:top}.matrix th{color:var(--muted-foreground,#4b5563);font-size:11px;text-transform:uppercase;letter-spacing:.07em}.yes{color:var(--good);font-weight:750}.partial{color:var(--p2);font-weight:750}.no{color:var(--p1);font-weight:750}.takeaway{border:1px solid color-mix(in srgb,var(--accent,#2563eb) 48%,var(--border,#d1d5db));background:color-mix(in srgb,var(--accent,#2563eb) 8%,transparent);border-radius:14px;padding:20px;margin-top:36px}.takeaway p{font-size:18px;max-width:930px;margin:8px 0 0}.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.actions button{border:1px solid var(--border,#d1d5db);color:var(--foreground,#111827);background:var(--card,#ffffff);border-radius:9px;padding:9px 12px;cursor:pointer}.actions button:hover{border-color:var(--accent,#2563eb)}.foot{color:var(--muted-foreground,#4b5563);font-size:12px;margin-top:24px}.slop-report{display:none}@media(max-width:780px){.findings,.concept,.roadmap{grid-template-columns:1fr}.section-head{display:block}.section-head p{margin-top:6px}.shell{padding-top:10px}.flow{min-width:820px}}@media(prefers-reduced-motion:no-preference){.finding,.phase{transition:transform .15s ease,border-color .15s ease}.finding:hover,.phase:hover{transform:translateY(-2px)}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header>
+    <div class="eyebrow">agent-orchestration / audit mental model</div>
+    <h1>Dobra polityka. Niepełne egzekwowanie.</h1>
+    <p class="lead">Repozytorium dobrze opisuje, jak system ma działać. Największa luka polega na tym, że część kluczowych zasad jest obietnicą dla modelu, a nie ograniczeniem wymuszanym przez adapter lub runtime.</p>
+    <div class="meta">
+      <span class="pill good">170 deterministic tests</span>
+      <span class="pill good">deterministic check in CI</span>
+      <span class="pill good">0 × P0</span>
+      <span class="pill good">1 × Implemented</span>
+      <span class="pill warn">3 × Partial</span>
+      <span class="pill">0 × Open · 4 × Deferred</span>
+      <span class="pill">baseline e678406 · updated 12.09.2026</span>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="section-head"><div><div class="eyebrow">01 · mapa systemu</div><h2>Gdzie dokładnie jest luka?</h2></div><p>Warstwa po lewej jest dojrzała. Im bliżej rzeczywistego wykonania, tym mniej gwarancji da się udowodnić.</p></div>
+    <div class="diagram">
+      <div class="flow">
+        <article class="layer policy">
+          <div class="status" style="color:var(--good)"><span class="dot"></span>mocna</div>
+          <strong>Portable policy</strong>
+          <ul><li>role i authority</li><li>delegation graph w prozie</li><li>review verdict gate</li><li>bounded repair</li><li>profile-owned routing</li></ul>
+        </article>
+        <div class="arrow">→</div>
+        <article class="layer adapter">
+          <div class="status" style="color:var(--p2)"><span class="dot"></span>częściowa</div>
+          <strong>Schema + adapters</strong>
+          <ul><li>renderery i snapshoty</li><li>wykonywane JSON Schema + graph</li><li>bezpieczne instalatory</li><li>backup / rollback</li><li>część gates nadal prompt-only</li></ul>
+        </article>
+        <div class="arrow">→</div>
+        <article class="layer runtime">
+          <div class="status" style="color:var(--p2)"><span class="dot"></span>częściowa</div>
+          <strong>Pi / Claude / Codex / OpenCode</strong>
+          <ul><li>efektywne tools i permissions</li><li>realna delegacja</li><li>worktree ownership</li><li>repair counter</li><li>end-to-end policy proof</li></ul>
+        </article>
+      </div>
+    </div>
+    <div class="concept">
+      <article class="bad"><h3>Prompt contract</h3><p>„Validator nie może edytować plików.” Model otrzymuje instrukcję i zwykle jej przestrzega.</p><div class="code">policy/orchestration.md
+→ natural-language MUST NOT
+→ możliwe naruszenie przez tool/runtime</div></article>
+      <article class="good"><h3>Runtime enforcement</h3><p>Validator fizycznie nie otrzymuje narzędzia zapisu, a próba mutacji kończy się odmową i audytowalnym eventem.</p><div class="code">capability policy
+→ tool denied by adapter/runtime
+→ negative test proves rejection</div></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div><div class="eyebrow">02 · findings</div><h2>Co wymaga poprawy?</h2></div><p>Priorytet opisuje wpływ na wiarygodność control plane’u, nie jakość samego kodu.</p></div>
+    <div class="findings">
+      <article class="finding" data-sev="P3"><div class="f-top"><h3>Schematy są prawie martwą dokumentacją</h3><span class="sev">Implemented</span></div><p>Oba Draft 2020-12 JSON Schema oraz delegation graph są zaimplementowane i sprawdzane fail-closed: walidator odrzuca nieznane cele, cykle i nielegalne delegowanie liści.</p><dl><dt>Dowód</dt><dd><code>adapters/validate.py</code> + cztery negative fixtures</dd><dt>Przechodzi</dt><dd>deterministyczny suite: 170 testów</dd><dt>Granica</dt><dd>pozostałe workflow gates nadal nie są maszyną stanów</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Gates i repair budget są tylko w prozie</h3><span class="sev">Deferred</span></div><p>Ten milestone nie dodaje maszyny stanów, licznika prób ani artefaktu decyzji użytkownika.</p><dl><dt>Dowód</dt><dd><code>policy/orchestration.md:122–183</code></dd><dt>Status</dt><dd>jawnie odroczone, aby nie budować control-plane poza zakresem</dd><dt>Później</dt><dd>machine-readable transitions + verdict/finding IDs</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Pi nie zamyka granic fail-closed</h3><span class="sev">Partial</span></div><p>Liście nie dostają <code>subagent</code>, a planner i reviewer mają zainstalowane child-only allowed-agent ceilings przez publiczne API pi-subagents.</p><dl><dt>Dowód</dt><dd><code>delegation-ceiling-*.js</code> + renderer/install tests</dd><dt>Chronione</dt><dd>target ceilings są deterministycznie testowane; planner → explorer/spec-writer; reviewer → explorer</dd><dt>Pozostaje</dt><dd>shell degradation i izolacja OS nie są sandboxem</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Brak właściciela worktree</h3><span class="sev">Deferred</span></div><p>„Safe isolation” pozostaje oceną agenta, a nie sprawdzalnym stanem.</p><dl><dt>Dowód</dt><dd><code>policy/orchestration.md:23</code></dd><dt>Status</dt><dd>brak lease, registry i manifestu w tym milestone</dd><dt>Później</dt><dd>task manifest: worktree, writer, scope, lease/status</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Snapshot ≠ runtime proof</h3><span class="sev">Partial</span></div><p>Deterministyczne testy adaptera dowodzą rejestracji ceiling, denial contract i granic narzędzi. Drugi lokalny canary dostarczył częściowego dowodu runtime, ale nie zakończył się akceptacją.</p><dl><dt>Dowód</dt><dd>sanitized bounded local canary</dd><dt>Potwierdzone</dt><dd>planner transcript, zero unexpected parent tools, marker/cleanup bounds oraz fail-closed planner → validator; validator nie wystartował</dd><dt>Brak</dt><dd>dozwolony planner → explorer i ukończenie plannera; live proof pozostaje Partial, status canary: FAIL</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Worker nie może wykonać self-checków</h3><span class="sev">Deferred</span></div><p>To pozostaje świadomą decyzją: worker może autorować testy, ale validator wykonuje acceptance.</p><dl><dt>Dowód</dt><dd><code>policy/orchestration.md:108</code></dd><dt>Status</dt><dd>jawnie odroczone by explicit decision</dd><dt>Granica</dt><dd>nie rozszerzano roli workera o self-check execution</dd></dl></article>
+
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Niezależność bywa tylko procesowa</h3><span class="sev">Deferred</span></div><p>Fresh context pomaga, lecz ten milestone nie buduje model-diversity framework ani szerokiego eval suite.</p><dl><dt>Problem</dt><dd>wspólne systematyczne błędy modelu</dd><dt>Status</dt><dd>mechanical proof zostaje wymagany; różnorodność modeli odroczona</dd><dt>Później</dt><dd>model-family diversity dla hard tail</dd></dl></article>
+
+      <article class="finding" data-sev="P3"><div class="f-top"><h3>Dokumentacja i capability drift</h3><span class="sev">Partial</span></div><p>Stale UX-Critic claim został usunięty: Pi ma teraz jawny browser/device allowlist, bez lifecycle, shell, edit ani write.</p><dl><dt>Naprawione</dt><dd>policy, role, renderer i tests opisują UX-Critic runtime-only</dd><dt>Pozostaje</dt><dd>README low/medium-risk vs canonical low-risk mismatch</dd><dt>Później</dt><dd>jedno źródło prawdy + generated capability matrix</dd></dl></article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div><div class="eyebrow">03 · enforcement matrix</div><h2>Jak oceniać każdą regułę?</h2></div><p>Ta klasyfikacja zapobiega nazywaniu promptu „gwarancją”.</p></div>
+    <div class="diagram"><table class="matrix"><thead><tr><th>Reguła</th><th>Prompt</th><th>Adapter</th><th>Runtime</th><th>Test negatywny</th></tr></thead><tbody>
+      <tr><td>Reviewer nie uruchamia workera</td><td class="yes">tak</td><td class="partial">ceiling targetów</td><td class="partial">Pi child-only</td><td class="yes">adapter contract</td></tr>
+      <tr><td>Leaf role nie deleguje</td><td class="yes">tak</td><td class="yes">brak subagent tool</td><td class="yes">Pi tool boundary</td><td class="yes">snapshot + fake</td></tr>
+      <tr><td>Planner/reviewer wybiera tylko dozwolone cele</td><td class="yes">tak</td><td class="yes">allowedAgents ceiling</td><td class="partial">pi-subagents runtime</td><td class="yes">denial contract</td></tr>
+      <tr><td>Validator nie modyfikuje repo</td><td class="yes">tak</td><td class="partial">edit deny</td><td class="partial">shell może poszerzać</td><td class="partial">canary: denial proven; overall FAIL</td></tr>
+      <tr><td>Maks. jeden repair cycle</td><td class="yes">tak</td><td class="no">nie</td><td class="no">nie</td><td class="no">nie</td></tr>
+      <tr><td>Jeden writer na worktree</td><td class="partial">pośrednio</td><td class="no">nie</td><td class="no">nie</td><td class="no">nie</td></tr>
+      <tr><td>Profile mapują wszystkie role</td><td class="yes">tak</td><td class="yes">tak</td><td class="partial">częściowo sprawdzane</td><td class="yes">tak</td></tr>
+      <tr><td>Bezpieczna instalacja i rollback</td><td class="yes">tak</td><td class="yes">tak</td><td class="yes">dla wspieranych ścieżek</td><td class="yes">mocne testy</td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div><div class="eyebrow">04 · kolejność pracy</div><h2>Trzy milestone’y, nie osiem refaktorów</h2></div><p>Najpierw domknij gwarancje w Pi. Dopiero później zwiększaj szerokość wsparcia.</p></div>
+    <div class="roadmap">
+      <article class="phase"><h3>Minimal runtime milestone · implemented</h3><ol><li>Wykonywane Draft 2020-12 JSON Schema i delegation graph.</li><li>Graf, cele, cykle i leaf roles są fail-closed.</li><li>Pi target ceilings są zainstalowane i deterministycznie testowane.</li><li>Suite deterministyczny przechodzi 170 testów; denial tests i snapshoty są w CI.</li></ol></article>
+      <article class="phase"><h3>Workflow / ownership · deferred</h3><ol><li>Gates i repair budget pozostają w prozie.</li><li>Brak worktree owner, lease i registry.</li><li>Worker nie wykonuje self-checków.</li><li>Nie budujemy state/workflow control-plane w tym kroku.</li></ol></article>
+      <article class="phase"><h3>Live evidence / eval · Partial</h3><ol><li>Drugi lokalny canary potwierdził transcript plannera, brak nieoczekiwanych parent tools, bounds marker/cleanup i odmowę planner → validator.</li><li>Nie potwierdził planner → explorer ani ukończenia plannera; overall status canary: FAIL.</li><li>Live proof pozostaje Partial; canary nie uruchamia się w CI/default i nie planujemy automatycznego kolejnego płatnego runu.</li><li>Model diversity i szeroki eval suite są odroczone; mechaniczny validator pozostaje ownerem acceptance.</li></ol></article>
+    </div>
+  </section>
+
+  <section class="takeaway">
+    <div class="eyebrow">najważniejszy model mentalny</div>
+    <h2>Nie musisz pisać własnego harnessu od zera.</h2>
+    <p>Budujesz <strong>wersjonowaną politykę nad harnessami</strong>. Dojrzałość projektu nie rośnie wraz z liczbą ról, tylko wraz z odsetkiem reguł, które są jednoznacznie modelowane, egzekwowane i sprawdzane próbą naruszenia.</p>
+    <div class="actions">
+      <button data-hermes-send="Na podstawie artefaktu audytu przygotuj plan naprawy tylko milestone 1: Policy as code. Nie implementuj jeszcze.">Przygotuj plan milestone 1</button>
+      <button data-hermes-send="Na podstawie artefaktu audytu zaprojektuj minimalny eval suite dla mojego agent-orchestration. Nie implementuj jeszcze.">Zaprojektuj eval suite</button>
+    </div>
+  </section>
+
+  <p class="foot">Źródło: read-only audit bieżącego worktree • baseline e678406 • aktualizacja 12.09.2026 • plik jest artefaktem wyjaśniającym, nie częścią canonical policy</p>
+  <div class="slop-report">Slop score after repair: 0/10. Surface: Decide/Learn. No gradients, feature tiles, accent rails, blur, monument stats, icon toppers, center stack, default Inter, or wrong-surface composition.</div>
+</main>
+</body>
+</html>

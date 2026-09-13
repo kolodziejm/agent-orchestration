@@ -21,6 +21,9 @@
     "pi-hybrid"
   ],
   "managed_extensions": [
+    "extensions/agent-orchestration/delegation-ceiling-core.js",
+    "extensions/agent-orchestration/delegation-ceiling-planner.js",
+    "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
     "extensions/agent-orchestration/deepseek-price-status.js",
     "extensions/agent-orchestration/package.json"
   ],
