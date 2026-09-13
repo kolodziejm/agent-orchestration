@@ -90,6 +90,8 @@ class PiRenderTests(unittest.TestCase):
             "consumed% − elapsed%",
             "projected end utilization",
             "pace unavailable",
+            "acceptanceRole: read-only",
+            "acceptance inference only",
         ):
             with self.subTest(text=text):
                 self.assertIn(text, readme)
@@ -278,9 +280,10 @@ console.log(JSON.stringify({ queries, statuses }));
                     "delegation-ceiling-planner.js",
                     "delegation-ceiling-reviewer.js",
                     "deepseek-price-status.js",
+                    "git-read.ts",
                     "package.json",
                 ],
-                {"type": "module", "pi": {"extensions": ["./deepseek-price-status.js"]}},
+                {"type": "module", "pi": {"extensions": ["./deepseek-price-status.js", "./git-read.ts"]}},
             ),
             "openai": (
                 [
@@ -289,18 +292,20 @@ console.log(JSON.stringify({ queries, statuses }));
                     "delegation-ceiling-core.js",
                     "delegation-ceiling-planner.js",
                     "delegation-ceiling-reviewer.js",
+                    "git-read.ts",
                     "package.json",
                 ],
-                {"type": "module", "pi": {"extensions": ["./codex-pace-loader.ts"]}},
+                {"type": "module", "pi": {"extensions": ["./codex-pace-loader.ts", "./git-read.ts"]}},
             ),
             "deepseek": (
                 [
                     "delegation-ceiling-core.js",
                     "delegation-ceiling-planner.js",
                     "delegation-ceiling-reviewer.js",
+                    "git-read.ts",
                     "package.json",
                 ],
-                {"type": "module", "pi": {"extensions": []}},
+                {"type": "module", "pi": {"extensions": ["./git-read.ts"]}},
             ),
         }
         for profile_name, (expected_names, expected_package) in expected.items():
@@ -496,7 +501,7 @@ console.log(JSON.stringify({ queries, statuses }));
             "debugger": "read, grep, find, ls, bash",
             "planner": "read, grep, find, ls, edit, write, bash, subagent",
             "reviewer": "read, grep, find, ls, subagent",
-            "explorer": "read, grep, find, ls",
+            "explorer": "read, grep, find, ls, git_read",
             "spec-writer": "read, grep, find, ls, edit, write",
             "ux-critic": ", ".join(UX_CRITIC_TOOLS),
         }
@@ -512,6 +517,14 @@ console.log(JSON.stringify({ queries, statuses }));
                     frontmatter = (output / "agents" / f"{role}.md").read_text().split("---", 2)[1]
                     tools_line = next(line for line in frontmatter.splitlines() if line.startswith("tools: "))
                     self.assertEqual(tools_line, f"tools: {tools}")
+                    acceptance_role_lines = [
+                        line for line in frontmatter.splitlines() if line.startswith("acceptanceRole:")
+                    ]
+                    if role == "explorer":
+                        self.assertEqual(acceptance_role_lines, ["acceptanceRole: read-only"])
+                        self.assertNotIn("bash", tools_line)
+                    else:
+                        self.assertEqual(acceptance_role_lines, [])
 
     def test_ux_critic_pi_allowlist_is_runtime_only_and_excludes_unsafe_tools(self):
         """REGRESSION CONTRACT: Pi UX-Critic remains runtime-only and cannot regain repository, shell, or lifecycle access."""
@@ -535,6 +548,30 @@ console.log(JSON.stringify({ queries, statuses }));
                 tools_line = next(line for line in frontmatter.splitlines() if line.startswith("tools: "))
                 self.assertEqual(tools_line, f"tools: {', '.join(UX_CRITIC_TOOLS)}")
                 self.assertTrue(set(UX_CRITIC_TOOLS).isdisjoint(forbidden))
+
+    def test_git_read_degradation_is_explicit_and_explorer_only(self):
+        """REGRESSION CONTRACT: generated Pi bundles document the bounded Git exception without granting shell access."""
+        for profile_name in EXPECTED:
+            with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / profile_name
+                result = subprocess.run(
+                    [sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)],
+                    cwd=ROOT, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                degradation = (output / "_shared/degradations.md").read_text()
+                self.assertIn("64 KiB/2,000-line caps", degradation)
+                self.assertIn("bounded `spawn` helper", degradation)
+                self.assertIn("Pi 0.85.1's", degradation)
+                self.assertIn("acceptanceRole: read-only", degradation)
+                self.assertIn("does not grant or revoke tools", degradation)
+                explorer = (output / "agents/explorer.md").read_text()
+                self.assertIn("acceptanceRole: read-only", explorer)
+                self.assertIn("tools: read, grep, find, ls, git_read", explorer)
+                self.assertNotIn("tools: read, grep, find, ls, git_read, bash", explorer)
+                for role in EXPECTED[profile_name]["models"]:
+                    if role != "explorer":
+                        self.assertNotIn("git_read", (output / "agents" / f"{role}.md").read_text())
 
     def test_child_ceiling_wrappers_register_exact_targets_and_dispose_lifecycle_handles(self):
         """This test will fail when a child guard widens targets or leaks a registration."""
@@ -686,6 +723,8 @@ console.log(JSON.stringify({allowed, acceptsExplorer: allowed.includes("explorer
                     expected_tools = UX_CRITIC_TOOLS
                 else:
                     expected_tools = ["read", "grep", "find", "ls"]
+                    if role == "explorer":
+                        expected_tools.append("git_read")
                     if config["edit"] == "allow":
                         expected_tools += ["edit", "write"]
                     if config["bash"] == "allow" or role in {"validator", "debugger", "planner"}:

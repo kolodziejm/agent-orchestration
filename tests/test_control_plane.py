@@ -116,7 +116,12 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("safe isolation", policy)
         self.assertIn("record a concise reason", policy)
         self.assertIn("broad mechanical evidence gathering", policy)
-        self.assertIn("two or three genuinely independent evidence scopes", policy)
+        self.assertIn("large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel", policy)
+        self.assertIn("one synthesis owner/writer", policy)
+        self.assertIn("implementation validation remains serial", policy)
+        self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", policy)
+        self.assertIn("Handoffs, task instructions, workflow labels, schemas, acceptance contracts", policy)
+        self.assertIn("requested by the user", policy)
         self.assertIn("`worker` and `worker-complex` may author or update tests", policy)
         self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", policy)
         self.assertIn("`validator` exclusively executes verification", policy)
@@ -172,8 +177,8 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("must never be launched automatically after implementation, validation, or review", orchestration)
         for contract in (planner, reviewer):
             self.assertIn("broad mechanical evidence gathering", contract)
-            self.assertIn("two or three genuinely independent evidence scopes", contract)
-            self.assertIn("parallel fanout", contract)
+            self.assertIn("large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel", contract)
+            self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", contract)
 
     def test_renderers_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:

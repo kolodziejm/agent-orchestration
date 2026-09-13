@@ -52,6 +52,7 @@ DELEGATION_EXTENSION_FILES = (
     "delegation-ceiling-planner.js",
     "delegation-ceiling-reviewer.js",
 )
+PROFILE_EXTENSION_FILES = (*DELEGATION_EXTENSION_FILES, "git-read.ts")
 READ_TOOLS = ["read", "grep", "find", "ls"]
 # Pi's MCP directTools expose these concrete names. This is intentionally a
 # role-specific exception rather than a general capability abstraction: the
@@ -120,6 +121,8 @@ def tools_for(role: str, config: dict) -> list[str]:
         return list(UX_CRITIC_TOOLS)
 
     tools = list(READ_TOOLS)
+    if role == "explorer":
+        tools.append("git_read")
     if config["edit"] == "allow":
         tools.extend(["edit", "write"])
     # Pi cannot represent the canonical `ask` capability. These narrowly scoped
@@ -142,6 +145,8 @@ def frontmatter(role: str, config: dict, model_config: dict, allowed_providers: 
         f"thinking: {model_config['variant']}",
         f"tools: {', '.join(tools_for(role, config))}",
     ]
+    if role == "explorer":
+        lines.append("acceptanceRole: read-only")
     child_extension = DELEGATION_CHILD_EXTENSIONS.get(role)
     if child_extension is not None:
         lines.append(
@@ -256,6 +261,20 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
 - Every other canonical role is a leaf and receives no `subagent` tool. The
   selected profile has no concrete `vision-*` role among its ten canonical
   roles, so wildcard visual delegation remains guidance only.
+- `explorer` receives the manifest-owned `git_read` child tool and still has no
+  `bash` capability. Its frontmatter declares `acceptanceRole: read-only` for
+  acceptance inference only; this metadata does not grant or revoke tools or
+  command execution. The `git_read` capability remains read-only, worktree-bound,
+  and exposes only status plus bounded worktree/staged/range diffs with patch,
+  stat, or name-status views. It derives the boundary from the nearest
+  non-symlinked `.git` directory or linked-worktree marker file and requires
+  Git's reported top level to match it exactly; validated paths are passed
+  directly after `--` under fixed literal-pathspec mode. Every Git process uses
+  fixed argv/environment hardening, no network/hooks/pagers/external diff/textconv,
+  a shared 10-second deadline, and aggregate 64 KiB/2,000-line caps across stdout
+  and stderr. The extension deliberately uses a private bounded `spawn` helper
+  instead of Pi 0.85.1's unbounded `pi.exec` buffering; it never persists full
+  output.
 """
     )
 
@@ -283,10 +302,10 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     extension_output = output / "extensions" / "agent-orchestration"
     extension_output.mkdir(parents=True)
     extension_source = ROOT / "adapters" / "pi" / "extensions"
-    for source_name in DELEGATION_EXTENSION_FILES:
+    for source_name in PROFILE_EXTENSION_FILES:
         source = extension_source / source_name
         if not source.is_file():
-            raise SystemExit(f"Missing Pi delegation extension source: {source}")
+            raise SystemExit(f"Missing Pi extension source: {source}")
         shutil.copy2(source, extension_output / source_name)
         managed_extensions.append(f"extensions/agent-orchestration/{source_name}")
 
@@ -299,9 +318,10 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
         managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
     package_output = extension_output / "package.json"
     status_entrypoint = PROFILE_STATUS_ENTRYPOINTS.get(profile_name)
+    package_extensions = ([status_entrypoint] if status_entrypoint else []) + ["./git-read.ts"]
     package_output.write_text(json.dumps({
         "type": "module",
-        "pi": {"extensions": [status_entrypoint] if status_entrypoint else []},
+        "pi": {"extensions": package_extensions},
     }, indent=2) + "\n")
     managed_extensions.append("extensions/agent-orchestration/package.json")
 

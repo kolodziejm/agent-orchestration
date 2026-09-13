@@ -1,6 +1,8 @@
 {
   "type": "module",
   "pi": {
-    "extensions": []
+    "extensions": [
+      "./git-read.ts"
+    ]
   }
 }

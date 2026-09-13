@@ -55,10 +55,15 @@ tests in scope but must not execute verification; `validator` owns predefined de
 acceptance, including browser/device checks. `worker` is the routine executor and
 `worker-complex` is reserved for sufficiently specified changes whose implementation
 requires unusually difficult reasoning. A stronger worker must not compensate for unclear
-product intent. Independent ready mutation lanes are parallel-by-default when the harness
-provides safe isolation; otherwise they are serialized with a concise reason. Planner and
-reviewer delegate broad mechanical evidence gathering to `explorer` and prefer parallel
-fanout for two or three genuinely independent scopes when the harness supports it.
+product intent. After scope is known, large analysis spanning at least two independent
+top-level areas or a large file set MUST use 2–4 concurrent, non-overlapping `explorer`
+evidence lanes, followed by one synthesis owner/writer and a serial validator. Pi uses a
+single `runs.all` wave; other harnesses use their equivalent concurrent batch. Serialize
+only for a genuine data dependency, indivisible shared state, or too-small scope, and
+record the reason. Internal handoffs, schemas, workflow labels, and non-user-facing
+reports default to concise technical English; preserve original-language quotations plus
+an English normalization when nuance matters, while user-facing replies and artifacts stay
+in the user's requested language.
 
 ## OpenCode adapter
 
@@ -290,6 +295,38 @@ catalog is not downgraded. Catalog bootstrap does not authenticate the provider:
 configure a provider environment variable or complete Pi's `/login deepseek` flow
 manually. Shared policy, control-plane intent, degradation notes, and the optional
 workflow are namespaced under `<target>/agent-orchestration/`.
+
+### Pi `git_read` explorer capability
+
+Every rendered hybrid, OpenAI, and DeepSeek Pi profile copies the manifest-owned
+`extensions/agent-orchestration/git-read.ts` extension and loads it from the extension
+package alongside the profile's existing status entrypoint. Only the `explorer` child
+allowlist contains `git_read`; explorer still has no `bash`, and every other role excludes
+it. Explorer frontmatter declares `acceptanceRole: read-only` for acceptance inference only;
+that metadata does not grant or revoke tools or command execution. The installer validates
+this ownership, allowlist, and role metadata during adoption, idempotent updates, stale
+managed-file cleanup, backup, and rollback.
+
+`git_read` supports exactly `status`, or `diff` against `worktree`, `staged`, or a
+conservatively resolved `range`. Diff views are `patch`, `stat`, and `name-status`, with
+at most 32 unique repository-relative literal paths. It accepts no repository or cwd
+parameter: the extension canonicalizes Pi's current cwd, finds the nearest non-symlinked `.git`
+directory or linked-worktree marker file independently of Git configuration, requires Git's
+reported top level to exactly equal that trusted marker boundary, rejects configured worktrees
+that widen it, and runs all later commands at the canonical worktree root. Range endpoints are
+validated and resolved independently to full commit OIDs before the final diff; authored
+revision expressions never reach Git's diff command.
+
+The dedicated reader uses literal `git` with argv arrays, `shell: false`, a fixed system
+PATH (`/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/local/bin`) and allowlisted
+deterministic environment; unusual Git installations fail closed rather than accepting a
+request-controlled executable. Every invocation disables network/lazy
+fetching, hooks, pagers, external diff, textconv, color, rename detection, and submodule
+recursion. One execution-wide 10-second deadline and aggregate 64 KiB/2,000-line
+stdout+stderr caps cover probing, ref resolution, and the final command; cancellation and
+timeout use bounded termination. No full output is persisted. This extension deliberately
+uses a private bounded `child_process.spawn` helper because Pi 0.85.1 `pi.exec` buffers
+output without a hard transient cap.
 
 ### Pi profile status indicators
 

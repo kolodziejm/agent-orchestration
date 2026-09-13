@@ -87,7 +87,7 @@ SAFE_MANAGED_EXTENSION = re.compile(
     r"^extensions/(?:[A-Za-z0-9][A-Za-z0-9._-]*/(?:config|package)\.json|"
     r"agent-orchestration/(?:deepseek-price-status\.js|codex-pace-status\.js|"
     r"codex-pace-core\.mjs|codex-pace-loader\.ts|delegation-ceiling-core\.js|"
-    r"delegation-ceiling-planner\.js|delegation-ceiling-reviewer\.js))$"
+    r"delegation-ceiling-planner\.js|delegation-ceiling-reviewer\.js|git-read\.ts))$"
 )
 
 
@@ -771,6 +771,23 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         names = [line for line in frontmatter.splitlines() if line.startswith("name: ")]
         if names != [f"name: {json.dumps(role)}"]:
             raise RuntimeError(f"Invalid Pi agent definition: {path}")
+        tool_lines = [line for line in frontmatter.splitlines() if line.startswith("tools: ")]
+        if len(tool_lines) != 1:
+            raise RuntimeError(f"Invalid Pi agent tool allowlist: {path}")
+        tool_names = [name.strip() for name in tool_lines[0].removeprefix("tools: ").split(",") if name.strip()]
+        acceptance_role_lines = [
+            line for line in frontmatter.splitlines() if line.startswith("acceptanceRole:")
+        ]
+        if role == "explorer":
+            if acceptance_role_lines != ["acceptanceRole: read-only"]:
+                raise RuntimeError("Invalid Pi explorer acceptanceRole")
+            if "git_read" not in tool_names or "bash" in tool_names:
+                raise RuntimeError("Invalid Pi explorer Git reader allowlist")
+        else:
+            if acceptance_role_lines:
+                raise RuntimeError(f"Pi acceptanceRole leaked to role: {role}")
+            if "git_read" in tool_names:
+                raise RuntimeError(f"Pi Git reader leaked to role: {role}")
     profile = manifest["profiles"][0]
     status_entrypoints = {
         "hybrid": "./deepseek-price-status.js",
@@ -785,7 +802,10 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         raise RuntimeError("Invalid installed Pi status extension package") from error
     expected_status_package = {
         "type": "module",
-        "pi": {"extensions": [expected_status_entrypoint] if expected_status_entrypoint else []},
+        "pi": {
+            "extensions": ([expected_status_entrypoint] if expected_status_entrypoint else [])
+            + ["./git-read.ts"],
+        },
     }
     if status_package != expected_status_package:
         raise RuntimeError("Invalid installed Pi status extension package")
@@ -802,12 +822,14 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     for extension_name in (
         "delegation-ceiling-core.js",
         *child_extensions.values(),
+        "git-read.ts",
         "package.json",
     ):
         managed_reference = f"extensions/agent-orchestration/{extension_name}"
         if managed_reference not in managed_extensions:
             raise RuntimeError("Pi child-only extension is not manifest-owned")
-        if not (target / managed_reference).is_file():
+        managed_path = target / managed_reference
+        if managed_path.is_symlink() or not managed_path.is_file():
             raise RuntimeError("Missing installed Pi child-only extension")
     for role, extension_name in child_extensions.items():
         agent_path = target / "agents" / f"{role}.md"

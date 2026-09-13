@@ -8,6 +8,60 @@ For a large initiative, persist a mindmap as a navigational index. When the proj
 
 For every large initiative, including one whose direction is already clear, the planner must identify the building blocks before the Decomposition gate. For each block, record its responsibility, boundary or owner, dependencies, and relationship to the slices, then challenge whether the boundaries are reusable and coherent. For an uncertain change, this follows ambiguity removal; the planner uses focused evidence from `explorer`, compares a small number of viable options, and returns a recommendation with assumptions, consequences, and the exact decision needed before finalizing the blocks. Building blocks may be proposed by the user or planner, but their ownership and contracts must be explicit.
 
+### Concrete Pi fanout example
+
+After scope and decomposition are established, a Pi orchestrator can launch one fresh asynchronous subagent wave. The example deliberately uses stable keys, concise technical-English labels, and bounded non-overlapping scopes:
+
+```js
+subagent({
+  async: true,
+  context: "fresh",
+  workflowScript: `
+    const evidence = await runs.all([
+      {
+        key: "policy-lane",
+        agent: "explorer",
+        phase: "Policy evidence",
+        label: "Inspect orchestration policy and role contracts",
+        task: "Read only policy/orchestration.md, roles/planner.md, and roles/reviewer.md. Return concise evidence about the approved contracts.",
+        output: false
+      },
+      {
+        key: "adapter-lane",
+        agent: "explorer",
+        phase: "Adapter evidence",
+        label: "Inspect Pi rendering and installation boundaries",
+        task: "Read only adapters/pi/render.py and adapters/pi/install.py. Return concise evidence about rendering and lifecycle boundaries.",
+        output: false
+      },
+      {
+        key: "test-lane",
+        agent: "explorer",
+        phase: "Regression evidence",
+        label: "Inspect focused tests and generated snapshot contracts",
+        task: "Read only tests/test_pi_*.py and generated/pi/*/manifest.json. Return concise evidence about regression and snapshot contracts.",
+        output: false
+      }
+    ]);
+    const writer = await runs.run("writer", {
+      agent: "worker",
+      phase: "Synthesis and implementation",
+      label: "Write the approved change from bounded evidence",
+      task: "Use these bounded evidence summaries to write or update the approved scope and tests: " + evidence.map((result) => result.output).join("; ") + ". Do not run tests, checks, lint, typecheck, or builds."
+    });
+    const validator = await runs.run("validator", {
+      agent: "validator",
+      phase: "Serial validation",
+      label: "Validate the writer result",
+      task: "Inspect the writer result and execute the requested validation commands serially: " + writer.output
+    });
+    return { evidence, writer, validator };
+  `
+});
+```
+
+The same three serialization exceptions apply immediately beside this example: serialize only for a genuine data dependency, indivisible shared state, or too-small scope, and record the applicable reason in the handoff. This is an illustrative handoff shape, not a parser, workflow engine, durable chain, or automatic review mechanism; review remains separately authorized.
+
 The specification phase should cover one to eight user stories in a coherent session. This is a pilot heuristic, not a quality guarantee or a hard limit. Keep each implementation slice small enough to produce a coherent, observable result. The resulting specification or plan must include product behavior, acceptance criteria, non-goals, dependencies, risks, and unresolved questions. The planner may self-review a low-risk plan; review remains an explicit user-directed activity except for the narrow multi-artifact OpenSpec exception in the canonical policy.
 
 Before implementation of a large or uncertain slice, provide a compact handoff containing a TL;DR of at most ten items, links to the relevant artifacts, the selected building blocks, decisions and assumptions, slice ordering, risks, and an execution matrix. This handoff follows the short-handoff and history rules above. The matrix identifies required, recommended, and optional roles and checks without changing model profiles, routing, or policy-mandated validation or user-authorized review, except where that canonical OpenSpec exception applies. The applicable approval gates are conditional: Decision is required for uncertain work, Decomposition for large work, and Implementation for large or uncertain work. When more than one gate applies, the orchestrator may present their decisions in one combined interaction, but must record each applicable outcome separately. No additional approval gate is implied for a condition that does not apply. This policy does not require a particular question tool for those gates.

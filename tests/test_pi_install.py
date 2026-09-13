@@ -525,6 +525,72 @@ class PiInstallTests(unittest.TestCase):
                 set(json.loads((source / "auth.json").read_text())),
                 {"openai-codex", "deepseek"},
             )
+            self.assertTrue((target / "extensions/agent-orchestration/git-read.ts").is_file())
+
+    def test_git_reader_is_manifest_owned_and_explorer_only_in_every_installed_profile(self):
+        """REGRESSION CONTRACT: installation must load only the explorer Git reader and reject lifecycle tampering."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            cases = {
+                "hybrid": (root / "hybrid", None),
+                "openai": (root / "openai", write_openai_source(root / "openai-source")),
+                "deepseek": (root / "deepseek", write_deepseek_source(root / "deepseek-source")),
+            }
+            for profile, (target, source) in cases.items():
+                with self.subTest(profile=profile), mock.patch.object(Path, "home", return_value=fake_home):
+                    if profile == "hybrid":
+                        write_pi_runtime(target)
+                    install.install(target, dry_run=False, profile=profile, source=source)
+                reader = target / "extensions/agent-orchestration/git-read.ts"
+                package = json.loads((target / "extensions/agent-orchestration/package.json").read_text())
+                manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+                self.assertTrue(reader.is_file())
+                self.assertIn("extensions/agent-orchestration/git-read.ts", manifest["managed_extensions"])
+                self.assertIn("./git-read.ts", package["pi"]["extensions"])
+                explorer = (target / "agents/explorer.md").read_text()
+                self.assertIn("acceptanceRole: read-only", explorer)
+                self.assertEqual(
+                    [line for line in explorer.splitlines() if line.startswith("acceptanceRole:")],
+                    ["acceptanceRole: read-only"],
+                )
+                self.assertIn("tools: read, grep, find, ls, git_read", explorer)
+                self.assertNotIn("tools: read, grep, find, ls, git_read, bash", explorer)
+                for role in manifest["roles"]:
+                    role_content = (target / "agents" / f"{role}.md").read_text()
+                    if role != "explorer":
+                        self.assertNotIn("acceptanceRole:", role_content)
+                        self.assertNotIn("git_read", role_content)
+
+            target, _source = cases["hybrid"]
+            manifest_path = target / install.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text())
+            manifest_path.write_text(json.dumps(manifest) + "\n")
+            explorer_path = target / "agents/explorer.md"
+            explorer_original = explorer_path.read_text()
+            for tampered in (
+                explorer_original.replace("acceptanceRole: read-only\n", ""),
+                explorer_original.replace("acceptanceRole: read-only", "acceptanceRole: writer"),
+            ):
+                explorer_path.write_text(tampered)
+                tampered_files = {
+                    path: path.read_text()
+                    for path in install.managed_paths(manifest, target)
+                    if path.is_file()
+                }
+                with self.assertRaisesRegex(RuntimeError, "acceptanceRole"):
+                    install.validate_installed(tampered_files, target)
+            explorer_path.write_text(explorer_original)
+            (target / "extensions/agent-orchestration/git-read.ts").unlink()
+            files = {
+                path: path.read_text()
+                for path in install.managed_paths(manifest, target)
+                if path.is_file()
+            }
+            with self.assertRaisesRegex(RuntimeError, "Git reader|child-only extension"):
+                install.validate_installed(files, target)
 
     def test_cli_defaults_to_main_hybrid_and_keeps_provider_pure_targets_isolated(self):
         """This test will fail when installer defaults route a profile into the wrong Pi root."""
@@ -821,6 +887,7 @@ class PiInstallTests(unittest.TestCase):
                 "delegation-ceiling-core.js",
                 "delegation-ceiling-planner.js",
                 "delegation-ceiling-reviewer.js",
+                "git-read.ts",
                 "package.json",
             ):
                 relative = f"extensions/agent-orchestration/{extension}"

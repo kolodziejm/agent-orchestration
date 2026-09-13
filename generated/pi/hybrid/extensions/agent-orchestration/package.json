@@ -2,7 +2,8 @@
   "type": "module",
   "pi": {
     "extensions": [
-      "./deepseek-price-status.js"
+      "./deepseek-price-status.js",
+      "./git-read.ts"
     ]
   }
 }

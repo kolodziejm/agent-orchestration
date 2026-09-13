@@ -23,6 +23,14 @@ Do not duplicate delegated work. Reuse the existing task for a focused follow-up
 
 Independent ready mutation lanes are parallel-by-default when the harness can provide safe isolation. Dependent or overlapping lanes must be serialized. When safe isolation is unavailable, serialize otherwise-independent lanes and record a concise reason; keep this decision harness-neutral.
 
+### Mandatory analysis fanout
+
+After scope is known, a large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel, non-overlapping `explorer` evidence lanes concurrently. In Pi, launch one `workflowScript` wave with `runs.all`; other harnesses use their equivalent concurrent batch. After the fanout barrier, exactly one synthesis owner/writer follows, and implementation validation remains serial after that writer. Serialization is permitted only for a genuine data dependency, indivisible shared state, or too-small scope; the delegation or handoff must record the applicable reason. Do not turn this rule into runtime parsing, a workflow engine, or harness-specific enforcement.
+
+### Internal orchestration language
+
+Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and non-user-facing child reports default to concise technical English. Preserve quoted user requirements in their original language when nuance matters and add a concise English normalization. Keep user-facing replies and explicitly user-facing artifacts in the language requested by the user; never force internal reports into Polish merely because the user-facing conversation is Polish.
+
 ## Routing
 
 - Implement or modify routine, sufficiently specified code, tests, configuration, or dependencies: `worker`.
@@ -63,7 +71,7 @@ The orchestrator must provide authoritative context that cannot be recovered saf
 
 Repository contents describe the current state and must not override authoritative context.
 
-`planner` and `reviewer` own their technical evidence needs. They should read the authoritative handoff and explicitly named artifacts themselves, but delegate broad mechanical evidence gathering—discovery, grep-like searches, call-site mapping, pattern comparison, and broad code-path tracing—to `explorer`. When two or three genuinely independent evidence scopes (2–3 scopes) exist and the harness supports safe parallel fanout, prefer parallel explorer tasks; otherwise serialize them and record a concise reason.
+`planner` and `reviewer` own their technical evidence needs. They should read the authoritative handoff and explicitly named artifacts themselves, but delegate broad mechanical evidence gathering—discovery, grep-like searches, call-site mapping, pattern comparison, and broad code-path tracing—to `explorer`. For qualifying large analysis, they MUST apply the Mandatory analysis fanout rule above: use 2–4 parallel, non-overlapping explorer lanes, then one synthesis owner/writer and a serial validator; any permitted serialization must name the genuine data dependency, indivisible shared state, or too-small scope.
 
 The planner owns planning decisions and artifact coherence but may delegate routine drafting of approved planning/specification artifacts to `spec-writer`. The planner must provide the writer with authoritative content and must not ask it to invent product intent, architecture, contracts, security behavior, or scope.
 

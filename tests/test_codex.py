@@ -143,10 +143,16 @@ class CodexRenderContractTests(unittest.TestCase):
                 reviewer = tomllib.load(handle)
 
             self.assertIn("broad mechanical evidence gathering", planner["developer_instructions"])
-            self.assertIn("parallel fanout", planner["developer_instructions"])
+            self.assertIn("MUST use 2–4 parallel, non-overlapping explorer evidence lanes concurrently", planner["developer_instructions"])
+            self.assertIn("genuine data dependency", planner["developer_instructions"])
+            self.assertIn("indivisible shared state", planner["developer_instructions"])
+            self.assertIn("too-small scope", planner["developer_instructions"])
             self.assertIn("delegate their mechanical drafting to `spec-writer`", planner["developer_instructions"])
             self.assertIn("broad mechanical evidence gathering", reviewer["developer_instructions"])
-            self.assertIn("parallel fanout", reviewer["developer_instructions"])
+            self.assertIn("MUST use 2–4 parallel, non-overlapping explorer evidence lanes concurrently", reviewer["developer_instructions"])
+            self.assertIn("genuine data dependency", reviewer["developer_instructions"])
+            self.assertIn("indivisible shared state", reviewer["developer_instructions"])
+            self.assertIn("too-small scope", reviewer["developer_instructions"])
             self.assertIn("Never invoke `worker`", reviewer["developer_instructions"])
 
             agents = (output / "AGENTS.md").read_text()

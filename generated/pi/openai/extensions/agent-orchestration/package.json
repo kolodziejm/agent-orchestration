@@ -2,7 +2,8 @@
   "type": "module",
   "pi": {
     "extensions": [
-      "./codex-pace-loader.ts"
+      "./codex-pace-loader.ts",
+      "./git-read.ts"
     ]
   }
 }

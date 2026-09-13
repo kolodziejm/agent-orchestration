@@ -24,6 +24,7 @@
     "extensions/agent-orchestration/delegation-ceiling-core.js",
     "extensions/agent-orchestration/delegation-ceiling-planner.js",
     "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
+    "extensions/agent-orchestration/git-read.ts",
     "extensions/agent-orchestration/codex-pace-core.mjs",
     "extensions/agent-orchestration/codex-pace-loader.ts",
     "extensions/agent-orchestration/package.json"
