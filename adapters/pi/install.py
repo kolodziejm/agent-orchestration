@@ -32,14 +32,79 @@ DEEPSEEK_REQUIRED_PACKAGE_NAMES = (
 )
 DEEPSEEK_MANAGED_EXTENSIONS = (
     "extensions/subagent/config.json",
-    "extensions/pi-permission-system/config.json",
-    "extensions/pi-permission-system/package.json",
     "extensions/pi-auto-review/config.json",
 )
 DEEPSEEK_MODELS_STORE = "models-store.json"
 DEEPSEEK_MODEL_ID = "deepseek-flash"
 DEEPSEEK_MODEL_NAME = "DeepSeek V4.1 Flash"
 DEEPSEEK_THINKING_LEVELS = ("low", "high", "max")
+DEEPSEEK_SETTINGS_KEYS = (
+    "lastChangelogVersion",
+    "externalEditor",
+    "tuiMode",
+    "treeFilterMode",
+    "doubleEscapeAction",
+    "terminal",
+    "subagents",
+    "packages",
+)
+GLM_PROVIDER_ID = "zai"
+GLM_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
+GLM_MODELS_STORE = "models-store.json"
+GLM_MODEL_IDS = ("glm-5.3", "glm-5.3-flash")
+GLM_THINKING_LEVELS = ("low", "high", "max")
+GLM_SETTINGS_KEYS = DEEPSEEK_SETTINGS_KEYS
+# OpenAI follows the same approved non-provider runtime baseline as the
+# DeepSeek/GLM profiles.  Keep this explicit so source extension, auth, MCP,
+# permission, and theme state cannot cross profile boundaries accidentally.
+OPENAI_SETTINGS_KEYS = (
+    "lastChangelogVersion",
+    "externalEditor",
+    "tuiMode",
+    "treeFilterMode",
+    "doubleEscapeAction",
+    "terminal",
+    "subagents",
+    "packages",
+)
+DIRECT_GLM_PROVIDER = {
+    "baseUrl": GLM_BASE_URL,
+    "api": "openai-completions",
+    "models": [
+        {
+            "id": "glm-5.3",
+            "name": "GLM-5.3",
+            "provider": GLM_PROVIDER_ID,
+            "baseUrl": GLM_BASE_URL,
+            "api": "openai-completions",
+            "reasoning": True,
+            "input": ["text"],
+            "contextWindow": 1_000_000,
+            "maxTokens": 131_072,
+            "thinkingLevelMap": {
+                "low": "low",
+                "high": "high",
+                "max": "max",
+            },
+        },
+        {
+            "id": "glm-5.3-flash",
+            "name": "GLM-5.3 Flash",
+            "provider": GLM_PROVIDER_ID,
+            "baseUrl": GLM_BASE_URL,
+            "api": "openai-completions",
+            "reasoning": True,
+            "input": ["text", "image"],
+            "contextWindow": 1_000_000,
+            "maxTokens": 131_072,
+            "thinkingLevelMap": {
+                "low": "low",
+                "high": "high",
+                "max": "max",
+            },
+        },
+    ],
+}
 DIRECT_DEEPSEEK_PROVIDER = {
     "checkedAt": 1_789_053_577_426,
     "lastModified": 1_789_043_590_000,
@@ -85,10 +150,19 @@ CATALOG_CREDENTIAL_KEYS = {
 PACKAGE_OBJECT_KEYS = {"source", "autoload", "extensions", "skills", "prompts", "themes"}
 SAFE_MANAGED_EXTENSION = re.compile(
     r"^extensions/(?:[A-Za-z0-9][A-Za-z0-9._-]*/(?:config|package)\.json|"
-    r"agent-orchestration/(?:deepseek-price-status\.js|codex-pace-status\.js|"
-    r"codex-pace-core\.mjs|codex-pace-loader\.ts|delegation-ceiling-core\.js|"
-    r"delegation-ceiling-planner\.js|delegation-ceiling-reviewer\.js|git-read\.ts))$"
+    r"agent-orchestration/(?:deepseek-price-status\.js|glm-price-status\.js|"
+    r"codex-pace-status\.js|codex-pace-core\.mjs|codex-pace-loader\.ts|"
+    r"delegation-ceiling-core\.js|delegation-ceiling-planner\.js|"
+    r"delegation-ceiling-reviewer\.js|git-read\.ts|primary-policy\.js))$"
 )
+SAFE_MANAGED_FILE = re.compile(r"^themes/[A-Za-z0-9][A-Za-z0-9._-]*\.json$")
+# Migration-only compatibility: these paths may appear in an older manifest,
+# but are not rendered, copied, validated, or claimed by the current installer.
+LEGACY_OPERATOR_MANAGED_EXTENSIONS = frozenset({
+    "extensions/pi-permission-system/config.json",
+    "extensions/pi-permission-system/package.json",
+})
+LEGACY_RETIRED_PLANNING_GUARD = "extensions/agent-orchestration/planning-artifact-guard.js"
 
 
 def validate_pi_runtime(target: Path, label: str = "Pi") -> tuple[int, int, int]:
@@ -392,11 +466,175 @@ def _reject_catalog_credentials(value: object, label: str) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
             if isinstance(key, str) and key.lower().replace("_", "") in CATALOG_CREDENTIAL_KEYS:
-                raise SystemExit(f"Refusing credentials in DeepSeek models-store cache: {label}")
+                raise SystemExit(f"Refusing credentials in models-store cache: {label}")
             _reject_catalog_credentials(child, label)
     elif isinstance(value, list):
         for child in value:
             _reject_catalog_credentials(child, label)
+
+
+def _glm_model(provider: object, label: str, model_id: str, expected_input: list[str]) -> dict:
+    if not isinstance(provider, dict):
+        raise SystemExit(f"Malformed GLM models-store provider in {label}")
+    models = provider.get("models")
+    if not isinstance(models, list):
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: models must be an array")
+    matches = [model for model in models if isinstance(model, dict) and model.get("id") == model_id]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"Malformed GLM models-store provider in {label}: "
+            f"expected exactly one {model_id} model"
+        )
+    model = matches[0]
+    if model.get("provider") != GLM_PROVIDER_ID:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid provider")
+    if model.get("baseUrl", provider.get("baseUrl")) != GLM_BASE_URL:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid endpoint")
+    if model.get("api", provider.get("api")) != "openai-completions":
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid API")
+    if model.get("reasoning") is not True:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: reasoning is not enabled")
+    if model.get("input") != expected_input:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid input modalities")
+    if model.get("contextWindow") != 1_000_000:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid context window")
+    thinking = model.get("thinkingLevelMap")
+    if thinking != {level: level for level in GLM_THINKING_LEVELS}:
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid thinking levels")
+    return model
+
+
+def _glm_store_entry(catalog: object, label: str) -> dict:
+    if not isinstance(catalog, dict) or set(catalog) != {GLM_PROVIDER_ID}:
+        raise SystemExit(
+            f"Malformed GLM models-store cache: {label} must contain only {GLM_PROVIDER_ID}"
+        )
+    provider = catalog.get(GLM_PROVIDER_ID)
+    if not isinstance(provider, dict):
+        raise SystemExit(f"Malformed GLM models-store cache: {label} is missing {GLM_PROVIDER_ID}")
+    if provider.get("baseUrl") != GLM_BASE_URL or provider.get("api") != "openai-completions":
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid endpoint")
+    models = provider.get("models")
+    if not isinstance(models, list) or len(models) != len(GLM_MODEL_IDS):
+        raise SystemExit(f"Malformed GLM models-store provider in {label}: invalid model set")
+    _glm_model(provider, label, "glm-5.3", ["text"])
+    _glm_model(provider, label, "glm-5.3-flash", ["text", "image"])
+    _reject_catalog_credentials(provider, label)
+    return provider
+
+
+def _target_glm_catalog_is_valid(catalog: object, label: str) -> bool:
+    """Recognize a target catalog that contains only the official GLM provider.
+
+    Foreign providers, malformed primary data, or embedded credentials are
+    replaced by the credential-free direct catalog.
+    """
+    if not isinstance(catalog, dict):
+        return False
+    if GLM_PROVIDER_ID not in catalog:
+        return False
+    if any(key != GLM_PROVIDER_ID for key in catalog):
+        return False
+    try:
+        primary = catalog[GLM_PROVIDER_ID]
+        if not isinstance(primary, dict):
+            return False
+        if primary.get("baseUrl") != GLM_BASE_URL or primary.get("api") != "openai-completions":
+            return False
+        models = primary.get("models")
+        if not isinstance(models, list) or len(models) != len(GLM_MODEL_IDS):
+            return False
+        _glm_model(primary, label, "glm-5.3", ["text"])
+        _glm_model(primary, label, "glm-5.3-flash", ["text", "image"])
+        for provider in catalog.values():
+            _reject_catalog_credentials(provider, label)
+    except SystemExit:
+        return False
+    return True
+
+
+def glm_catalog_content(target: Path) -> str:
+    """Retain valid GLM catalog state, otherwise seed a direct GLM catalog."""
+    target_store_path = target / GLM_MODELS_STORE
+    assert_safe_destination(target_store_path, target)
+    if target_store_path.exists():
+        target_store = _read_json_object(target_store_path, "target GLM models-store.json")
+        try:
+            target_store_text = target_store_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise SystemExit(f"Malformed target GLM models-store.json: {target_store_path}") from error
+        if _target_glm_catalog_is_valid(target_store, "target GLM models-store.json"):
+            return target_store_text
+    return json.dumps(
+        {GLM_PROVIDER_ID: json.loads(json.dumps(DIRECT_GLM_PROVIDER))},
+        indent=2,
+    ) + "\n"
+
+
+def glm_source_files(
+    source: Path,
+    target: Path,
+) -> tuple[str, str, str]:
+    """Build GLM provider metadata from the canonical Pi root."""
+    validate_pi_runtime(source, "source Pi")
+    packages, _roots = resolve_source_packages(source, ("pi-subagents",))
+    source_settings = _read_json_object(source / "settings.json", "source Pi settings")
+
+    settings_path = target / "settings.json"
+    assert_safe_destination(settings_path, target)
+    if settings_path.exists():
+        target_settings = _read_json_object(settings_path, "target Pi settings")
+    else:
+        target_settings = {}
+    # Preserve target-only settings, but copy only the explicitly approved
+    # non-provider baseline from the canonical root.  Provider defaults are
+    # always forced below and source provider/catalog/auth state is ignored.
+    settings = dict(target_settings)
+    for key in GLM_SETTINGS_KEYS:
+        if key != "packages" and key in source_settings:
+            settings[key] = source_settings[key]
+    settings["packages"] = packages
+    settings["defaultProvider"] = GLM_PROVIDER_ID
+    settings["defaultModel"] = "glm-5.3"
+    settings["defaultThinkingLevel"] = "high"
+
+    runtime_path = source / PI_RUNTIME_PACKAGE
+    try:
+        runtime_manifest = runtime_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise SystemExit(f"Malformed source Pi runtime metadata: {runtime_path}") from error
+    return (
+        json.dumps(settings, indent=2) + "\n",
+        glm_catalog_content(target),
+        runtime_manifest,
+    )
+
+
+def glm_target_files(
+    target: Path,
+) -> tuple[str, str, None]:
+    """Compatibility bootstrap for an already initialized target.
+
+    A fresh GLM profile must use the canonical source path.  Keeping this small
+    fallback lets an existing profile with a valid Pi runtime retain its local
+    state when the source is temporarily unavailable; it never creates auth or
+    claims source parity.
+    """
+    settings_path = target / "settings.json"
+    assert_safe_destination(settings_path, target)
+    settings = (
+        _read_json_object(settings_path, "target Pi settings")
+        if settings_path.exists()
+        else {}
+    )
+    settings["defaultProvider"] = GLM_PROVIDER_ID
+    settings["defaultModel"] = "glm-5.3"
+    settings["defaultThinkingLevel"] = "high"
+    return (
+        json.dumps(settings, indent=2) + "\n",
+        glm_catalog_content(target),
+        None,
+    )
 
 
 def _read_deepseek_store(path: Path, label: str) -> dict:
@@ -448,29 +686,72 @@ def deepseek_catalog_content(source: Path | None, target: Path) -> str:
     ) + "\n"
 
 
-def deepseek_source_files(source: Path, target: Path) -> tuple[str, str, dict[str, str]]:
-    packages, roots = resolve_source_packages(source)
+def profile_primary_thinking(profile: str) -> str:
+    """Return the profile's declared primary thinking level.
+
+    The profile definition is the single source of truth: the renderer derives the
+    documented control-plane intent from the same field, so the installed Pi
+    ``defaultThinkingLevel`` can never drift from the profile it belongs to.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python 3.11 or newer is required
+        raise SystemExit("Python 3.11 or newer is required (tomllib).")
+
+    profile_path = ROOT / "profiles" / f"{profile}.toml"
+    try:
+        with profile_path.open("rb") as handle:
+            definition = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise SystemExit(f"Malformed profile definition: {profile_path}") from error
+
+    thinking = (
+        definition.get("control_plane", {}).get("primary", {}).get("effort")
+    )
+    if not isinstance(thinking, str) or not thinking.strip():
+        raise SystemExit(f"Profile {profile} declares no primary thinking level")
+    return thinking
+
+
+def deepseek_source_files(
+    source: Path,
+    target: Path,
+    primary_thinking: str,
+) -> tuple[str, str, dict[str, str], str]:
+    """Build DeepSeek provider metadata and required package configuration."""
+    validate_pi_runtime(source, "source Pi")
+    packages, _roots = resolve_source_packages(source)
+    source_settings = _read_json_object(source / "settings.json", "source Pi settings")
     _read_deepseek_store(source / DEEPSEEK_MODELS_STORE, "source models-store.json")
     catalog_content = deepseek_catalog_content(source, target)
-    path = target / "settings.json"
-    assert_safe_destination(path, target)
-    if path.exists():
-        try:
-            settings = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise SystemExit(f"Malformed Pi settings: {path}") from error
-        if not isinstance(settings, dict):
-            raise SystemExit(f"Malformed Pi settings: {path} must contain an object")
+
+    settings_path = target / "settings.json"
+    assert_safe_destination(settings_path, target)
+    if settings_path.exists():
+        target_settings = _read_json_object(settings_path, "target Pi settings")
     else:
-        settings = {}
+        target_settings = {}
+    # Preserve target-only settings, but copy only the explicitly approved
+    # non-provider baseline from the canonical root. Provider defaults remain
+    # provider-owned and are forced below; source auth/catalog state is ignored.
+    settings = dict(target_settings)
+    for key in DEEPSEEK_SETTINGS_KEYS:
+        if key != "packages" and key in source_settings:
+            settings[key] = source_settings[key]
     settings["packages"] = merge_deepseek_packages(
-        settings.get("packages") if isinstance(settings, dict) else None,
+        target_settings.get("packages"),
         packages,
         target,
     )
     settings["defaultProvider"] = "deepseek"
     settings["defaultModel"] = "deepseek-flash"
-    settings["defaultThinkingLevel"] = "high"
+    settings["defaultThinkingLevel"] = primary_thinking
+
+    runtime_path = source / PI_RUNTIME_PACKAGE
+    try:
+        runtime_manifest = runtime_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise SystemExit(f"Malformed source Pi runtime metadata: {runtime_path}") from error
 
     managed: dict[str, str] = {}
     for relative in DEEPSEEK_MANAGED_EXTENSIONS:
@@ -478,81 +759,19 @@ def deepseek_source_files(source: Path, target: Path) -> tuple[str, str, dict[st
         value = _read_json_object(source_path, "source Pi managed extension configuration")
         if relative == "extensions/pi-auto-review/config.json":
             value["model"] = "deepseek/deepseek-flash"
-        elif relative == "extensions/pi-permission-system/config.json":
-            paths = value.get("piInfrastructureReadPaths")
-            if isinstance(paths, list):
-                value["piInfrastructureReadPaths"] = [
-                    f"{target}/*" if item == "~/.pi/agent/*" else item for item in paths
-                ]
-        elif relative == "extensions/pi-permission-system/package.json":
-            pi = value.get("pi")
-            extensions = pi.get("extensions") if isinstance(pi, dict) else None
-            permission_root = roots["@gotgenes/pi-permission-system"]
-            if not isinstance(extensions, list) or not all(
-                isinstance(item, str)
-                and Path(item).is_absolute()
-                and Path(item).is_file()
-                and (
-                    Path(item).resolve() == permission_root
-                    or permission_root in Path(item).resolve().parents
-                )
-                for item in extensions
-            ):
-                raise SystemExit(f"Malformed source Pi permission bridge: {source_path}")
-            pi["extensions"] = [
-                str(permission_root / Path(item).resolve().relative_to(permission_root))
-                for item in extensions
-            ]
         managed[relative] = json.dumps(value, indent=2) + "\n"
-    return json.dumps(settings, indent=2) + "\n", catalog_content, managed
+    return (
+        json.dumps(settings, indent=2) + "\n",
+        catalog_content,
+        managed,
+        runtime_manifest,
+    )
 
 
-def validated_mcp_content(path: Path, label: str) -> str:
-    """Read an adapter-owned MCP config without interpreting its server schema."""
-    if path.is_symlink():
-        raise SystemExit(f"Refusing symlinked {label}: {path}")
-
-    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        parsed: dict[str, object] = {}
-        for key, child in pairs:
-            if key in parsed:
-                raise ValueError("duplicate JSON key")
-            parsed[key] = child
-        return parsed
-
-    def reject_constant(_value: str) -> object:
-        raise ValueError("non-standard JSON number")
-
-    try:
-        content = path.read_text(encoding="utf-8")
-        value = json.loads(
-            content,
-            object_pairs_hook=reject_duplicate_keys,
-            parse_constant=reject_constant,
-        )
-    except FileNotFoundError as error:
-        raise SystemExit(f"Missing {label}: {path}") from error
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
-        raise SystemExit(f"Malformed {label}: {path}") from error
-    if not isinstance(value, dict):
-        raise SystemExit(f"Malformed {label}: {path} must contain an object")
-    servers = value.get("mcpServers")
-    if not isinstance(servers, dict) or not servers:
-        raise SystemExit(f"Malformed {label}: mcpServers must contain a non-empty object")
-    for name, config in servers.items():
-        if (
-            not isinstance(name, str)
-            or SAFE_NAME.fullmatch(name) is None
-            or name in {".", ".."}
-        ):
-            raise SystemExit(f"Malformed {label}: unsafe MCP server name")
-        if not isinstance(config, dict) or not config:
-            raise SystemExit(f"Malformed {label}: MCP server {name!r} must contain an object")
-    return content
-
-
-def openai_source_files(source: Path) -> tuple[str, str, str, str, str, str]:
-    """Build a provider-pure OpenAI root while keeping credential output redacted."""
+def openai_source_files(
+    source: Path, target: Path | None = None
+) -> tuple[str, str, str, str]:
+    """Build provider-pure OpenAI metadata without reading operator-owned state."""
     validate_pi_runtime(source, "source Pi")
     packages, roots = resolve_source_packages(
         source, ("pi-subagents", "@narumitw/pi-usage")
@@ -585,7 +804,21 @@ def openai_source_files(source: Path) -> tuple[str, str, str, str, str, str]:
         if name not in usage_exports:
             raise SystemExit(f"Source pi-usage entrypoint does not export {name}")
 
-    settings = _read_json_object(source / "settings.json", "source Pi settings")
+    source_settings = _read_json_object(source / "settings.json", "source Pi settings")
+    target_settings = {}
+    if target is not None:
+        target_settings_path = target / "settings.json"
+        assert_safe_destination(target_settings_path, target)
+        if target_settings_path.exists():
+            target_settings = _read_json_object(target_settings_path, "target Pi settings")
+
+    # Preserve target-only/operator settings, but import only the approved
+    # non-provider baseline. Provider defaults remain forced below; source
+    # extension, auth, MCP, permission, and theme settings are ignored.
+    settings = dict(target_settings)
+    for key in OPENAI_SETTINGS_KEYS:
+        if key != "packages" and key in source_settings:
+            settings[key] = source_settings[key]
     settings["packages"] = packages
     settings["defaultProvider"] = "openai-codex"
     settings["defaultModel"] = "gpt-5.6-sol"
@@ -602,25 +835,12 @@ def openai_source_files(source: Path) -> tuple[str, str, str, str, str, str]:
         raise SystemExit("Source openai-codex catalog is missing required models")
     _reject_catalog_credentials(provider, "source openai-codex models-store provider")
 
-    auth = _read_json_object(source / "auth.json", "source Pi auth")
-    credential = auth.get("openai-codex")
-    if not isinstance(credential, dict) or credential.get("type") != "oauth":
-        raise SystemExit("Source Pi OpenAI Codex OAuth is not ready")
-    if not all(
-        isinstance(credential.get(key), str) and credential[key]
-        for key in ("access", "refresh")
-    ):
-        raise SystemExit("Source Pi OpenAI Codex OAuth is incomplete")
-
     runtime_manifest = (source / PI_RUNTIME_PACKAGE).read_text(encoding="utf-8")
-    mcp_content = validated_mcp_content(source / "mcp.json", "source Pi MCP configuration")
     return (
         json.dumps(settings, indent=2) + "\n",
         json.dumps({"openai-codex": provider}, indent=2) + "\n",
         runtime_manifest,
-        json.dumps({"openai-codex": credential}, indent=2) + "\n",
         str(usage_index),
-        mcp_content,
     )
 
 
@@ -641,13 +861,34 @@ def validate_manifest(manifest: dict, label: str) -> None:
             if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
     extensions = manifest.get("managed_extensions", [])
+    legacy_extensions = (
+        {LEGACY_RETIRED_PLANNING_GUARD}
+        if label == "installed manifest"
+        else set()
+    )
     if not isinstance(extensions, list) or not all(
-        isinstance(value, str) and SAFE_MANAGED_EXTENSION.fullmatch(value)
+        isinstance(value, str)
+        and (SAFE_MANAGED_EXTENSION.fullmatch(value) or value in legacy_extensions)
         for value in extensions
     ):
         raise SystemExit(f"Invalid {label} managed_extensions")
     if len(extensions) != len(set(extensions)):
         raise SystemExit(f"Duplicate names in {label} managed_extensions")
+    managed_files = manifest.get("managed_files", [])
+    if not isinstance(managed_files, list) or not all(
+        isinstance(value, str) and SAFE_MANAGED_FILE.fullmatch(value)
+        for value in managed_files
+    ):
+        raise SystemExit(f"Invalid {label} managed_files")
+    if len(managed_files) != len(set(managed_files)):
+        raise SystemExit(f"Duplicate names in {label} managed_files")
+    if any(value in {"themes/dark.json", "themes/light.json"} for value in managed_files):
+        raise SystemExit(f"Built-in Pi themes cannot be managed in {label}")
+    if label == "generated manifest":
+        if any(value in LEGACY_OPERATOR_MANAGED_EXTENSIONS or value == LEGACY_RETIRED_PLANNING_GUARD for value in extensions):
+            raise SystemExit("Generated manifest contains retired or operator-owned Pi paths")
+        if managed_files:
+            raise SystemExit("Generated manifest cannot claim operator-owned Pi files")
 
 
 def assert_safe_destination(path: Path, target: Path) -> None:
@@ -679,6 +920,18 @@ def managed_paths(manifest: dict, target: Path) -> set[Path]:
     )
     paths.add(target / MANIFEST_NAME)
     paths.update(target / relative for relative in manifest.get("managed_extensions", []))
+    paths.update(target / relative for relative in manifest.get("managed_files", []))
+    return paths
+
+
+def legacy_operator_paths(manifest: dict, target: Path) -> set[Path]:
+    """Return prior operator-owned claims that must survive manifest migration."""
+    paths = {
+        target / relative
+        for relative in manifest.get("managed_extensions", [])
+        if relative in LEGACY_OPERATOR_MANAGED_EXTENSIONS
+    }
+    paths.update(target / relative for relative in manifest.get("managed_files", []))
     return paths
 
 
@@ -711,7 +964,8 @@ def load_and_preflight(rendered: Path, target: Path, adopt: bool) -> tuple[dict,
             f"{previous_profiles!r}, not {current_profiles!r}"
         )
 
-    for path in managed_paths(current, target) | managed_paths(previous, target):
+    operator_paths = legacy_operator_paths(previous, target)
+    for path in (managed_paths(current, target) | managed_paths(previous, target)) - operator_paths:
         assert_safe_destination(path, target)
 
     if not manifest_exists and not adopt:
@@ -745,15 +999,24 @@ def desired_state(
         files[target / MANAGED_ROOT / "_shared" / name] = source.read_text()
     for relative in current.get("managed_extensions", []):
         files[target / relative] = (rendered / relative).read_text()
+    for relative in current.get("managed_files", []):
+        source = rendered / relative
+        if not source.is_file() or source.is_symlink():
+            raise SystemExit(f"Missing or linked generated Pi managed file: {source}")
+        files[target / relative] = source.read_text(encoding="utf-8")
     files[target / MANIFEST_NAME] = json.dumps(current, indent=2) + "\n"
 
     stale = managed_paths(previous, target) - managed_paths(current, target)
+    stale -= legacy_operator_paths(previous, target)
     return files, stale - set(files)
 
 
 def validate_installed(files: dict[Path, str], target: Path) -> None:
     manifest = json.loads((target / MANIFEST_NAME).read_text())
     validate_manifest(manifest, "installed manifest")
+    linked = sorted(str(path) for path in files if path.is_symlink())
+    if linked:
+        raise RuntimeError(f"Symlinked installed Pi artifacts: {linked}")
     missing = sorted(str(path) for path in files if not path.is_file())
     if missing:
         raise RuntimeError(f"Missing installed Pi artifacts: {missing}")
@@ -792,7 +1055,8 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     status_entrypoints = {
         "hybrid": "./deepseek-price-status.js",
         "openai": "./codex-pace-loader.ts",
-        "deepseek": None,
+        "deepseek": "./deepseek-price-status.js",
+        "glm": "./glm-price-status.js",
     }
     expected_status_entrypoint = status_entrypoints.get(profile)
     package_path = target / "extensions/agent-orchestration/package.json"
@@ -803,7 +1067,8 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     expected_status_package = {
         "type": "module",
         "pi": {
-            "extensions": ([expected_status_entrypoint] if expected_status_entrypoint else [])
+            "extensions": ["./primary-policy.js"]
+            + ([expected_status_entrypoint] if expected_status_entrypoint else [])
             + ["./git-read.ts"],
         },
     }
@@ -819,6 +1084,13 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         "reviewer": "delegation-ceiling-reviewer.js",
     }
     managed_extensions = set(manifest.get("managed_extensions", []))
+    primary_extension = "extensions/agent-orchestration/primary-policy.js"
+    if primary_extension not in managed_extensions:
+        raise RuntimeError("Pi primary policy extension is not manifest-owned")
+    primary_path = target / primary_extension
+    if primary_path.is_symlink() or not primary_path.is_file():
+        raise RuntimeError("Missing installed Pi primary policy extension")
+
     for extension_name in (
         "delegation-ceiling-core.js",
         *child_extensions.values(),
@@ -834,20 +1106,18 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     for role, extension_name in child_extensions.items():
         agent_path = target / "agents" / f"{role}.md"
         expected_reference = f"../extensions/agent-orchestration/{extension_name}"
-        reference = next(
-            (
-                line.split(": ", 1)[1]
-                for line in agent_path.read_text().splitlines()
-                if line.startswith("subagentOnlyExtensions: ")
-            ),
-            None,
-        )
-        if reference != expected_reference:
+        references = []
+        for line in agent_path.read_text().splitlines():
+            if line.startswith("subagentOnlyExtensions: "):
+                references.extend(
+                    item.strip() for item in line.split(": ", 1)[1].split(",") if item.strip()
+                )
+        if expected_reference not in references:
             raise RuntimeError(f"Invalid Pi child-only extension reference: {agent_path}")
         managed_reference = f"extensions/agent-orchestration/{extension_name}"
         if managed_reference not in managed_extensions:
             raise RuntimeError("Pi child-only extension is not manifest-owned")
-        extension_path = agent_path.parent / reference
+        extension_path = agent_path.parent / expected_reference
         if not extension_path.is_file():
             raise RuntimeError("Missing installed Pi child-only extension")
     launcher_name = f"pi-{profile}"
@@ -860,12 +1130,38 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
             _deepseek_store_entry(catalog, "installed models-store.json", exact_name=False)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, SystemExit) as error:
             raise RuntimeError("Invalid DeepSeek Pi models-store installation") from error
-    if profile == "deepseek":
+    if profile == "glm":
+        validate_pi_runtime(target)
         try:
             settings = json.loads((target / "settings.json").read_text())
-        except (OSError, json.JSONDecodeError) as error:
+            catalog = json.loads((target / GLM_MODELS_STORE).read_text())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("Invalid GLM Pi bootstrap files") from error
+        if not isinstance(settings, dict):
+            raise RuntimeError("Invalid GLM Pi settings")
+        if (
+            settings.get("defaultProvider") != GLM_PROVIDER_ID
+            or settings.get("defaultModel") != "glm-5.3"
+            or settings.get("defaultThinkingLevel") != "high"
+        ):
+            raise RuntimeError("Invalid GLM Pi default settings")
+        if not _target_glm_catalog_is_valid(catalog, "installed GLM models-store.json"):
+            raise RuntimeError("Invalid GLM Pi models-store installation")
+    if profile == "deepseek":
+        validate_pi_runtime(target)
+        try:
+            settings = json.loads((target / "settings.json").read_text())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise RuntimeError("Invalid DeepSeek Pi settings installation") from error
-        packages = settings.get("packages", []) if isinstance(settings, dict) else []
+        if not isinstance(settings, dict):
+            raise RuntimeError("Invalid DeepSeek Pi settings installation")
+        if (
+            settings.get("defaultProvider") != "deepseek"
+            or settings.get("defaultModel") != "deepseek-flash"
+            or settings.get("defaultThinkingLevel") != profile_primary_thinking("deepseek")
+        ):
+            raise RuntimeError("Invalid DeepSeek Pi default settings")
+        packages = settings.get("packages", [])
         sources = [
             package if isinstance(package, str) else package.get("source")
             for package in packages
@@ -876,7 +1172,7 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
             if isinstance(source, str):
                 try:
                     package = json.loads((Path(source) / "package.json").read_text())
-                except (OSError, json.JSONDecodeError):
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                     continue
                 if isinstance(package, dict) and isinstance(package.get("name"), str):
                     installed_names.add(package["name"])
@@ -887,48 +1183,12 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         try:
             settings = json.loads((target / "settings.json").read_text())
             catalog = json.loads((target / DEEPSEEK_MODELS_STORE).read_text())
-            auth = json.loads((target / "auth.json").read_text())
-        except (OSError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise RuntimeError("Invalid OpenAI Pi bootstrap files") from error
-        if settings.get("defaultProvider") != "openai-codex":
+        if not isinstance(settings, dict) or settings.get("defaultProvider") != "openai-codex":
             raise RuntimeError("Invalid OpenAI Pi default provider")
-        if set(catalog) != {"openai-codex"} or set(auth) != {"openai-codex"}:
-            raise RuntimeError("OpenAI Pi profile is not provider-pure")
-        if auth["openai-codex"].get("type") != "oauth":
-            raise RuntimeError("OpenAI Pi OAuth is not ready")
-        if stat.S_IMODE((target / "auth.json").stat().st_mode) != 0o600:
-            raise RuntimeError("OpenAI Pi auth permissions are not private")
-        mcp_path = target / "mcp.json"
-        try:
-            validated_mcp_content(mcp_path, "installed Pi MCP configuration")
-        except SystemExit as error:
-            raise RuntimeError("Invalid OpenAI Pi MCP configuration") from error
-        if stat.S_IMODE(mcp_path.stat().st_mode) & 0o077:
-            raise RuntimeError("OpenAI Pi MCP permissions are not private")
-
-
-def private_mcp_mode(path: Path) -> int:
-    """Retain a stricter owner-only mode, otherwise enforce read/write for the owner."""
-    if path.exists():
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode in {0o200, 0o400, 0o600}:
-            return mode
-    return 0o600
-
-
-def atomic_write_private(path: Path, content: str, mode: int) -> None:
-    """Replace a sensitive file atomically with its private mode already applied."""
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.chmod(mode)
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+        if not isinstance(catalog, dict) or set(catalog) != {"openai-codex"}:
+            raise RuntimeError("OpenAI Pi catalog is not provider-pure")
 
 
 def install(
@@ -944,15 +1204,24 @@ def install(
     if target.is_symlink():
         raise SystemExit(f"Refusing symlinked target root: {target}")
     target = target.resolve()
-    source_files: tuple[str, str, dict[str, str]] | None = None
-    openai_files: tuple[str, str, str, str, str, str] | None = None
+    source_files: tuple[str, str, dict[str, str], str] | None = None
+    openai_files: tuple[str, str, str, str] | None = None
+    glm_files: tuple[str, str, str | None] | None = None
     catalog_content: str | None = None
+    explicit_glm_source = source is not None
     if profile == "deepseek":
         source = (source or (Path.home() / ".pi" / "agent")).expanduser().resolve()
         validate_pi_runtime(source, "source Pi")
-        for relative in ("settings.json", DEEPSEEK_MODELS_STORE, *DEEPSEEK_MANAGED_EXTENSIONS):
+        for relative in (
+            "settings.json",
+            DEEPSEEK_MODELS_STORE,
+            PI_RUNTIME_PACKAGE,
+            *DEEPSEEK_MANAGED_EXTENSIONS,
+        ):
             assert_safe_destination(target / relative, target)
-        source_files = deepseek_source_files(source, target)
+        source_files = deepseek_source_files(
+            source, target, profile_primary_thinking("deepseek")
+        )
         catalog_content = source_files[1]
     elif profile == "hybrid":
         catalog_source = source.expanduser().resolve() if source is not None else None
@@ -960,7 +1229,23 @@ def install(
     elif profile == "openai":
         source = (source or (Path.home() / ".pi" / "agent")).expanduser().resolve()
         if source.exists() or not dry_run:
-            openai_files = openai_source_files(source)
+            openai_files = openai_source_files(source, target)
+    elif profile == "glm":
+        source_input = (source or (Path.home() / ".pi" / "agent")).expanduser()
+        if source_input.is_symlink():
+            raise SystemExit(f"Refusing symlinked GLM source root: {source_input}")
+        source = source_input.resolve()
+        if source.exists():
+            glm_files = glm_source_files(source, target)
+        elif not dry_run:
+            # A new GLM root must be bootstrapped from the canonical source.
+            # An already initialized root can still be repaired while that
+            # source is temporarily unavailable, without inventing packages,
+            # MCP data, themes, or auth state.
+            if explicit_glm_source or not (target / PI_RUNTIME_PACKAGE).is_file():
+                glm_files = glm_source_files(source, target)
+            else:
+                glm_files = glm_target_files(target)
     resolved_bin = None
     launcher_path = None
     if bin_dir is not None:
@@ -980,7 +1265,7 @@ def install(
             check=True,
         )
         if source_files is not None:
-            settings_content, catalog_content, extension_contents = source_files
+            settings_content, catalog_content, extension_contents, runtime_manifest = source_files
             rendered_manifest_path = rendered / "manifest.json"
             rendered_manifest = json.loads(rendered_manifest_path.read_text())
             rendered_manifest["managed_extensions"] = sorted(
@@ -992,6 +1277,11 @@ def install(
                 destination = rendered / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(content)
+        if glm_files is not None:
+            settings_content, catalog_content, runtime_manifest = glm_files
+            rendered_manifest_path = rendered / "manifest.json"
+            rendered_manifest = json.loads(rendered_manifest_path.read_text())
+            rendered_manifest_path.write_text(json.dumps(rendered_manifest, indent=2) + "\n")
         files, deletions = desired_state(rendered, target, adopt)
         manifest_path = target / MANIFEST_NAME
         if launcher_path is None:
@@ -1003,29 +1293,32 @@ def install(
             installed_manifest = json.loads(files[manifest_path])
             installed_manifest["launchers"] = previously_installed
             files[manifest_path] = json.dumps(installed_manifest, indent=2) + "\n"
+        sensitive_paths: dict[Path, str] = {}
         if profile == "deepseek":
+            settings_content, _catalog_content, _extension_contents, runtime_manifest = source_files
             files[target / "settings.json"] = settings_content
+            files[target / PI_RUNTIME_PACKAGE] = runtime_manifest
+            sensitive_paths[target / "settings.json"] = "Settings"
         if catalog_content is not None:
             files[target / DEEPSEEK_MODELS_STORE] = catalog_content
-        sensitive_paths: dict[Path, str] = {}
-        sensitive_modes: dict[Path, int] = {}
+            sensitive_paths[target / DEEPSEEK_MODELS_STORE] = "Model catalog"
+        if glm_files is not None:
+            settings_content, catalog_content, runtime_manifest = glm_files
+            files[target / "settings.json"] = settings_content
+            files[target / GLM_MODELS_STORE] = catalog_content
+            sensitive_paths[target / "settings.json"] = "Settings"
+            sensitive_paths[target / GLM_MODELS_STORE] = "Model catalog"
+            if runtime_manifest is not None:
+                runtime_path = target / PI_RUNTIME_PACKAGE
+                assert_safe_destination(runtime_path, target)
+                files[runtime_path] = runtime_manifest
         if openai_files is not None:
-            (
-                settings_content, openai_catalog, runtime_manifest, auth_content,
-                usage_entrypoint, mcp_content,
-            ) = openai_files
+            settings_content, openai_catalog, runtime_manifest, usage_entrypoint = openai_files
             files[target / "settings.json"] = settings_content
             files[target / DEEPSEEK_MODELS_STORE] = openai_catalog
             files[target / PI_RUNTIME_PACKAGE] = runtime_manifest
-            auth_path = target / "auth.json"
-            files[auth_path] = auth_content
-            sensitive_paths[auth_path] = "Credential"
-            sensitive_modes[auth_path] = 0o600
-            mcp_path = target / "mcp.json"
-            assert_safe_destination(mcp_path, target)
-            files[mcp_path] = mcp_content
-            sensitive_paths[mcp_path] = "MCP"
-            sensitive_modes[mcp_path] = private_mcp_mode(mcp_path)
+            sensitive_paths[target / "settings.json"] = "Settings"
+            sensitive_paths[target / DEEPSEEK_MODELS_STORE] = "Model catalog"
             loader_path = target / "extensions/agent-orchestration/codex-pace-loader.ts"
             loader = files.get(loader_path)
             if loader is None or loader.count("__PI_USAGE_ENTRYPOINT__") != 1:
@@ -1047,20 +1340,23 @@ def install(
                     f"  - {launcher_path}\nRun again with --adopt to take ownership."
                 )
             launcher = (rendered / launcher_path.name).read_text()
-            launcher = re.sub(
-                r'^export PI_CODING_AGENT_DIR=.*$',
-                f"export PI_CODING_AGENT_DIR={shlex.quote(str(target))}",
-                launcher,
-                count=1,
-                flags=re.MULTILINE,
-            )
+            # GLM's launcher is intentionally tied to its canonical isolated
+            # profile root. Other profiles retain the existing --target
+            # override used by isolated installer fixtures.
+            if profile != "glm":
+                launcher = re.sub(
+                    r'^export PI_CODING_AGENT_DIR=.*$',
+                    f"export PI_CODING_AGENT_DIR={shlex.quote(str(target))}",
+                    launcher,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
             files[launcher_path] = launcher
         changed = {
             path: content
             for path, content in files.items()
             if not path.exists()
             or path.read_text() != content
-            or (path in sensitive_modes and stat.S_IMODE(path.stat().st_mode) != sensitive_modes[path])
             or (path == launcher_path and not os.access(path, os.X_OK))
         }
         deleted = {path for path in deletions if path.exists()}
@@ -1126,10 +1422,7 @@ def install(
         try:
             for path, content in changed.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
-                if path in sensitive_modes:
-                    atomic_write_private(path, content, sensitive_modes[path])
-                else:
-                    path.write_text(content)
+                path.write_text(content)
                 if launcher_path is not None and path == launcher_path:
                     path.chmod(0o755)
             for path in deleted:
@@ -1164,7 +1457,7 @@ def install(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--profile", choices=("hybrid", "openai", "deepseek"), default="hybrid"
+        "--profile", choices=("hybrid", "openai", "deepseek", "glm"), default="hybrid"
     )
     parser.add_argument("--target", type=Path)
     parser.add_argument(
@@ -1172,7 +1465,7 @@ if __name__ == "__main__":
         "--base",
         dest="source",
         type=Path,
-        help="Pi root supplying a validated DeepSeek catalog/provider bootstrap",
+        help="Pi root supplying a validated bootstrap for DeepSeek/OpenAI/GLM profiles (default ~/.pi/agent); GLM auth remains deferred",
     )
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     parser.add_argument("--dry-run", action="store_true")

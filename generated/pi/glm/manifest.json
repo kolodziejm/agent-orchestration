@@ -1,0 +1,39 @@
+{
+  "format_version": 1,
+  "adapter": "pi-subagents",
+  "adapter_format": "0.67.0",
+  "roles": [
+    "debugger",
+    "design-partner",
+    "explorer",
+    "planner",
+    "reviewer",
+    "ux-critic",
+    "validator",
+    "worker",
+    "worker-complex"
+  ],
+  "profiles": [
+    "glm"
+  ],
+  "launchers": [
+    "pi-glm"
+  ],
+  "managed_extensions": [
+    "extensions/agent-orchestration/delegation-ceiling-core.js",
+    "extensions/agent-orchestration/delegation-ceiling-planner.js",
+    "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
+    "extensions/agent-orchestration/git-read.ts",
+    "extensions/agent-orchestration/primary-policy.js",
+    "extensions/agent-orchestration/glm-price-status.js",
+    "extensions/agent-orchestration/package.json"
+  ],
+  "workflows": [
+    "feature-workflow-pilot"
+  ],
+  "shared": [
+    "orchestration-core.md",
+    "control-plane.json",
+    "degradations.md"
+  ]
+}

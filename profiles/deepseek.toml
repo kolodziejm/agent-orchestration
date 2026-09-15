@@ -5,7 +5,7 @@ harness = "pi"
 
 [control_plane.primary]
 model = "deepseek/deepseek-flash"
-effort = "high"
+effort = "max"
 
 [control_plane]
 small_model = "deepseek/deepseek-flash"
@@ -46,10 +46,6 @@ variant = "low"
 [models.planner]
 model = "deepseek/deepseek-flash"
 variant = "max"
-
-[models.spec-writer]
-model = "deepseek/deepseek-flash"
-variant = "low"
 
 [models.design-partner]
 model = "deepseek/deepseek-flash"

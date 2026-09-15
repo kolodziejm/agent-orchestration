@@ -50,7 +50,7 @@ def parse_frontmatter_tools(content: str) -> list:
 
 def expected_tools(config: dict, native_vision: bool, role: str | None = None) -> list:
     tools = ["Read", "Grep", "Glob", "Bash"]
-    if role == "ux-critic" and config.get("bash") == "deny":
+    if config.get("bash") == "deny":
         tools.remove("Bash")
     if config["edit"] == "allow":
         tools.extend(["Edit", "Write"])

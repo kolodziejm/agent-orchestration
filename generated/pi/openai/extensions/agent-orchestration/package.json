@@ -2,6 +2,7 @@
   "type": "module",
   "pi": {
     "extensions": [
+      "./primary-policy.js",
       "./codex-pace-loader.ts",
       "./git-read.ts"
     ]

@@ -75,12 +75,15 @@ class PolicyContractTests(unittest.TestCase):
                 self.assertNotIn(token, content, f"{token} found in {path}")
 
     def test_nested_delegation_boundaries(self):
-        self.assertEqual(set(self.roles["planner"]["delegates"]), {"explorer", "spec-writer"})
+        self.assertEqual(self.roles["planner"]["delegates"], ["explorer"])
         self.assertEqual(self.roles["reviewer"]["delegates"], ["explorer"])
-        self.assertEqual(self.roles["spec-writer"]["delegates"], [])
         self.assertEqual(self.roles["explorer"]["delegates"], [])
-        self.assertEqual(self.roles["worker"]["delegates"], ["vision-*"])
-        self.assertEqual(self.roles["worker-complex"]["delegates"], ["vision-*"])
+        self.assertEqual(
+            [role for role, config in self.roles.items() if config["edit"] == "allow"],
+            ["worker", "worker-complex"],
+        )
+        self.assertEqual(self.roles["worker"]["delegates"], [])
+        self.assertEqual(self.roles["worker-complex"]["delegates"], [])
 
     def test_profiles_map_every_role(self):
         expected = set(self.roles)
@@ -115,19 +118,22 @@ class OpenCodeRenderTests(unittest.TestCase):
             self.assertIn("mode: subagent", planner)
             self.assertIn('"*": deny', planner)
             self.assertIn("explorer: allow", planner)
-            self.assertIn("spec-writer: allow", planner)
+            self.assertNotIn("spec-writer", planner)
             self.assertNotIn("model:", planner)
 
             worker = (output / "agents" / "worker.md").read_text()
             complex_worker = (output / "agents" / "worker-complex.md").read_text()
-            self.assertIn('"vision-*": allow', complex_worker)
+            self.assertNotIn('"vision-*": allow', worker)
+            self.assertNotIn('"vision-*": allow', complex_worker)
+            self.assertNotIn("Agent(", worker)
+            self.assertNotIn("Agent(", complex_worker)
             self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", worker)
             self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", complex_worker)
 
             openai = json.loads((output / "profiles" / "openai" / "agent-routing.json").read_text())
             self.assertEqual(openai["agent"]["worker"]["variant"], "high")
             self.assertEqual(openai["agent"]["worker-complex"]["variant"], "max")
-            self.assertEqual(openai["agent"]["spec-writer"]["model"], "openai/gpt-5.6-luna")
+            self.assertNotIn("spec-writer", openai["agent"])
 
             core = output / "profiles" / "_shared" / "orchestration-core.md"
             self.assertEqual(core.read_text(), (ROOT / "policy" / "orchestration.md").read_text())

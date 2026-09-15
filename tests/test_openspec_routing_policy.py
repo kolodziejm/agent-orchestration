@@ -21,6 +21,9 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
         start = policy.index("## OpenSpec orchestration")
         end = policy.index("\n## Proportional workflow", start)
         openspec_rule = policy[start:end]
+        finding_start = policy.index("## Finding authorization boundary and automatic repair")
+        finding_end = policy.index("\n## Repair budget and stopping rule", finding_start)
+        finding_policy = policy[finding_start:finding_end]
 
         renderers = (
             (
@@ -53,6 +56,11 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                 [ROOT / "adapters" / "pi" / "render.py", "--profile", "deepseek"],
                 "_shared/orchestration-core.md",
             ),
+            (
+                "pi-glm",
+                [ROOT / "adapters" / "pi" / "render.py", "--profile", "glm"],
+                "_shared/orchestration-core.md",
+            ),
         )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -68,6 +76,7 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
                 rendered = (output / artifact).read_text()
                 self.assertIn(openspec_rule, rendered, name)
+                self.assertIn(finding_policy, rendered, name)
 
                 for role, contract in ROLE_CONTRACTS.items():
                     role_artifact = output / "agents" / (
@@ -81,6 +90,18 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                         self.assertEqual(rendered_contract, contract, f"{name}: {role}")
                     else:
                         self.assertIn(contract, role_artifact.read_text(), f"{name}: {role}")
+
+        snapshots = (
+            ROOT / "generated" / "opencode" / "profiles" / "_shared" / "orchestration-core.md",
+            ROOT / "generated" / "codex" / "AGENTS.md",
+            ROOT / "generated" / "claude-code" / "_shared" / "orchestration-core.md",
+            ROOT / "generated" / "pi" / "hybrid" / "_shared" / "orchestration-core.md",
+            ROOT / "generated" / "pi" / "openai" / "_shared" / "orchestration-core.md",
+            ROOT / "generated" / "pi" / "deepseek" / "_shared" / "orchestration-core.md",
+            ROOT / "generated" / "pi" / "glm" / "_shared" / "orchestration-core.md",
+        )
+        for snapshot in snapshots:
+            self.assertIn(finding_policy, snapshot.read_text(), snapshot)
 
 
 if __name__ == "__main__":

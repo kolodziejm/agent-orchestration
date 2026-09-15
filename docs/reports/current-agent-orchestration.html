@@ -174,13 +174,12 @@
         <table>
           <thead><tr><th>Rola</th><th>Odpowiedzialność</th><th>Uprawnienia / delegowanie</th><th>Profil OpenAI</th><th>Profil GLM</th></tr></thead>
           <tbody>
-            <tr><td><code>worker</code></td><td>Rutynowa, dostatecznie określona implementacja.</td><td>edit/bash allow; tylko <code>vision-*</code>.</td><td><code>openai/gpt-5.6-luna</code>, high</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
-            <tr><td><code>worker-complex</code></td><td>Trudna, dostatecznie określona implementacja.</td><td>edit/bash allow; tylko <code>vision-*</code>.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex mapuje max → xhigh)</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>worker</code></td><td>Rutynowa, dostatecznie określona implementacja.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, high</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>worker-complex</code></td><td>Trudna, dostatecznie określona implementacja.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex mapuje max → xhigh)</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>validator</code></td><td>Niezależna walidacja mechaniczna.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, medium</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>debugger</code></td><td>Diagnoza przyczyny źródłowej, tylko odczyt.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>explorer</code></td><td>Dowody z repozytorium, tylko odczyt.</td><td>edit deny; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, medium</td><td><code>deepseek/deepseek-v4-flash</code>, high</td></tr>
-            <tr><td><code>planner</code></td><td>Plany, specyfikacje, ADR i OpenSpec.</td><td>edit allow; bash ask; tylko <code>explorer</code> i <code>spec-writer</code>.</td><td><code>openai/gpt-5.6-sol</code>, high</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
-            <tr><td><code>spec-writer</code></td><td>Mechaniczne tworzenie artefaktów planistycznych z handoffu planera.</td><td>edit allow; bash ask; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, high</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
+            <tr><td><code>planner</code></td><td>Read-only planowanie, specyfikacje, ADR i OpenSpec; zwraca managed output.</td><td>edit deny; bash deny; tylko <code>explorer</code>.</td><td><code>openai/gpt-5.6-sol</code>, high</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>design-partner</code></td><td>Produktowy flow i prototyp disposable z udziałem człowieka.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>reviewer</code></td><td>Read-only review poprawności, bezpieczeństwa i architektury.</td><td>edit deny; bash ask; tylko <code>explorer</code>.</td><td><code>openai/gpt-5.6-sol</code>, high</td><td><code>zai-coding-plan/glm-5.3</code>, wariant nie zadeklarowany</td></tr>
             <tr><td><code>ux-critic</code></td><td>Audyt UX, dostępności, dopasowania platformowego i parytetu.</td><td>edit/bash allow; bez delegowania.</td><td><code>openai/gpt-5.6-luna</code>, max (Codex xhigh)</td><td><code>deepseek/deepseek-v4-flash</code>, wariant nie zadeklarowany</td></tr>
@@ -201,29 +200,31 @@
             <tr><td>Aktywny Codex</td><td>Zaobserwowany snapshot aktywny odpowiada wygenerowanemu snapshotowi OpenAI, z dwiema lokalnymi regułami w <code>AGENTS.md</code> opisanymi wyżej.</td></tr>
             <tr><td>Aktywny OpenCode</td><td>Instalacja zawiera konfiguracje profilu OpenAI i GLM, więc oba profile są zainstalowane i dostępne. Nie oznacza to, że oba są wybrane jednocześnie.</td></tr>
             <tr><td>Wybór runtime</td><td>Dokładny wybrany profil OpenCode zależy od sposobu uruchomienia i konfiguracji OpenCode; snapshot repozytorium tego nie ustala.</td></tr>
-            <tr><td>Agenci OpenCode</td><td>Aktywne profile zawierają zarządzane 10 ról oraz własne agenty <code>build</code> i <code>plan</code>. Własne agenty są zachowane i nie należą do zarządzanego zbioru tego repozytorium.</td></tr>
-            <tr><td>Obraz i vision</td><td>OpenAI może używać natywnego vision, gdy aktywny model je wspiera. Główne modele profilu GLM są w tym układzie tekstowe, a odczyt obrazów korzysta z profilowego skilla/agenta vision.</td></tr>
+            <tr><td>Agenci OpenCode</td><td>Aktywne profile zawierają zarządzane 9 ról oraz własne agenty <code>build</code> i <code>plan</code>. Własne agenty są zachowane i nie należą do zarządzanego zbioru tego repozytorium.</td></tr>
+            <tr><td>Obraz i vision</td><td>OpenAI może używać natywnego vision, gdy aktywny model je wspiera. Główne modele profilu GLM są w tym układzie tekstowe, więc orkiestrator kieruje zadanie bezpośrednio do istniejącej roli obsługującej obrazy, zgodnie z odpowiedzialnością.</td></tr>
           </tbody>
         </table>
       </div>
+      <p class="small">W instalatorze Pi uprawnienia, authentication, MCP oraz wybór i pliki motywów są własnością operatora: nie są kopiowane, tworzone, walidowane ani claimowane. Istniejące pliki pozostają niezmienione; migracja manifestu usuwa tylko ich stare claimy, a wycofane artefakty projektu nadal podlegają transakcyjnemu cleanupowi.</p>
     </section>
 
     <section id="delegation">
       <h2>5. Delegowanie</h2>
       <div class="pre-wrap"><pre aria-label="Graf delegowania">orchestrator
 ├── planner
-│   ├── explorer
-│   └── spec-writer
-├── worker ─────────────── vision-*
-├── worker-complex ─────── vision-*
+│   └── explorer
+├── worker
+├── worker-complex
 ├── validator
 ├── debugger
 ├── design-partner
 ├── reviewer ───────────── explorer
 └── ux-critic</pre></div>
+      <p class="small"><strong>Aktywna topologia:</strong> <code>planner → explorer</code> jest jedyną krawędzią delegowania plannera; planner nie deleguje do żadnej innej roli.</p>
       <ul>
         <li>Tylko orkiestrator autoryzuje implementację zmian źródłowych.</li>
         <li><code>planner</code> i <code>reviewer</code> nie uruchamiają <code>worker</code>, <code>validatora</code> ani <code>debuggera</code>.</li>
+        <li><code>worker</code> i <code>worker-complex</code> są liśćmi; tekstowy orkiestrator kieruje zadania obrazowe bezpośrednio do istniejącej roli obsługującej obrazy zgodnie z odpowiedzialnością.</li>
         <li>Agenci mogą pracować równolegle wyłącznie przy niezależnych zakresach bez nakładających się plików ani zasobów.</li>
         <li><code>validator</code>, <code>debugger</code>, <code>design-partner</code> i <code>ux-critic</code> nie delegują dalej.</li>
       </ul>
@@ -237,7 +238,7 @@
           <tbody>
             <tr><td>Klasyfikacja</td><td>Ocena skali i niepewności.</td><td>Orkiestrator wybiera tryb.</td></tr>
             <tr><td>Dowody</td><td>Rozpoznanie repo, gdy potrzebne.</td><td><code>explorer</code> → fakty dla planera.</td></tr>
-            <tr><td>Planowanie</td><td>Plan, specyfikacja i artefakty.</td><td><code>planner</code> / <code>spec-writer</code>.</td></tr>
+            <tr><td>Planowanie</td><td>Read-only plan i managed output.</td><td><code>planner</code>; zatwierdzone artefakty zapisuje wybrany <code>worker</code>.</td></tr>
             <tr><td>Implementacja</td><td>Kod oraz oznaczone <code>SELF-CHECKS</code>.</td><td><code>worker</code> lub <code>worker-complex</code>.</td></tr>
             <tr><td>Walidacja</td><td>Niezależne testy, lint, typecheck, build według zakresu.</td><td><code>validator</code>.</td></tr>
             <tr><td>Awaria</td><td>Diagnoza → naprawa → ponowna walidacja.</td><td><code>debugger → worker → validator</code>; jeden cykl dla tej samej przyczyny. Druga taka sama porażka zatrzymuje pracę i wymaga decyzji użytkownika.</td></tr>

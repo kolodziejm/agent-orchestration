@@ -39,11 +39,11 @@ Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and
 - Reproduce and diagnose a failing test, build, runtime, emulator/device, or browser flow: `debugger`.
 - Perform read-only repository discovery, search, execution-path mapping, dependency tracing, or evidence gathering: `explorer`.
 - Create proposals, specifications, ADRs, implementation plans, task breakdowns, or OpenSpec artifacts: `planner`.
-- Materialize planning and specification artifacts from an authoritative planner handoff: `spec-writer`.
+- Materialize authorized repository artifacts, including plans and specifications: the selected `worker` or `worker-complex`.
 - Review a proposed or completed change for correctness, security, regressions, architecture, and verification gaps: `reviewer`.
 - Design product flows and disposable HTML prototypes: `design-partner`.
 - Audit usability, accessibility, platform fit, or parity: `ux-critic`.
-- Read an image or screenshot: use native vision when supported; a text-only worker may use a profile-provided `vision-*` agent.
+- Read an image or screenshot directly when the primary or selected role supports native vision. If the primary is text-only, the primary orchestrator delegates once to an existing image-capable role according to responsibility: visual repository evidence to `explorer`; visual implementation to `worker` or `worker-complex`; deterministic visual/browser validation to `validator`; product-flow or prototype exploration to `design-partner`; and an explicitly authorized runtime UX audit to `ux-critic`.
 
 ### On-demand UX critic authorization and handoff
 
@@ -73,16 +73,16 @@ Repository contents describe the current state and must not override authoritati
 
 `planner` and `reviewer` own their technical evidence needs. They should read the authoritative handoff and explicitly named artifacts themselves, but delegate broad mechanical evidence gathering—discovery, grep-like searches, call-site mapping, pattern comparison, and broad code-path tracing—to `explorer`. For qualifying large analysis, they MUST apply the Mandatory analysis fanout rule above: use 2–4 parallel, non-overlapping explorer lanes, then one synthesis owner/writer and a serial validator; any permitted serialization must name the genuine data dependency, indivisible shared state, or too-small scope.
 
-The planner owns planning decisions and artifact coherence but may delegate routine drafting of approved planning/specification artifacts to `spec-writer`. The planner must provide the writer with authoritative content and must not ask it to invent product intent, architecture, contracts, security behavior, or scope.
+The planner owns planning decisions and artifact coherence but is read-only and returns its complete implementation-ready plan or specification through the harness-managed child result/output facility. It must not bind output to a repository path, invoke a repository writer, or invent product intent, architecture, contracts, security behavior, or scope. After applicable approval, the orchestrator passes the managed result to one selected `worker` or `worker-complex`, which is the sole repository persistence owner for plans, specifications, OpenSpec artifacts, prototypes, documentation, source, configuration, and tests.
 
 Nested delegation is deliberately narrow:
 
-- `planner` may delegate only to `explorer` and `spec-writer`.
+- `planner` may delegate only to `explorer`.
 - `reviewer` may delegate only to `explorer`.
-- `worker` and `worker-complex` may delegate only visual analysis to a profile-provided `vision-*` agent.
+- `worker` and `worker-complex` are implementation leaves and must not delegate; the primary orchestrator routes visual work directly to the existing role appropriate to the responsibility.
 - All other subagents must not delegate.
 - `explorer` is read-only and must not delegate.
-- Only the orchestrator may authorize source implementation. A planner may invoke `spec-writer` only for planning/documentation artifacts already inside the orchestrator-approved planning scope.
+- Only the orchestrator may authorize source implementation or repository persistence. Planner and design-partner managed outputs become repository artifacts only through one selected worker after the applicable approval.
 
 The delegation graph above is a logical contract. A harness with flat subagent
 execution must preserve that contract by having the orchestrator perform the
@@ -90,21 +90,21 @@ delegation that would otherwise be nested, then include the returned evidence
 in the planner or reviewer handoff. Its adapter must omit delegation tools that
 the harness cannot expose to rendered subagents; it must not advertise a
 delegation permission that appears to work but cannot be invoked.
-- `planner` and `reviewer` must never invoke `worker`, `worker-complex`, `validator`, `debugger`, or another source-changing agent.
+- `planner` and `reviewer` must never invoke `worker`, `worker-complex`, `validator`, `debugger`, or another source-changing agent; the orchestrator performs that handoff after approval.
 
 A planner or reviewer should keep explorer requests focused on the evidence needed for the decision, not ask for an unbounded scan such as "understand the entire repository," and remain responsible for interpreting the evidence and reaching conclusions. Reuse an explorer for follow-up questions about the same evidence scope; use separate explorers only for genuinely independent scopes.
 
 ## Planning
 
-Use `planner` for OpenSpec and non-OpenSpec planning. It owns reasoning, decisions, and final coherence. For substantial artifact creation or updates, it should delegate routine drafting to `spec-writer`; small direct corrections remain allowed when delegation would add no value. Planning artifacts may live in locations appropriate to the repository, including proposals, specifications, ADRs, implementation plans, and task breakdowns. Neither planner nor spec-writer may implement source code, tests, dependencies, or product behavior.
+Use `planner` for OpenSpec and non-OpenSpec planning. It owns reasoning, decisions, and final coherence while remaining read-only. It returns an implementation-ready managed result with `STATUS: READY` or `STATUS: BLOCKED`, authoritative scope and non-goals, exact paths and operations, requirements, acceptance criteria, dependencies, order, commands, risks, and unresolved decisions. Planning artifacts may live in locations appropriate to the repository, including proposals, specifications, ADRs, implementation plans, and task breakdowns, but the planner never writes them. After applicable approval, one selected `worker` or `worker-complex` materializes authorized planning artifacts and any related source, configuration, tests, prototypes, or documentation; malformed, missing, or `BLOCKED` planner output is not implementation authorization.
 
 If technical evidence is missing, the planner should commission focused exploration itself. If product intent or an architectural decision is missing, it must surface the exact decision to the orchestrator rather than asking explorer to infer it from code.
 
 ## OpenSpec orchestration
 
-For new or materially expanded OpenSpec work spanning multiple planning or specification artifacts, the orchestrator must obtain planner authorization before artifact writing. After authorization, one `spec-writer` owns the planning-artifact write scope; the orchestrator then runs mechanical OpenSpec validation and a fresh-context semantic `reviewer`, in that order, without separate per-run review authorization. The reviewer must receive the validation results.
+For new or materially expanded OpenSpec work spanning multiple planning or specification artifacts, the orchestrator must obtain the planner's managed implementation-ready result before artifact writing. After authorization, one selected `worker` or `worker-complex` owns the planning-artifact write scope; the orchestrator then runs mechanical OpenSpec validation and a fresh-context semantic `reviewer`, in that order, without separate per-run review authorization. The reviewer must receive the validation results.
 
-This is a narrow standing exception to review-on-demand and documentation-only validator rules. It does not apply to other work, and the reviewer user-verdict gate still applies: actionable findings do not authorize remediation. Reviewer-approved planning-artifact corrections return through the planner to the same `spec-writer`, never to `worker`. Trivial corrections may remain direct when delegation offers no concrete leverage; the parent remains the orchestrator and must state why delegation was skipped. This rule requires no particular Pi or other executor API sequence.
+This is a narrow standing exception to review-on-demand and documentation-only validator rules. It does not apply to other work, and the reviewer user-verdict gate still applies: actionable findings do not authorize remediation. Reviewer-approved planning-artifact corrections return through planner reasoning when needed and then to a selected worker. Trivial corrections may remain direct only when delegation offers no concrete leverage; the parent remains the orchestrator and must state why delegation was skipped. This rule requires no particular Pi or other executor API sequence.
 
 ## Proportional workflow
 
@@ -117,6 +117,8 @@ Give `worker` or `worker-complex` the approved scope, acceptance criteria, relev
 `worker` and `worker-complex` may author or update tests when tests are inside the approved scope, but must not execute tests, lint, typecheck, build, browser/device checks, or any other verification. They return changed files and requested validation commands or checks. `validator` exclusively executes verification and returns `PASS`, `FAIL`, or `BLOCKED`.
 
 Both worker roles must preserve unrelated user work and remain within scope. Ambiguous shared architecture, contracts, security behavior, or product semantics must be returned to the orchestrator for a decision.
+
+Automatic repair handoffs are valid only for an acceptance blocker and must identify the exact blocker, failed deterministic criterion, evidence, bounded files/scope, owner, repair budget, and check to rerun. Broad directives such as `act`, `proceed`, `fix it`, or `implement`, and review authorization, do not authorize future findings or their repair.
 
 Delegated source-changing worker output always requires independent validator verification. A direct primary source change within the narrow low-risk exception may use a targeted check instead; this exception does not waive any applicable review authorization or user-verdict gate.
 
@@ -134,13 +136,38 @@ When implementation requires independent validation under the rules below, give 
 
 Validation by `validator` is mandatory whenever a worker role changed code, tests, configuration, or dependencies, or the change touches product behavior. For a direct source change within the narrow exception above, a single quick check by the orchestrator suffices; it is not independent validator evidence.
 
+Only a deterministic, reproducible failure of an already-authorized acceptance criterion within the current implementation scope may be classified as an acceptance blocker eligible for automatic repair. `FAIL` alone is not enough: `BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations, unrelated failures, or a failure without a named deterministic criterion are not acceptance blockers.
+
 The validator must independently inspect the relevant diff and choose the smallest useful validation matrix, including predefined deterministic acceptance and any required browser/device checks. For each acceptance criterion, report observable evidence that demonstrates the expected public behavior and return `PASS`, `FAIL`, or `BLOCKED`. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Validation confirms acceptance criteria; it is not a covert reviewer and must not expand into architecture critique or speculative design findings. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
 
 If validation fails, send the exact failure to `debugger`; do not ask validator to diagnose or fix it.
 
+## Finding authorization boundary and automatic repair
+
+Outputs from the `reviewer`, UX critic (`ux-critic`), `planner`, `debugger`, `validator`, and `explorer` are evidence/findings, never implementation authorization by themselves. Severity labels, including `P0` or `Critical`, do not grant mutation authority.
+
+An earlier broad instruction such as `act`, `proceed`, `fix`, or `implement`, and authorization to run a review, apply only to the explicit original scope and acceptance criteria. They do not authorize future findings discovered by review, audit, exploration, or validation.
+
+An **acceptance blocker** exists only when all of these conditions hold:
+
+- it is an observable, deterministic, and reproducible failure: a deterministic test/lint/typecheck/build/compile/format failure (or equivalent deterministic acceptance-check failure), or a direct violation of an already explicit user requirement or approved acceptance criterion, within the current implementation scope;
+- the criterion is objective and reproducible by a predefined validator check or an equivalently deterministic acceptance check;
+- the repair only restores that criterion, stays within the approved files/scope and existing repair budget, and does not add behavior, change requirements, broaden scope, or address an unrelated finding; and
+- the orchestrator can name the exact failed criterion, evidence, affected scope, owner/budget, and check that will be rerun.
+
+Only an acceptance blocker may enter automatic repair. Automatic repair is allowed because the user already authorized that deterministic criterion, not because of a broad directive or the severity of a report.
+
+A validator `FAIL` is not automatically an acceptance blocker. Split true deterministic, in-scope acceptance failures from new findings, and ask for decisions on the latter. `BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations, unrelated check failures, and failures without a named deterministic criterion are not eligible for automatic repair. Handle prerequisites or ask the user as appropriate. A second failure of the same underlying problem follows the existing stop-and-ask rule.
+
+A **new finding** is every actionable issue that is not an acceptance blocker. This includes reviewer and UX-critic findings; security, architecture, maintainability, duplicate rules/code, cleanup, refactors, quality improvements, newly proposed behavior, UX changes, policy changes, architecture changes, and any newly discovered issue; and any issue requiring new requirements, a product choice, scope expansion, or compromise. It remains a finding even when the repair is obvious, mechanical, severe, or in the same file. Formatting, dead-code removal, renaming, deduplication, and similar mechanical cleanup are new work unless explicitly named in the original approved scope and required to restore the same deterministic criterion; existing duplication does not imply authorization. An explicit requirement whose proposed correction needs interpretation, a product choice, new scope, or nondeterministic judgment is also a new finding. A later finding is covered by original authorization only when that authorization names the same behavior or criterion and the repair remains within that exact scope; even then, automatic repair still requires a deterministic acceptance blocker. An issue discovered while repairing another issue may be handled without a new decision only when it is strictly necessary to restore that same deterministic criterion; unrelated residual work is a new finding. If classification is uncertain, default to a finding and ask rather than auto-fix.
+
+Critical security or data-loss findings must stop progress and be presented immediately. They are not silently auto-fixed unless their exact repair was already explicitly authorized by the original scope or acceptance criterion. A P0/security finding from a reviewer or UX critic is a new finding requiring an individual decision unless that deterministic security criterion is already authorized and has failed. P0/security severity and urgency do not bypass the decision gate.
+
+Before launching a repair worker for each non-blocker finding, the primary orchestrator must present concise evidence, impact, recommendation, and scope/cost, then ask one individual `Done` / `Skip` / `Snooze` question for that finding. Each actionable finding has a stable ID and exactly one recorded outcome. That outcome must be one of `Done`, `Skip`, `Snooze`, or an explicitly equivalent custom decision. `Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it without silently creating a ticket or artifact unless separately authorized. If the question tool supports multiple questions, show up to its question-count limit in one interaction and send overflow in additional interactions; every finding remains a separate question and answer, never a package approval by default. Record each outcome in the handoff and final synthesis, and do not re-propose a skipped finding in the same task unless evidence materially changes.
+
 ## Repair budget and stopping rule
 
-One `debugger` -> `worker` -> `validator` repair cycle is allowed for a validation failure. If validation fails again for the same underlying problem, stop and ask the user rather than continuing automatically.
+One `debugger` -> `worker` -> `validator` repair cycle is allowed only for a validation failure classified as an acceptance blocker under the policy above. If validation fails again for the same underlying problem, stop and ask the user rather than continuing automatically.
 
 The stop report must contain:
 
@@ -187,9 +214,11 @@ After every reviewer result, including re-reviews, the orchestrator must first p
 
 `Info` is an observation, not an actionable finding, and must not create a remediation question. If action is required, use at least `Low`. If there are no actionable findings, say so explicitly and do not ask remediation questions.
 
-After presenting findings, invoke the configured `question` tool. Prefer one single-choice question per actionable finding in one batched call, grouping only findings that require the same indivisible decision. Put the recommended choice first and append `(Recommended)` to its label. Include explicit `Skip`/`Pomiń`. Rely on the tool's automatic custom/free-text choice; do not add `Other` or `Custom`. Use multiple selection only when a finding genuinely supports multiple compatible actions. If the configured question tool is unavailable, reproduce the same choices in plain chat and wait for the user's actual answer; silence is not approval.
+Every reviewer finding is a new finding unless it is already exactly covered by an explicitly approved original acceptance criterion and the proposed repair solely restores that criterion. Reviewer output, recommendations, and severity never authorize remediation; even this narrow exception may enter automatic repair only when it is a deterministic acceptance blocker.
 
-Do not delegate fixes until the user answers. Only selected or custom-approved scope may be delegated for correction; the default executor is `worker`, except that reviewer-approved planning-artifact corrections under the OpenSpec exception return through the planner to the same `spec-writer`. Skipped, unselected, declined, implied, or silent approval leaves the finding untouched, including newly discovered Low or Medium findings. Approval for a finding covers the complete correction for that same finding, including residual work required to resolve it, within that finding's own repair budget. Briefly state the approved scope before delegating. Each user-approved finding has its own bounded budget of one correction plus one targeted re-review of the changed scope plus adjacent consequences, independent of the validation repair budget in "Repair budget and stopping rule"; the correction may contain all edits needed for that same finding. This bounded cycle does not authorize repair cycles beyond this finding's own budget. Do not start a broad or automatic review loop. If a finding remains unresolved, its repair budget is exhausted, or the work would require a new scope or product compromise, stop and return to the user for authorization.
+After presenting findings, invoke the configured `question` tool. Require one individual single-choice question per actionable finding. Each question must offer `Done`, `Skip`/`Pomiń`, and `Snooze`; `Done` authorizes only that finding now. If the tool supports multiple questions, show distinct questions up to its question-count limit and send overflow in additional calls; never collapse findings into one package approval by default. Put the recommended choice first and append `(Recommended)` to its label. Rely on the tool's automatic custom/free-text choice for an explicitly equivalent custom decision; do not add `Other` or `Custom`. Use multiple selection only when a finding genuinely supports multiple compatible actions. If the configured question tool is unavailable, reproduce the same choices in plain chat and wait for the user's actual answer; silence is not approval.
+
+Do not delegate fixes until the user answers. Only selected or custom-approved scope may be delegated for correction; the default executor is `worker`, except that reviewer-approved planning-artifact corrections under the OpenSpec exception return through planner reasoning and then to the selected worker. Skipped, unselected, declined, implied, or silent approval leaves the finding untouched, including newly discovered Low or Medium findings. Approval for a finding covers the complete correction for that same finding, including residual work required to resolve it, within that finding's own repair budget. Briefly state the approved scope before delegating. Each user-approved finding has its own bounded budget of one correction plus one targeted re-review of the changed scope plus adjacent consequences, independent of the validation repair budget in "Repair budget and stopping rule"; the correction may contain all edits needed for that same finding. This bounded cycle does not authorize repair cycles beyond this finding's own budget. Do not start a broad or automatic review loop. If a finding remains unresolved, its repair budget is exhausted, or the work would require a new scope or product compromise, stop and return to the user for authorization.
 
 Default to exactly one reviewer per explicitly requested review. Do not silently spawn specialized or parallel reviewers. If multiple reviewers could materially improve the result, ask for explicit approval first and state the proposed count, non-overlapping scopes, concrete benefit, and additional usage/latency cost. Without approval, use one reviewer.
 
@@ -197,7 +226,7 @@ Default to exactly one reviewer per explicitly requested review. Do not silently
 
 Use `design-partner` for uncertain product flows and pre-implementation visual exploration. Keep it human-in-the-loop and do not proceed to production implementation or formal planning until the user explicitly freezes the design. Disposable prototypes belong only in a dedicated prototype directory; never in production source.
 
-Use `ux-critic` only for explicitly user-requested heuristic usability, accessibility, platform-fit, and optional parity audits over the named scope. It may create explicitly requested audit artifacts but must not modify production source, act as a mechanical release gate, or close implementation acceptance; `validator` owns predefined deterministic acceptance, including browser/device checks. A complete UX report exposes `STATUS: COMPLETE` or `STATUS: BLOCKED` and screenshot evidence.
+Use `ux-critic` only for explicitly user-requested heuristic usability, accessibility, platform-fit, and optional parity audits over the named scope. It may create explicitly requested audit artifacts but must not modify production source, act as a mechanical release gate, or close implementation acceptance; `validator` owns predefined deterministic acceptance, including browser/device checks. UX findings are always new findings requiring an individual user decision; severity or user impact cannot make them acceptance blockers or authorize repair. A complete UX report exposes `STATUS: COMPLETE` or `STATUS: BLOCKED` and screenshot evidence.
 
 ## Safety and reporting
 
@@ -208,10 +237,10 @@ Keep orchestration event-based: wait for completion, a blocker, a decision, or a
 # Claude profile orchestration
 
 - The primary agent is the orchestrator and follows the shared orchestration policy loaded before this file.
-- All models in this profile are natively multimodal; use native vision for image and screenshot reading. Profile-provided `vision-*` delegation is unnecessary.
+- All models in this profile are natively multimodal; use native vision for image and screenshot reading.
 - Preserve the primary model's context for authority, decomposition, decisions, approval gates, and synthesis.
-- Claude Code uses a flat subagent topology. The orchestrator invokes `explorer` directly when planner or reviewer evidence is needed, then includes that evidence in the planner or reviewer handoff. The orchestrator also performs any other delegation that the logical policy assigns to a subagent, including planner-authorized `spec-writer` drafting.
-- Rendered role files do not expose nested `Agent(explorer)` or `Agent(spec-writer)` tools. Planner and reviewer must use evidence supplied by the orchestrator and return any follow-up investigation request to it.
+- Claude Code uses a flat subagent topology. The orchestrator invokes `explorer` directly when planner or reviewer evidence is needed, then includes that evidence in the planner or reviewer handoff. The orchestrator performs the selected-worker handoff for any approved repository persistence.
+- Rendered role files do not expose nested `Agent(explorer)` tools. Planner and reviewer must use evidence supplied by the orchestrator and return any follow-up investigation request to it.
 - Subagents rendered from role files start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff.
 - The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile.
 - Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.

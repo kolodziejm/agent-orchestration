@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profil deepseek — orkiestrator na max</title>
+<style>
+:root{--p1:#ef4444;--p2:#f59e0b;--p3:#60a5fa;--good:#22c55e;--violet:#a78bfa;--cyan:#22d3ee;--panel:color-mix(in srgb,var(--card,#fff) 88%,transparent);--soft:color-mix(in srgb,var(--foreground,#111827) 7%,transparent)}
+*{box-sizing:border-box}body{color:var(--foreground,#111827);line-height:1.48;margin:0}.shell{width:min(1180px,calc(100vw - 20px));margin:0 auto;padding:18px 0 28px}.eyebrow{font:700 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--accent,#2563eb)}h1{font-size:clamp(28px,4.6vw,52px);line-height:1.03;letter-spacing:-.045em;margin:10px 0 12px;max-width:900px}h2{font-size:clamp(20px,2.6vw,30px);letter-spacing:-.025em;margin:0 0 8px}h3{font-size:16px;margin:0 0 6px}.lead{font-size:18px;color:var(--muted-foreground,#4b5563);max-width:880px;margin:0}.meta{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 8px}.pill{border:1px solid var(--border,#d1d5db);background:var(--soft);border-radius:999px;padding:6px 10px;font:650 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}.pill.good{border-color:color-mix(in srgb,var(--good) 50%,var(--border,#d1d5db));color:var(--good)}.pill.warn{border-color:color-mix(in srgb,var(--p2) 50%,var(--border,#d1d5db));color:var(--p2)}.pill.blue{border-color:color-mix(in srgb,var(--p3) 50%,var(--border,#d1d5db));color:var(--p3)}.section{margin-top:38px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;border-bottom:1px solid var(--border,#d1d5db);padding-bottom:12px;margin-bottom:16px}.section-head p{margin:0;color:var(--muted-foreground,#4b5563);max-width:600px}.diagram{border:1px solid var(--border,#d1d5db);background:var(--panel);border-radius:14px;padding:18px;overflow:auto}.flow{min-width:900px;display:grid;grid-template-columns:1fr 36px 1fr 36px 1fr;align-items:stretch;gap:8px}.arrow{display:grid;place-items:center;color:var(--muted-foreground,#4b5563);font-size:22px}.layer{border:1px solid var(--border,#d1d5db);border-radius:12px;padding:14px;background:var(--card,#fff);min-height:186px}.layer.bad{border-color:color-mix(in srgb,var(--p1) 45%,var(--border,#d1d5db))}.layer.ok{border-color:color-mix(in srgb,var(--good) 45%,var(--border,#d1d5db))}.layer strong{display:block;margin-bottom:8px}.layer ul{padding-left:18px;margin:0;color:var(--muted-foreground,#4b5563)}.layer li+li{margin-top:5px}.code{font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;background:color-mix(in srgb,var(--foreground,#111827) 5%,transparent);padding:12px;border-radius:8px;white-space:pre-wrap;margin-top:10px;color:var(--muted-foreground,#4b5563)}.matrix{width:100%;border-collapse:collapse;font-size:13px}.matrix th,.matrix td{text-align:left;border-bottom:1px solid var(--border,#d1d5db);padding:10px 8px;vertical-align:top}.matrix th{color:var(--muted-foreground,#4b5563);font-size:11px;text-transform:uppercase;letter-spacing:.07em}.yes{color:var(--good);font-weight:750}.no{color:var(--p1);font-weight:750}.partial{color:var(--p2);font-weight:750}.findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.finding{position:relative;border:1px solid var(--border,#d1d5db);border-radius:13px;padding:16px;background:var(--panel);overflow:hidden}.finding:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--sev)}.finding[data-sev="P1"]{--sev:var(--p1)}.finding[data-sev="P2"]{--sev:var(--p2)}.finding[data-sev="P3"]{--sev:var(--p3)}.finding[data-sev="P4"]{--sev:var(--cyan)}.sev{float:right;font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--sev);border:1px solid color-mix(in srgb,var(--sev) 55%,var(--border,#d1d5db));padding:5px 7px;border-radius:6px}.finding p{margin:9px 0;color:var(--muted-foreground,#4b5563)}code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--soft);padding:2px 5px;border-radius:5px}.takeaway{border:1px solid color-mix(in srgb,var(--accent,#2563eb) 48%,var(--border,#d1d5db));background:color-mix(in srgb,var(--accent,#2563eb) 8%,transparent);border-radius:14px;padding:20px;margin-top:36px}.takeaway p{font-size:17px;max-width:930px;margin:8px 0 0}.foot{color:var(--muted-foreground,#4b5563);font-size:12px;margin-top:24px}@media(max-width:780px){.findings{grid-template-columns:1fr}.flow{min-width:820px}.section-head{display:block}.section-head p{margin-top:6px}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header>
+    <div class="eyebrow">agent-orchestration / profil deepseek / control plane</div>
+    <h1>Orkiestrator na <code>max</code> — i jedno źródło prawdy zamiast trzech literałów</h1>
+    <p class="lead">Poziom „myślenia" sesji głównej był zapisany w profilu jako intencja, ale instalator Pi wstawiał do <code>settings.json</code> własny, twardy literał. Zmiana domyka ten rozjazd: wartość jest teraz wyprowadzana z definicji profilu, więc nie może się rozjechać z tym, co profil deklaruje.</p>
+    <div class="meta">
+      <span class="pill good">199 testów kontraktowych OK</span>
+      <span class="pill good">instalacja: 2 zapisy</span>
+      <span class="pill blue">primary: high → max</span>
+      <span class="pill">4 pliki w repo</span>
+      <span class="pill warn">zmiana aktywna od następnego startu</span>
+      <span class="pill">baseline e702fda · 14.09.2026</span>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Dlaczego</h2>
+      <p>Orkiestrator powinien być najbardziej „myślącym" elementem floty — a był jedynym, który myślał płycej niż własne dzieci.</p>
+    </div>
+    <p>W profilu <code>deepseek</code> role dziecięce miały już <code>max</code> (<code>planner</code>, <code>reviewer</code>, <code>worker-complex</code>, <code>debugger</code>), a sesja główna — <code>high</code>. Dodatkowo wartość orkiestratora nie wynikała z profilu, tylko z osobnego literału w installerze, więc każda przyszła zmiana profilu mogła zostać po cichu zignorowana.</p>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Łańcuch: co mówi intencja, a co realnie startuje sesję</h2>
+      <p>Ta sama wartość żyła w trzech miejscach. Tylko jedno z nich faktycznie decydowało o zachowaniu Pi.</p>
+    </div>
+    <div class="diagram">
+      <div class="flow">
+        <div class="layer ok">
+          <strong>1. Definicja profilu</strong>
+          <ul>
+            <li><code>profiles/deepseek.toml</code></li>
+            <li><code>[control_plane.primary] effort</code></li>
+            <li>← <b>źródło prawdy</b></li>
+          </ul>
+        </div>
+        <div class="arrow">→</div>
+        <div class="layer">
+          <strong>2. Render (intencja)</strong>
+          <ul>
+            <li><code>render.py:196</code> czyta <code>primary.effort</code></li>
+            <li>zapisuje <code>_shared/control-plane.json</code></li>
+            <li>dokumentuje zamiar, nie steruje sesją</li>
+          </ul>
+        </div>
+        <div class="arrow">→</div>
+        <div class="layer bad">
+          <strong>3. Instalator (realny przełącznik)</strong>
+          <ul>
+            <li><code>install.py:719</code> — literał <code>"high"</code></li>
+            <li>→ <code>settings.json: defaultThinkingLevel</code></li>
+            <li>to czyta Pi przy starcie sesji</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="code"># stan przed zmianą — intencja i wartość efektywna były rozłączne
+profiles/deepseek.toml        [control_plane.primary] effort = "high"   # intencja
+install.py:719                settings["defaultThinkingLevel"] = "high" # literał
+~/.pi/profiles/deepseek/settings.json  "defaultThinkingLevel": "high"    # efekt
+# dodatkowo install.py:1281 walidował instalację oczekując literalnego "high"</div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Zmiana</h2>
+      <p>Cztery pliki; logika wyprowadzenia wartości jest nowa, reszta to konsekwencje.</p>
+    </div>
+    <table class="matrix">
+      <thead><tr><th>Plik</th><th>Co się zmieniło</th><th>Dlaczego</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>profiles/deepseek.toml</code></td>
+          <td><code>[control_plane.primary] effort</code>: <span class="no">high</span> → <span class="yes">max</span></td>
+          <td>Intencja profilu — z tego miejsca korzysta render i (po zmianie) instalator.</td>
+        </tr>
+        <tr>
+          <td><code>adapters/pi/install.py</code></td>
+          <td>Nowy <code>profile_primary_thinking(profile)</code> czytający <code>profiles/&lt;profile&gt;.toml</code> przez <code>tomllib</code>; <code>deepseek_source_files(source, target, primary_thinking)</code>; walidacja porównuje z profilem zamiast z literałem</td>
+          <td>Usuwa klasę błędu (dryf intencja↔wartość), nie tylko objaw. Jedno źródło prawdy.</td>
+        </tr>
+        <tr>
+          <td><code>tests/test_pi_install.py</code></td>
+          <td>2 oczekiwania dla deepseek: <code>high</code> → <code>max</code></td>
+          <td>Kontrakt instalacji musi opisywać nową, wyprowadzoną wartość.</td>
+        </tr>
+        <tr>
+          <td><code>tests/test_pi_render.py</code></td>
+          <td>Oczekiwanie <code>control-plane.primary</code> dla deepseek: <code>high</code> → <code>max</code></td>
+          <td>Renderowany dokument intencji też musi zgadzać się z profilem.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="code">def profile_primary_thinking(profile: str) -> str:
+    """Return the profile's declared primary thinking level."""
+    import tomllib  # Python 3.11+
+    profile_path = ROOT / "profiles" / f"{profile}.toml"
+    with profile_path.open("rb") as handle:
+        definition = tomllib.load(handle)
+    thinking = definition["control_plane"]["primary"]["effort"]
+    if not isinstance(thinking, str) or not thinking.strip():
+        raise SystemExit(f"Profile {profile} declares no primary thinking level")
+    return thinking</div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Weryfikacja</h2>
+      <p>Kontrakty repo + instalacja na żywym profilu + kontrola spójności runtime.</p>
+    </div>
+    <table class="matrix">
+      <thead><tr><th>Sprawdzenie</th><th>Wynik</th></tr></thead>
+      <tbody>
+        <tr><td><code>PYTHON=.venv/bin/python ./scripts/check</code> (kontrakty + aktualność snapshotów)</td><td><span class="yes">Ran 199 tests · OK · EXIT=0</span> <span class="partial">(uv niedostępne — użyty venv repo)</span></td></tr>
+        <tr><td>Instalacja: <code>./scripts/install-pi --profile deepseek --target ~/.pi/profiles/deepseek</code></td><td><span class="yes">2 writes, 0 deletions</span></td></tr>
+        <tr><td>Backup przed zapisem</td><td><code>~/.local/state/agent-orchestration/backups/20260914T112127Z-2nwnv3a3/pi</code></td></tr>
+        <tr><td><code>settings.json → defaultThinkingLevel</code></td><td><span class="yes">max</span></td></tr>
+        <tr><td><code>control-plane.json → primary.thinking</code></td><td><span class="yes">max</span></td></tr>
+        <tr><td><code>control-plane.json → builtins.build / plan</code></td><td><code>high</code> / <code>max</code> — <b>nietknięte</b> (zmiana dotyczyła wyłącznie orkiestratora)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Pułapki, które ta zmiana odsłoniła</h2>
+      <p>Każda z nich może zmylić przy następnej pracy z profilami.</p>
+    </div>
+    <div class="findings">
+      <div class="finding" data-sev="P2">
+        <span class="sev">P2</span>
+        <h3><code>install-pi</code> bez flag celuje w inny profil</h3>
+        <p>Wywołanie <code>./scripts/install-pi</code> bez argumentów obsługuje profil domyślny, nie <code>deepseek</code> — i odpowiada „Pi configuration is already synchronized", mimo że profil deepseek pozostał nietknięty. Poprawne wywołanie: <code>--profile deepseek --target ~/.pi/profiles/deepseek</code>. Warto dopisać do README, bo komunikat jest mylący.</p>
+      </div>
+      <div class="finding" data-sev="P2">
+        <span class="sev">P2</span>
+        <h3>Zmiana działa od następnego startu</h3>
+        <p>Poziom myślenia jest ustalany w momencie uruchomienia sesji, więc działająca sesja zachowuje wartość z chwili startu. Efekt <code>max</code> widać dopiero po restarcie <code>pi-deepseek</code>.</p>
+      </div>
+      <div class="finding" data-sev="P3">
+        <span class="sev">P3</span>
+        <h3>Render przepisał 100 plików w <code>generated/</code></h3>
+        <p><code>./scripts/render</code> regeneruje wszystkie adaptery, więc przy okazji zmaterializował niezacommitowaną pracę nad polityką i adapterami do snapshotów. Treść pochodzi ze źródeł repo, ale stan working tree się zmienił — cofnięcie: <code>git checkout -- generated/</code>.</p>
+      </div>
+      <div class="finding" data-sev="P4">
+        <span class="sev">P4</span>
+        <h3>Pozostałe profile nadal mają literały</h3>
+        <p>Ścieżki GLM (<code>high</code>) i openai (<code>medium</code>) wciąż wpisują wartość na sztywno. Ten sam wzorzec „wyprowadź z profilu" można zastosować tam osobno.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Widoczność artefaktów</h2>
+      <p>Osobny raport (branch <code>schedule-item-any-day</code>) leży poza gitem — to celowe, ale łatwe do przeoczenia.</p>
+    </div>
+    <table class="matrix">
+      <thead><tr><th>Ścieżka</th><th>Status w git</th></tr></thead>
+      <tbody>
+        <tr><td><code>personal-os/artifacts/schedule-any-day-branch-summary.html</code></td><td><span class="partial">untracked</span> — <code>artifacts/</code> nie jest trackowane ani ignorowane (<code>.gitignore</code> zawiera tylko <code>validation-artifacts/</code>), więc plik istnieje lokalnie, ale nie pojawia się w diff/PR</td></tr>
+        <tr><td><code>agent-orchestration/docs/reports/*.html</code></td><td><span class="yes">trackowane</span> — w tym niniejszy raport; od razu widoczny w <code>git status</code> tego repo</td></tr>
+        <tr><td><code>.worktrees/schedule-any-day/storage/app/browser-evidence/*.png</code></td><td><span class="partial">untracked</span> (gitignored przez <code>storage/app/.gitignore</code>) — 10 zrzutów z walidacji przeglądarkowej</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="takeaway">
+    <div class="eyebrow">Wniosek</div>
+    <p>Orkiestrator w profilu <code>deepseek</code> startuje teraz na <code>max</code>, a wartość pochodzi z definicji profilu — nie z literału w installerze. Największą wartością tej zmiany nie jest jednak sam poziom, tylko usunięcie rozjazdu między intencją a konfiguracją, który pozwalał profilom kłamać o sobie.</p>
+  </div>
+
+  <p class="foot">Raport lokalny, wygenerowany 14.09.2026 na baseline <code>e702fda</code>. Zmiany w repo źródłowym nie są zacommitowane. Plik jest samodzielny (brak zależności zewnętrznych, otwiera się offline).</p>
+</main>
+</body>
+</html>

@@ -5,14 +5,14 @@ description = "Routine implementation worker for sufficiently specified changes"
 mode = "subagent"
 edit = "allow"
 bash = "allow"
-delegates = ["vision-*"]
+delegates = []
 
 [roles.worker-complex]
 description = "Complex implementation worker for difficult but sufficiently specified changes"
 mode = "subagent"
 edit = "allow"
 bash = "allow"
-delegates = ["vision-*"]
+delegates = []
 
 [roles.validator]
 description = "Independent mechanical validation agent"
@@ -38,22 +38,15 @@ delegates = []
 [roles.planner]
 description = "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
 mode = "subagent"
-edit = "allow"
-bash = "ask"
-delegates = ["explorer", "spec-writer"]
-
-[roles.spec-writer]
-description = "Mechanical writer of planner-authorized planning artifacts"
-mode = "subagent"
-edit = "allow"
-bash = "ask"
-delegates = []
+edit = "deny"
+bash = "deny"
+delegates = ["explorer"]
 
 [roles.design-partner]
 description = "Human-in-the-loop product flow designer and prototype author"
 mode = "subagent"
-edit = "allow"
-bash = "allow"
+edit = "deny"
+bash = "deny"
 delegates = []
 
 [roles.reviewer]

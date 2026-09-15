@@ -33,6 +33,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 "pi-hybrid": [ROOT / "adapters" / "pi" / "render.py", "--profile", "hybrid"],
                 "pi-openai": [ROOT / "adapters" / "pi" / "render.py", "--profile", "openai"],
                 "pi-deepseek": [ROOT / "adapters" / "pi" / "render.py", "--profile", "deepseek"],
+                "pi-glm": [ROOT / "adapters" / "pi" / "render.py", "--profile", "glm"],
             }
             for name, parts in commands.items():
                 output = root / name
@@ -57,7 +58,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 (outputs["claude-code"] / "workflows" / "feature-workflow-pilot.md").read_text(),
                 workflow,
             )
-            for name in ("pi-hybrid", "pi-openai", "pi-deepseek"):
+            for name in ("pi-hybrid", "pi-openai", "pi-deepseek", "pi-glm"):
                 self.assertEqual(
                     (outputs[name] / "workflows" / "feature-workflow-pilot.md").read_text(),
                     workflow,
@@ -69,6 +70,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 ("pi-hybrid", outputs["pi-hybrid"] / "_shared" / "orchestration-core.md"),
                 ("pi-openai", outputs["pi-openai"] / "_shared" / "orchestration-core.md"),
                 ("pi-deepseek", outputs["pi-deepseek"] / "_shared" / "orchestration-core.md"),
+                ("pi-glm", outputs["pi-glm"] / "_shared" / "orchestration-core.md"),
             ):
                 self.assertIn("Mandatory analysis fanout", core_path.read_text(), name)
             self.assertNotIn("# Feature Workflow Pilot", (outputs["opencode"] / "profiles" / "_shared" / "orchestration-core.md").read_text())
@@ -95,6 +97,23 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             self.assertIn(phrase, policy)
         self.assertNotIn("two or three genuinely independent evidence scopes", policy)
         self.assertNotIn("prefer parallel explorer tasks", policy)
+
+    def test_pilot_keeps_finding_repairs_decision_gated_without_blanket_authorization(self):
+        """REGRESSION CONTRACT: pilot gates cover named scope; later findings need individual outcomes."""
+        workflow = WORKFLOW.read_text()
+        for phrase in (
+            "authorize only the named original scope and acceptance criteria",
+            "do not authorize future findings discovered by review, audit, exploration, or validation",
+            "only a deterministic, reproducible failure of an already-authorized in-scope acceptance criterion",
+            "individual Done / Skip / Snooze decision",
+            "concise evidence, impact, recommendation, and scope/cost",
+            "batch distinct questions up to its limit",
+            "each finding remains a separate decision",
+            "record every outcome",
+            "do not silently create deferred tickets or re-propose skipped findings",
+            "No separate pilot-specific gate or blanket authorization is added.",
+        ):
+            self.assertIn(phrase, workflow)
 
     def test_pilot_has_executable_pi_runs_all_writer_validator_order(self):
         """REGRESSION CONTRACT: the pilot must execute as one raw workflowScript with a fanout barrier and serial stages."""

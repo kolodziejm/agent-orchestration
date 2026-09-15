@@ -8,7 +8,6 @@
     "explorer",
     "planner",
     "reviewer",
-    "spec-writer",
     "ux-critic",
     "validator",
     "worker",
@@ -25,6 +24,7 @@
     "extensions/agent-orchestration/delegation-ceiling-planner.js",
     "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
     "extensions/agent-orchestration/git-read.ts",
+    "extensions/agent-orchestration/primary-policy.js",
     "extensions/agent-orchestration/codex-pace-core.mjs",
     "extensions/agent-orchestration/codex-pace-loader.ts",
     "extensions/agent-orchestration/package.json"

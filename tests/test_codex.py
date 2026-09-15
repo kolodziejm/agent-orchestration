@@ -44,8 +44,8 @@ def render_snapshot(output: Path) -> None:
 
 
 class CodexRenderContractTests(unittest.TestCase):
-    def test_snapshot_contains_the_ten_canonical_role_contracts(self):
-        """REGRESSION CONTRACT: Codex exposes exactly the ten canonical roles; TEST LAYER: renderer integration test."""
+    def test_snapshot_contains_the_nine_canonical_role_contracts(self):
+        """REGRESSION CONTRACT: Codex exposes exactly the nine canonical roles; TEST LAYER: renderer integration test."""
         with ROUTING.open("rb") as handle:
             roles = tomllib.load(handle)["roles"]
 
@@ -54,7 +54,7 @@ class CodexRenderContractTests(unittest.TestCase):
             render_snapshot(output)
 
             self.assertEqual(set(path.stem for path in (output / "agents").glob("*.toml")), set(roles))
-            self.assertEqual(len(list((output / "agents").glob("*.toml"))), 10)
+            self.assertEqual(len(list((output / "agents").glob("*.toml"))), 9)
             self.assertTrue((output / "AGENTS.md").is_file())
             self.assertFalse((output / "manifest.json").exists())
 
@@ -132,7 +132,7 @@ class CodexRenderContractTests(unittest.TestCase):
             )
 
     def test_agents_file_preserves_planner_and_reviewer_delegation_instructions(self):
-        """REGRESSION CONTRACT: Codex instructions preserve planner/spec-writer and reviewer/explorer delegation; TEST LAYER: generated artifact contract test."""
+        """REGRESSION CONTRACT: Codex instructions preserve planner and reviewer/explorer delegation; TEST LAYER: generated artifact contract test."""
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "codex"
             render_snapshot(output)
@@ -147,7 +147,8 @@ class CodexRenderContractTests(unittest.TestCase):
             self.assertIn("genuine data dependency", planner["developer_instructions"])
             self.assertIn("indivisible shared state", planner["developer_instructions"])
             self.assertIn("too-small scope", planner["developer_instructions"])
-            self.assertIn("delegate their mechanical drafting to `spec-writer`", planner["developer_instructions"])
+            self.assertIn("managed output", planner["developer_instructions"])
+            self.assertNotIn("spec-writer", planner["developer_instructions"])
             self.assertIn("broad mechanical evidence gathering", reviewer["developer_instructions"])
             self.assertIn("MUST use 2–4 parallel, non-overlapping explorer evidence lanes concurrently", reviewer["developer_instructions"])
             self.assertIn("genuine data dependency", reviewer["developer_instructions"])

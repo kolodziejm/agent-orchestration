@@ -36,6 +36,14 @@ def write_deepseek_source(root: Path) -> Path:
         "defaultProvider": "openai-codex",
         "defaultModel": "gpt-source",
         "defaultThinkingLevel": "medium",
+        "lastChangelogVersion": "0.67.0",
+        "theme": "source-theme",
+        "externalEditor": "fixture-editor",
+        "tuiMode": "compact",
+        "treeFilterMode": "directories",
+        "doubleEscapeAction": "clear-input",
+        "terminal": "fixture-terminal",
+        "subagents": {"enabled": True, "maxChildren": 3},
         "packages": [
             "npm:pi-web-access",
             "npm:pi-subagents@0.67.0",
@@ -44,10 +52,22 @@ def write_deepseek_source(root: Path) -> Path:
              "extensions": ["src/index.ts"]},
             "./local/pi-sandbox",
         ],
-        "theme": "source-theme",
     }
     root.mkdir(parents=True, exist_ok=True)
     (root / "settings.json").write_text(json.dumps(settings) + "\n")
+    (root / "themes").mkdir()
+    (root / "themes/source-theme.json").write_text(
+        '{"name":"source-theme","colors":{"accent":"#fff"}}\n'
+    )
+    (root / "mcp.json").write_text(json.dumps({
+        "mcpServers": {
+            "deepseek-fixture": {
+                "command": "synthetic-deepseek-mcp",
+                "env": {"DEEPSEEK_MCP_TOKEN": "deepseek-mcp-secret"},
+            },
+        },
+        "adapterOwnedTopLevel": {"preserve": "exactly"},
+    }, indent=2) + "\n")
     (root / "models-store.json").write_text(json.dumps({
         "deepseek": {
             "baseUrl": "https://api.deepseek.com",
@@ -78,7 +98,10 @@ def write_deepseek_source(root: Path) -> Path:
         manifest = root / "npm" / "node_modules" / relative / "package.json"
         manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text(json.dumps({"name": name, "version": version, "pi": {"extensions": ["index.ts"]}}) + "\n")
-        (manifest.parent / "index.ts").write_text("export default {};\n")
+        # Pi's autoloader invokes every declared extension as a factory. Keep
+        # fixture package entrypoints valid under the installed runtime rather
+        # than masking startup failures with production changes.
+        (manifest.parent / "index.ts").write_text("export default function fixtureExtension() {}\n")
     local = root / "local" / "pi-sandbox"
     local.mkdir(parents=True)
     (local / "package.json").write_text(json.dumps({"name": "@erichll/pi-sandbox", "version": "0.17.1", "pi": {"extensions": ["index.ts"]}}) + "\n")
@@ -196,8 +219,8 @@ def package_names(settings: dict) -> dict[str, str]:
 
 
 class PiInstallTests(unittest.TestCase):
-    def test_openai_bootstrap_copies_private_mcp_config_without_logging_contents(self):
-        """OpenAI inherits global MCP config exactly while every installer report stays redacted."""
+    def test_openai_bootstrap_leaves_mcp_config_operator_owned(self):
+        """OpenAI never copies or reports the source MCP configuration."""
         install = load_install_module()
         secret_values = (
             "mcp-secret-token-never-print",
@@ -221,7 +244,7 @@ class PiInstallTests(unittest.TestCase):
                 )
             self.assertEqual(result, 0)
             self.assertFalse((target / "mcp.json").exists())
-            self.assertIn("MCP synchronization required (contents redacted)", dry_stdout.getvalue())
+            self.assertNotIn("mcp.json", dry_stdout.getvalue())
             dry_output = dry_stdout.getvalue() + dry_stderr.getvalue()
             for secret in secret_values:
                 self.assertNotIn(secret, dry_output)
@@ -235,64 +258,39 @@ class PiInstallTests(unittest.TestCase):
                     target, dry_run=False, profile="openai", source=source,
                 )
             self.assertEqual(result, 0)
-            self.assertEqual((target / "mcp.json").read_bytes(), (source / "mcp.json").read_bytes())
-            self.assertEqual((target / "mcp.json").stat().st_mode & 0o777, 0o600)
+            self.assertFalse((target / "mcp.json").exists())
             install_output = install_stdout.getvalue() + install_stderr.getvalue()
             for secret in secret_values:
                 self.assertNotIn(secret, install_output)
 
-    def test_openai_bootstrap_rejects_unsafe_or_malformed_mcp_sources(self):
-        """Malformed, empty, unsafe, or linked MCP sources must fail before target mutation."""
+    def test_openai_ignores_missing_malformed_or_linked_source_mcp(self):
+        """Source MCP state is outside the installer contract for every source shape."""
         install = load_install_module()
         cases = {
-            "top-level-array": [],
-            "missing-servers": {},
-            "servers-array": {"mcpServers": []},
-            "empty-servers": {"mcpServers": {}},
-            "unsafe-name": {"mcpServers": {"../escape": {"command": "synthetic"}}},
-            "non-object-config": {"mcpServers": {"server": ["synthetic"]}},
-            "empty-config": {"mcpServers": {"server": {}}},
+            "missing": None,
+            "malformed": "not json\n",
+            "linked": "linked",
         }
         for name, value in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 source = write_openai_source(root / "source")
-                (source / "mcp.json").write_text(json.dumps(value) + "\n")
+                mcp = source / "mcp.json"
+                if value is None:
+                    mcp.unlink()
+                elif value == "linked":
+                    mcp.unlink()
+                    linked = root / "linked-mcp.json"
+                    linked.write_text('{"operator": "owned"}\n')
+                    mcp.symlink_to(linked)
+                else:
+                    mcp.write_text(value)
                 target = root / "target"
-                with self.assertRaisesRegex(SystemExit, "MCP|mcpServers|object"):
-                    install.install(target, dry_run=False, profile="openai", source=source)
-                self.assertFalse(target.exists())
-
-        for name, content in {
-            "non-standard-number": '{"mcpServers":{"server":{"timeout":NaN}}}\n',
-            "duplicate-server": (
-                '{"mcpServers":{"server":{"command":"first"},'
-                '"server":{"command":"second"}}}\n'
-            ),
-        }.items():
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                source = write_openai_source(root / "source")
-                (source / "mcp.json").write_text(content)
-                with self.assertRaisesRegex(SystemExit, "MCP"):
-                    install.install(
-                        root / "target", dry_run=True, profile="openai", source=source,
-                    )
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = write_openai_source(root / "source")
-            linked_content = root / "linked-mcp.json"
-            linked_content.write_text('{"mcpServers":{"server":{"command":"synthetic"}}}\n')
-            (source / "mcp.json").unlink()
-            (source / "mcp.json").symlink_to(linked_content)
-            with self.assertRaisesRegex(SystemExit, "symlinked.*MCP"):
-                install.install(
-                    root / "target", dry_run=True, profile="openai", source=source,
-                )
-
-    def test_openai_mcp_replacement_is_backed_up_private_and_idempotent(self):
-        """Replacing an MCP config must back it up, fix exposure, and then synchronize cleanly."""
+                result = install.install(target, dry_run=True, profile="openai", source=source)
+                self.assertEqual(result, 0)
+                self.assertFalse((target / "mcp.json").exists())
+    def test_openai_mcp_is_preserved_byte_for_byte_and_outside_transaction(self):
+        """Existing target MCP bytes, mode, inode, and mtime are operator-owned."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -305,37 +303,20 @@ class PiInstallTests(unittest.TestCase):
             original = b'{"mcpServers":{"old":{"command":"synthetic-old"}}}\n'
             target_mcp.write_bytes(original)
             target_mcp.chmod(0o644)
+            before = (target_mcp.read_bytes(), target_mcp.stat().st_mode & 0o777,
+                      target_mcp.stat().st_ino, target_mcp.stat().st_mtime_ns)
 
-            output = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", output
-            ):
+            with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="openai", source=source)
-            backup = Path(output.getvalue().strip().rsplit("Backup: ", 1)[1])
-            backed_up_mcp = backup / "target/mcp.json"
-            self.assertEqual(backed_up_mcp.read_bytes(), original)
-            self.assertEqual(backed_up_mcp.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(target_mcp.stat().st_mode & 0o777, 0o600)
-
-            synchronized = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", synchronized
-            ):
-                install.install(target, dry_run=True, profile="openai", source=source)
-            self.assertIn("already synchronized", synchronized.getvalue())
-
-            target_mcp.chmod(0o400)
-            source_value = json.loads((source / "mcp.json").read_text())
-            source_value["adapterOwnedTopLevel"]["revision"] = 2
-            (source / "mcp.json").write_text(json.dumps(source_value, indent=2) + "\n")
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", io.StringIO()
-            ):
                 install.install(target, dry_run=False, profile="openai", source=source)
-            self.assertEqual(target_mcp.stat().st_mode & 0o777, 0o400)
 
-    def test_openai_bootstrap_refuses_a_target_mcp_symlink(self):
-        """An existing target MCP symlink must never be followed or replaced."""
+            self.assertEqual(target_mcp.read_bytes(), before[0])
+            self.assertEqual(target_mcp.stat().st_mode & 0o777, before[1])
+            self.assertEqual(target_mcp.stat().st_ino, before[2])
+            self.assertEqual(target_mcp.stat().st_mtime_ns, before[3])
+
+    def test_openai_bootstrap_leaves_a_target_mcp_symlink_untouched(self):
+        """An existing target MCP symlink remains opaque to the installer."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -345,8 +326,9 @@ class PiInstallTests(unittest.TestCase):
             outside = root / "outside-mcp.json"
             outside.write_text('{"mcpServers":{"outside":{"command":"preserve"}}}\n')
             (target / "mcp.json").symlink_to(outside)
-            with self.assertRaisesRegex(SystemExit, "symlink"):
-                install.install(target, dry_run=True, profile="openai", source=source)
+            result = install.install(target, dry_run=True, profile="openai", source=source)
+            self.assertEqual(result, 0)
+            self.assertTrue((target / "mcp.json").is_symlink())
             self.assertEqual(
                 outside.read_text(),
                 '{"mcpServers":{"outside":{"command":"preserve"}}}\n',
@@ -390,11 +372,14 @@ class PiInstallTests(unittest.TestCase):
             fake_home.mkdir()
             bin_dir = root / "bin"
             source = write_openai_source(root / "source")
+            deepseek_source = write_deepseek_source(root / "deepseek-source")
             cases = (
                 ("hybrid", root / "hybrid", None,
                  "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
                 ("openai", root / "openai", source,
                  "agent-orchestration-codex-pace", "agent-orchestration-deepseek-price"),
+                ("deepseek", root / "deepseek", deepseek_source,
+                 "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
             )
             for profile, target, profile_source, expected, rejected in cases:
                 with self.subTest(profile=profile), mock.patch.object(
@@ -427,15 +412,13 @@ class PiInstallTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 events = [json.loads(line) for line in result.stdout.splitlines()]
-                statuses = {
-                    event.get("statusKey"): event.get("statusText")
+                status_keys = {
+                    event.get("statusKey")
                     for event in events
-                    if event.get("method") == "setStatus" and event.get("statusText")
+                    if event.get("method") == "setStatus"
                 }
-                self.assertIn(expected, statuses, result.stdout)
-                self.assertNotIn(rejected, statuses, result.stdout)
-                if profile == "openai":
-                    self.assertRegex(statuses[expected], r"^pace \+10pp · proj 120%$")
+                self.assertIn(expected, status_keys, result.stdout)
+                self.assertNotIn(rejected, status_keys, result.stdout)
 
     def test_openai_bootstrap_rejects_a_dependency_aggregate_without_pi_manifest(self):
         """Package metadata alone must not make a non-loadable aggregate look like pi-usage."""
@@ -507,10 +490,7 @@ class PiInstallTests(unittest.TestCase):
                 set(json.loads((target / "models-store.json").read_text())),
                 {"openai-codex"},
             )
-            auth = json.loads((target / "auth.json").read_text())
-            self.assertEqual(set(auth), {"openai-codex"})
-            self.assertEqual(auth["openai-codex"]["type"], "oauth")
-            self.assertEqual((target / "auth.json").stat().st_mode & 0o777, 0o600)
+            self.assertFalse((target / "auth.json").exists())
             self.assertFalse((target / "extensions/agent-orchestration/codex-pace-status.js").exists())
             self.assertTrue((target / "extensions/agent-orchestration/codex-pace-core.mjs").is_file())
             loader = target / "extensions/agent-orchestration/codex-pace-loader.ts"
@@ -520,12 +500,89 @@ class PiInstallTests(unittest.TestCase):
                 str(source / "npm/node_modules/@narumitw/pi-usage/dist/index.ts"),
                 loader.read_text(),
             )
-            self.assertEqual(len(list((target / "agents").glob("*.md"))), 10)
-            self.assertEqual(
-                set(json.loads((source / "auth.json").read_text())),
-                {"openai-codex", "deepseek"},
-            )
+            self.assertEqual(len(list((target / "agents").glob("*.md"))), 9)
             self.assertTrue((target / "extensions/agent-orchestration/git-read.ts").is_file())
+
+    def test_openai_bootstrap_syncs_safe_baseline_and_preserves_target_only_settings(self):
+        """OpenAI syncs approved baseline settings without replacing operator state."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            source = write_openai_source(root / "source")
+            source_settings_path = source / "settings.json"
+            source_settings = json.loads(source_settings_path.read_text())
+            source_settings.update({
+                "lastChangelogVersion": "0.67.0",
+                "externalEditor": "fixture-editor",
+                "tuiMode": "compact",
+                "treeFilterMode": "directories",
+                "doubleEscapeAction": "clear-input",
+                "terminal": "fixture-terminal",
+                "subagents": {"enabled": True, "maxChildren": 3},
+                "extensions": ["source-extension"],
+                "extensionConfig": {"token": "source-extension-secret"},
+                "permissionState": {"read": "allow"},
+                "auth": {"access": "source-auth-secret"},
+                "mcpServers": {"source": {"command": "source-mcp"}},
+            })
+            source_settings_path.write_text(json.dumps(source_settings) + "\n")
+            target = root / "openai"
+            target.mkdir()
+            target_settings = {
+                "theme": "target-theme",
+                "targetOnlySetting": {"preserve": True},
+                "targetSecret": "target-settings-secret",
+                "packages": ["target-package"],
+            }
+            (target / "settings.json").write_text(json.dumps(target_settings) + "\n")
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="openai", source=source)
+
+            configured = json.loads((target / "settings.json").read_text())
+            for key in (
+                "lastChangelogVersion", "externalEditor", "tuiMode", "treeFilterMode",
+                "doubleEscapeAction", "terminal", "subagents",
+            ):
+                self.assertEqual(configured[key], source_settings[key])
+            self.assertEqual(configured["theme"], "target-theme")
+            self.assertEqual(configured["targetOnlySetting"], {"preserve": True})
+            self.assertEqual(configured["targetSecret"], "target-settings-secret")
+            for key in ("extensions", "extensionConfig", "permissionState", "auth", "mcpServers"):
+                self.assertNotIn(key, configured)
+            self.assertEqual(
+                configured["defaultProvider"], "openai-codex",
+            )
+            self.assertEqual(configured["defaultModel"], "gpt-5.6-sol")
+            self.assertEqual(configured["defaultThinkingLevel"], "medium")
+
+    def test_openai_bootstrap_does_not_copy_source_theme_or_source_only_sensitive_settings(self):
+        """A fresh OpenAI target receives no source theme or extension-specific state."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            source = write_openai_source(root / "source")
+            source_settings_path = source / "settings.json"
+            source_settings = json.loads(source_settings_path.read_text())
+            source_settings.update({
+                "theme": "source-theme",
+                "piUsageExtension": {"apiToken": "source-extension-secret"},
+                "permissionState": {"write": "allow"},
+            })
+            source_settings_path.write_text(json.dumps(source_settings) + "\n")
+            target = root / "openai"
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="openai", source=source)
+
+            configured = json.loads((target / "settings.json").read_text())
+            self.assertNotIn("theme", configured)
+            self.assertNotIn("piUsageExtension", configured)
+            self.assertNotIn("permissionState", configured)
 
     def test_git_reader_is_manifest_owned_and_explorer_only_in_every_installed_profile(self):
         """REGRESSION CONTRACT: installation must load only the explorer Git reader and reject lifecycle tampering."""
@@ -538,18 +595,24 @@ class PiInstallTests(unittest.TestCase):
                 "hybrid": (root / "hybrid", None),
                 "openai": (root / "openai", write_openai_source(root / "openai-source")),
                 "deepseek": (root / "deepseek", write_deepseek_source(root / "deepseek-source")),
+                "glm": (root / "glm", None),
             }
             for profile, (target, source) in cases.items():
                 with self.subTest(profile=profile), mock.patch.object(Path, "home", return_value=fake_home):
-                    if profile == "hybrid":
+                    if profile in {"hybrid", "glm"}:
                         write_pi_runtime(target)
                     install.install(target, dry_run=False, profile=profile, source=source)
                 reader = target / "extensions/agent-orchestration/git-read.ts"
+                primary = target / "extensions/agent-orchestration/primary-policy.js"
                 package = json.loads((target / "extensions/agent-orchestration/package.json").read_text())
                 manifest = json.loads((target / install.MANIFEST_NAME).read_text())
                 self.assertTrue(reader.is_file())
+                self.assertTrue(primary.is_file())
                 self.assertIn("extensions/agent-orchestration/git-read.ts", manifest["managed_extensions"])
+                self.assertIn("extensions/agent-orchestration/primary-policy.js", manifest["managed_extensions"])
                 self.assertIn("./git-read.ts", package["pi"]["extensions"])
+                self.assertIn("./primary-policy.js", package["pi"]["extensions"])
+                self.assertEqual(package["pi"]["extensions"][0], "./primary-policy.js")
                 explorer = (target / "agents/explorer.md").read_text()
                 self.assertIn("acceptanceRole: read-only", explorer)
                 self.assertEqual(
@@ -604,6 +667,7 @@ class PiInstallTests(unittest.TestCase):
                 (["--profile", "hybrid"], fake_home / ".pi/agent", '"hybrid"'),
                 (["--profile", "openai"], fake_home / ".pi/profiles/openai", '"openai"'),
                 (["--profile", "deepseek"], fake_home / ".pi/profiles/deepseek", None),
+                (["--profile", "glm"], fake_home / ".pi/profiles/glm", '"glm"'),
             )
             for arguments, expected_target, profile_token in cases:
                 with self.subTest(arguments=arguments):
@@ -854,7 +918,7 @@ class PiInstallTests(unittest.TestCase):
             configured = json.loads((target / "settings.json").read_text())
             self.assertEqual(configured["defaultProvider"], "deepseek")
             self.assertEqual(configured["defaultModel"], "deepseek-flash")
-            self.assertEqual(configured["defaultThinkingLevel"], "high")
+            self.assertEqual(configured["defaultThinkingLevel"], "max")
             package_sources = [item if isinstance(item, str) else item["source"] for item in configured["packages"]]
             expected_roots = {
                 str((source / "npm/node_modules/pi-subagents").resolve()),
@@ -866,13 +930,10 @@ class PiInstallTests(unittest.TestCase):
             self.assertFalse(any(path == "/opt/homebrew/lib/pi-security-packages" for path in package_sources))
             auto_review = json.loads((target / "extensions/pi-auto-review/config.json").read_text())
             self.assertEqual(auto_review["model"], "deepseek/deepseek-flash")
-            permission = json.loads((target / "extensions/pi-permission-system/config.json").read_text())
-            self.assertEqual(permission["piInfrastructureReadPaths"], [f"{target.resolve()}/*"])
-            bridge = json.loads((target / "extensions/pi-permission-system/package.json").read_text())
-            self.assertEqual(
-                bridge["pi"]["extensions"],
-                [str((source / "npm/node_modules/@gotgenes/pi-permission-system/index.ts").resolve())],
-            )
+            self.assertFalse((target / "extensions/pi-permission-system/config.json").exists())
+            self.assertFalse((target / "extensions/pi-permission-system/package.json").exists())
+            self.assertFalse((target / "mcp.json").exists())
+            self.assertFalse((target / "themes/source-theme.json").exists())
             launcher = (bin_dir / "pi-deepseek").read_text()
             self.assertIn(f"PI_CODING_AGENT_DIR={str(target.resolve())}", launcher)
             self.assertNotIn("auth.json", "\n".join(str(path) for path in target.rglob("*")))
@@ -884,11 +945,13 @@ class PiInstallTests(unittest.TestCase):
             )
             manifest = json.loads((target / install.MANIFEST_NAME).read_text())
             for extension in (
+                "deepseek-price-status.js",
                 "delegation-ceiling-core.js",
                 "delegation-ceiling-planner.js",
                 "delegation-ceiling-reviewer.js",
                 "git-read.ts",
                 "package.json",
+                "primary-policy.js",
             ):
                 relative = f"extensions/agent-orchestration/{extension}"
                 self.assertIn(relative, manifest["managed_extensions"])
@@ -1205,8 +1268,11 @@ class PiInstallTests(unittest.TestCase):
             hybrid_target = root / "hybrid"
             openai_target = root / "openai"
             deepseek_target = root / "deepseek"
+            glm_target = root / "glm"
             write_pi_runtime(hybrid_target)
             write_pi_runtime(openai_target)
+            write_pi_runtime(deepseek_target)
+            write_pi_runtime(glm_target)
             source = write_deepseek_source(root / "source")
             openai_source = write_openai_source(root / "openai-source")
             with mock.patch.object(Path, "home", return_value=fake_home):
@@ -1215,8 +1281,11 @@ class PiInstallTests(unittest.TestCase):
                     openai_target, dry_run=False, profile="openai", source=openai_source
                 )
                 install.install(deepseek_target, dry_run=False, profile="deepseek", source=source)
+                install.install(glm_target, dry_run=False, profile="glm")
                 with self.assertRaisesRegex(SystemExit, "profile mismatch"):
                     install.install(hybrid_target, dry_run=False, profile="deepseek", source=source)
+                with self.assertRaisesRegex(SystemExit, "profile mismatch"):
+                    install.install(glm_target, dry_run=False, profile="hybrid")
             hybrid_worker = (hybrid_target / "agents/worker.md").read_text()
             hybrid_complex = (hybrid_target / "agents/worker-complex.md").read_text()
             openai_bundle = "\n".join(
@@ -1228,9 +1297,126 @@ class PiInstallTests(unittest.TestCase):
             self.assertIn("openai-codex/", openai_bundle)
             self.assertNotIn("deepseek/", openai_bundle)
             self.assertIn("deepseek/deepseek-flash", (deepseek_target / "agents/worker.md").read_text())
+            glm_bundle = "\n".join(
+                path.read_text() for path in (glm_target / "agents").glob("*.md")
+            )
+            self.assertIn("zai/glm-5.3-flash", glm_bundle)
+            self.assertNotIn("opencode-go", glm_bundle)
 
-    def test_deepseek_install_merges_required_packages_without_losing_user_configuration(self):
-        """This test will fail when DeepSeek lacks its runtime packages or user settings are replaced."""
+    def test_glm_install_is_provider_pure_and_defers_auth_without_printing_secrets(self):
+        """GLM owns only Z.AI metadata and never copies or exposes credentials."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "glm"
+            write_pi_runtime(target)
+            (target / "settings.json").write_text(json.dumps({
+                "theme": "keep",
+                "packages": ["user-package"],
+            }) + "\n")
+            (target / "models-store.json").write_text(json.dumps({
+                "opencode-go": {"apiKey": "must-not-print"},
+            }) + "\n")
+            source = root / "source"
+            source.mkdir()
+            write_pi_runtime(source)
+            (source / "settings.json").write_text(
+                '{"packages":["npm:pi-subagents@0.67.0"]}\n'
+            )
+            (source / "mcp.json").write_text(
+                '{"mcpServers":{"fixture":{"command":"synthetic"}}}\n'
+            )
+            (source / "auth.json").write_text(
+                '{"zai":{"key":"source-secret-must-not-copy"}}\n'
+            )
+            output = io.StringIO()
+            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
+                "sys.stdout", output
+            ):
+                result = install.install(
+                    target, dry_run=False, profile="glm", source=source,
+                    bin_dir=root / "bin",
+                )
+            self.assertEqual(result, 0)
+            self.assertNotIn("must-not-print", output.getvalue())
+            self.assertNotIn("source-secret-must-not-copy", output.getvalue())
+            settings = json.loads((target / "settings.json").read_text())
+            self.assertEqual(settings["theme"], "keep")
+            self.assertEqual(
+                settings["packages"],
+                [str((source / "npm/node_modules/pi-subagents").resolve())],
+            )
+            self.assertEqual(settings["defaultProvider"], "zai")
+            self.assertEqual(settings["defaultModel"], "glm-5.3")
+            self.assertEqual(settings["defaultThinkingLevel"], "high")
+            catalog = json.loads((target / "models-store.json").read_text())
+            self.assertEqual(set(catalog), {"zai"})
+            self.assertFalse((target / "auth.json").exists())
+            launcher = (root / "bin" / "pi-glm").read_text()
+            self.assertIn(".pi/profiles/glm", launcher)
+            self.assertNotIn("opencode-go", launcher)
+
+    def test_glm_syncs_canonical_non_provider_baseline_without_operator_files(self):
+        """A fresh GLM target copies approved provider metadata but no auth, MCP, or theme files."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            source = write_openai_source(root / "source")
+            (source / "themes").mkdir()
+            (source / "themes/source-theme.json").write_text(
+                '{"name":"source-theme","colors":{"accent":"#fff"}}\n'
+            )
+            target = root / "glm"
+            output = io.StringIO()
+            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
+                "sys.stdout", output
+            ):
+                result = install.install(target, dry_run=False, profile="glm", source=source)
+            self.assertEqual(result, 0)
+            settings = json.loads((target / "settings.json").read_text())
+            self.assertNotIn("theme", settings)
+            self.assertEqual(settings["defaultProvider"], "zai")
+            self.assertEqual(settings["defaultModel"], "glm-5.3")
+            self.assertEqual(settings["defaultThinkingLevel"], "high")
+            self.assertTrue(all(
+                isinstance(entry, str) and Path(entry).is_absolute()
+                for entry in settings["packages"]
+            ))
+            self.assertTrue((target / install.PI_RUNTIME_PACKAGE).is_file())
+            self.assertFalse((target / "mcp.json").exists())
+            self.assertFalse((target / "themes/source-theme.json").exists())
+            self.assertFalse((target / "auth.json").exists())
+            self.assertNotIn("secret-access", output.getvalue())
+
+    def test_glm_install_accepts_private_post_login_auth_without_replacing_it(self):
+        """Deferred /login state remains private and is untouched by a later synchronization."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "glm"
+            write_pi_runtime(target)
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="glm", bin_dir=root / "bin")
+            auth = target / "auth.json"
+            auth.write_text('{"zai":{"type":"api_key","key":"keep-secret"}}\n')
+            auth.chmod(0o600)
+            before = auth.read_bytes()
+            output = io.StringIO()
+            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
+                "sys.stdout", output
+            ):
+                install.install(target, dry_run=False, profile="glm", bin_dir=root / "bin")
+            self.assertEqual(auth.read_bytes(), before)
+            self.assertNotIn("keep-secret", output.getvalue())
+
+    def test_deepseek_regression_contract_syncs_baseline_and_preserves_target_only_settings(self):
+        """REGRESSION CONTRACT: DeepSeek syncs safe baseline state without replacing user-only settings."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1244,15 +1430,271 @@ class PiInstallTests(unittest.TestCase):
                 "packages": ["user-package"],
                 "extensions": ["user-extension.ts"],
                 "theme": "user-theme",
+                "targetOnlySetting": {"preserve": True},
             }) + "\n")
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="deepseek", source=source)
             configured = json.loads(settings.read_text())
             self.assertEqual(configured["extensions"], ["user-extension.ts"])
+            self.assertEqual(configured["targetOnlySetting"], {"preserve": True})
             self.assertEqual(configured["theme"], "user-theme")
+            for key in (
+                "lastChangelogVersion", "externalEditor", "tuiMode", "treeFilterMode",
+                "doubleEscapeAction", "terminal", "subagents",
+            ):
+                self.assertEqual(configured[key], json.loads((source / "settings.json").read_text())[key])
             package_sources = [item if isinstance(item, str) else item["source"] for item in configured["packages"]]
             self.assertIn(str((source / "npm/node_modules/pi-subagents").resolve()), package_sources)
             self.assertNotIn(str((source / "local/pi-sandbox").resolve()), package_sources)
+            self.assertFalse((target / "mcp.json").exists())
+            self.assertFalse((target / "themes/source-theme.json").exists())
+            self.assertTrue((target / install.PI_RUNTIME_PACKAGE).is_file())
+            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+            self.assertNotIn("managed_files", manifest)
+
+    def test_deepseek_regression_contract_preserves_catalog_auth_sessions_and_mutable_runtime_state(self):
+        """REGRESSION CONTRACT: provider state and opaque runtime data survive DeepSeek parity synchronization."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            source = write_deepseek_source(root / "source")
+            # These bytes intentionally are not JSON: installer code must not
+            # inspect either opaque auth file while synchronizing the profile.
+            source_auth = source / "auth.json"
+            source_auth.write_bytes(b"\\xffsource-auth-opaque")
+            target = root / "deepseek"
+            target.mkdir()
+            target_auth = target / "auth.json"
+            target_auth.write_bytes(b"\\xfftarget-auth-opaque")
+            existing_catalog = {
+                "unrelated-provider": {"models": [{"id": "keep-me"}]},
+                "deepseek": {
+                    "baseUrl": "https://api.deepseek.com",
+                    "api": "openai-completions",
+                    "checkedAt": 1800000000000,
+                    "lastModified": 1800000000000,
+                    "etag": "target-etag",
+                    "models": [{
+                        "id": "deepseek-flash",
+                        "name": "DeepSeek V4.1 Flash (local newer)",
+                        "reasoning": True,
+                        "thinkingLevelMap": {"low": "low", "high": "high", "max": "max"},
+                        "input": ["text", "image"],
+                        "contextWindow": 2000000,
+                        "maxTokens": 512000,
+                    }],
+                },
+            }
+            catalog = target / "models-store.json"
+            catalog.write_text(json.dumps(existing_catalog, indent=2) + "\n")
+            catalog_before = catalog.read_bytes()
+            preserved = {
+                "sessions/history.bin": b"session-history",
+                "cache/models.json": b"cache-state",
+                "logs/pi.log": b"log-state",
+                "analytics/usage.json": b"analytics-state",
+                "history/mutable.json": b"mutable-history",
+            }
+            for relative, content in preserved.items():
+                path = target / relative
+                path.parent.mkdir(parents=True)
+                path.write_bytes(content)
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(
+                    target,
+                    dry_run=False,
+                    profile="deepseek",
+                    source=source,
+                    bin_dir=root / "bin",
+                )
+            self.assertEqual(catalog.read_bytes(), catalog_before)
+            self.assertEqual(target_auth.read_bytes(), b"\\xfftarget-auth-opaque")
+            self.assertEqual(source_auth.read_bytes(), b"\\xffsource-auth-opaque")
+            for relative, content in preserved.items():
+                self.assertEqual((target / relative).read_bytes(), content)
+            settings = json.loads((target / "settings.json").read_text())
+            self.assertEqual(
+                (settings["defaultProvider"], settings["defaultModel"], settings["defaultThinkingLevel"]),
+                ("deepseek", "deepseek-flash", "max"),
+            )
+            launcher = (root / "bin" / "pi-deepseek").read_text()
+            self.assertIn(f"PI_CODING_AGENT_DIR={str(target.resolve())}", launcher)
+            self.assertIn(
+                'PI_CODING_AGENT_SESSION_DIR="$HOME/.pi/agent/sessions"',
+                launcher,
+            )
+
+    def test_deepseek_regression_contract_redacts_managed_settings_and_catalog_diffs(self):
+        """REGRESSION CONTRACT: managed settings/catalog diffs remain redacted while MCP is ignored."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = write_deepseek_source(root / "source")
+            target = root / "deepseek"
+            target.mkdir()
+            (target / "settings.json").write_text(json.dumps({
+                "theme": "target-theme",
+                "targetSecret": "target-settings-secret",
+                "packages": [],
+            }) + "\n")
+            (target / "models-store.json").write_text(json.dumps({
+                "deepseek": {"models": [{"id": "invalid"}]},
+                "unrelated": {"token": "target-catalog-secret"},
+            }) + "\n")
+            (target / "mcp.json").write_text(json.dumps({
+                "mcpServers": {"target": {"command": "target-mcp-secret"}},
+            }) + "\n")
+            output = io.StringIO()
+            with mock.patch("sys.stdout", output):
+                install.install(
+                    target,
+                    dry_run=True,
+                    adopt=True,
+                    profile="deepseek",
+                    source=source,
+                )
+            report = output.getvalue()
+            for secret in (
+                "target-settings-secret", "target-catalog-secret", "target-mcp-secret",
+                "deepseek-mcp-secret",
+            ):
+                self.assertNotIn(secret, report)
+            self.assertGreaterEqual(report.count("(contents redacted)"), 2)
+
+    def test_manifest_migration_preserves_operator_files_and_removes_retired_project_artifacts(self):
+        """Legacy claims are dropped without touching operator files or stale project artifacts."""
+        install = load_install_module()
+        profiles = ("hybrid", "openai", "deepseek", "glm")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            for profile in profiles:
+                with self.subTest(profile=profile):
+                    target = root / profile
+                    source = None
+                    if profile == "hybrid":
+                        write_pi_runtime(target)
+                    elif profile == "openai":
+                        source = write_openai_source(root / f"{profile}-source")
+                    elif profile == "deepseek":
+                        source = write_deepseek_source(root / f"{profile}-source")
+                    else:
+                        write_pi_runtime(target)
+                        source = write_deepseek_source(root / f"{profile}-source")
+                    with mock.patch.object(Path, "home", return_value=fake_home):
+                        install.install(target, dry_run=False, profile=profile, source=source)
+                    manifest_path = target / install.MANIFEST_NAME
+                    manifest = json.loads(manifest_path.read_text())
+                    manifest["roles"].append("spec-writer")
+                    manifest["managed_extensions"].append(
+                        "extensions/agent-orchestration/planning-artifact-guard.js"
+                    )
+                    manifest["managed_extensions"].extend([
+                        "extensions/pi-permission-system/config.json",
+                        "extensions/pi-permission-system/package.json",
+                    ])
+                    manifest["managed_files"] = ["themes/custom-theme.json"]
+                    manifest_path.write_text(json.dumps(manifest) + "\n")
+
+                    retired_agent = target / "agents/spec-writer.md"
+                    retired_agent.write_text("legacy project artifact\n")
+                    retired_guard = target / "extensions/agent-orchestration/planning-artifact-guard.js"
+                    retired_guard.write_text("legacy guard\n")
+                    operator_files = {
+                        target / "extensions/pi-permission-system/config.json": b"opaque permission config\n",
+                        target / "extensions/pi-permission-system/package.json": b"opaque permission bridge\n",
+                        target / "themes/custom-theme.json": b"opaque custom theme\n",
+                        target / "auth.json": b"\\xffopaque auth\n",
+                        target / "mcp.json": b"not json operator state\n",
+                    }
+                    for path, content in operator_files.items():
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(content)
+                        path.chmod(0o640)
+                    if profile != "hybrid":
+                        settings_path = target / "settings.json"
+                        settings = json.loads(settings_path.read_text())
+                        settings["theme"] = "custom-theme"
+                        settings_path.write_text(json.dumps(settings) + "\n")
+                    snapshots = {
+                        path: (path.read_bytes(), path.stat().st_mode & 0o777,
+                               path.stat().st_ino, path.stat().st_mtime_ns)
+                        for path in operator_files
+                    }
+
+                    output = io.StringIO()
+                    with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
+                        "sys.stdout", output
+                    ):
+                        install.install(target, dry_run=False, profile=profile, source=source)
+                    current = json.loads(manifest_path.read_text())
+                    self.assertNotIn("spec-writer", current["roles"])
+                    self.assertNotIn("extensions/agent-orchestration/planning-artifact-guard.js", current["managed_extensions"])
+                    self.assertNotIn("extensions/pi-permission-system/config.json", current["managed_extensions"])
+                    self.assertNotIn("extensions/pi-permission-system/package.json", current["managed_extensions"])
+                    self.assertNotIn("managed_files", current)
+                    self.assertFalse(retired_agent.exists())
+                    self.assertFalse(retired_guard.exists())
+                    for path, snapshot in snapshots.items():
+                        self.assertEqual(
+                            (path.read_bytes(), path.stat().st_mode & 0o777,
+                             path.stat().st_ino, path.stat().st_mtime_ns),
+                            snapshot,
+                        )
+                    if profile != "hybrid":
+                        self.assertEqual(json.loads((target / "settings.json").read_text())["theme"], "custom-theme")
+
+    def test_manifest_migration_rollback_restores_retired_artifacts_and_leaves_operator_files(self):
+        """Validation failure restores project claims while operator state stays outside the transaction."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "hybrid"
+            write_pi_runtime(target)
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="hybrid")
+            manifest_path = target / install.MANIFEST_NAME
+            previous = json.loads(manifest_path.read_text())
+            previous["roles"].append("spec-writer")
+            previous["managed_extensions"].append(
+                "extensions/agent-orchestration/planning-artifact-guard.js"
+            )
+            previous["managed_extensions"].extend([
+                "extensions/pi-permission-system/config.json",
+                "extensions/pi-permission-system/package.json",
+            ])
+            previous["managed_files"] = ["themes/custom-theme.json"]
+            manifest_path.write_text(json.dumps(previous) + "\n")
+            retired_agent = target / "agents/spec-writer.md"
+            retired_agent.write_text("legacy agent\n")
+            retired_guard = target / "extensions/agent-orchestration/planning-artifact-guard.js"
+            retired_guard.write_text("legacy guard\n")
+            operator_files = {
+                target / "extensions/pi-permission-system/config.json": b"operator config\n",
+                target / "extensions/pi-permission-system/package.json": b"operator bridge\n",
+                target / "themes/custom-theme.json": b"operator theme\n",
+                target / "auth.json": b"opaque auth\n",
+                target / "mcp.json": b"opaque mcp\n",
+            }
+            for path, content in operator_files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            before_operator = {path: path.read_bytes() for path in operator_files}
+            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch.object(
+                install, "validate_installed", side_effect=RuntimeError("forced validation failure")
+            ):
+                with self.assertRaisesRegex(RuntimeError, "forced validation failure"):
+                    install.install(target, dry_run=False, profile="hybrid")
+            self.assertEqual(json.loads(manifest_path.read_text()), previous)
+            self.assertEqual(retired_agent.read_text(), "legacy agent\n")
+            self.assertEqual(retired_guard.read_text(), "legacy guard\n")
+            for path, content in before_operator.items():
+                self.assertEqual(path.read_bytes(), content)
 
     def test_first_install_requires_adoption_and_dry_run_never_mutates(self):
         """This test will fail when unmanaged role collisions can be overwritten implicitly."""

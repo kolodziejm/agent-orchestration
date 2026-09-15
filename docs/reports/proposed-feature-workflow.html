@@ -256,8 +256,8 @@
         </article>
         <article class="card role amber-border span-4">
           <span class="label amber">Artefakty</span>
-          <h3><code>spec-writer</code></h3>
-          <p>Materializuje zaakceptowaną treść planu i specyfikacji w uzgodnionych artefaktach.</p>
+          <h3><code>worker</code></h3>
+          <p>Materializuje zaakceptowaną treść planu i specyfikacji w uzgodnionych artefaktach po autoryzacji.</p>
           <p class="small">Granica: nie wymyśla kontraktów ani zakresu.</p>
         </article>
         <article class="card role coral-border span-4">
@@ -384,7 +384,7 @@
           <thead><tr><th>Etap</th><th>Rola</th><th>Zadanie</th><th>Kontrola</th><th>Charakter</th></tr></thead>
           <tbody>
             <tr><td>Evidence</td><td><code>explorer</code></td><td>Wzorce i ścieżki w repo.</td><td>Interpretacja przez planera.</td><td>Opcjonalny zależnie od niepewności.</td></tr>
-            <tr><td>Specyfikacja</td><td><code>planner</code> / <code>spec-writer</code></td><td>OpenSpec i plan.</td><td>Akceptacja człowieka.</td><td>Rekomendowane dla większego zakresu.</td></tr>
+            <tr><td>Specyfikacja</td><td><code>planner</code> → wybrany <code>worker</code></td><td>OpenSpec i plan; worker zapisuje managed output.</td><td>Akceptacja człowieka.</td><td>Rekomendowane dla większego zakresu.</td></tr>
             <tr><td>Implementacja</td><td><code>worker</code></td><td>Kod i self-checks.</td><td>Niezależny <code>validator</code>.</td><td>Wymagany dla zmiany kodu.</td></tr>
             <tr><td>Walidacja</td><td><code>validator</code></td><td>Testy, lint, build lub inny dowód.</td><td>Raport PASS/FAIL.</td><td>Obowiązkowa według polityki.</td></tr>
             <tr><td>Review</td><td><code>reviewer</code></td><td>Ryzyka i regresje po autoryzacji użytkownika.</td><td>Bramka findings po uruchomieniu review.</td><td>On demand; jasno obecne ryzyko wymaga krótkiej, nieblokującej rekomendacji, ale nie automatycznego uruchomienia; po decyzji bez powtórzeń, chyba że zmieni się zakres lub ryzyko.</td></tr>

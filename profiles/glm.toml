@@ -39,9 +39,6 @@ variant = "high"
 [models.planner]
 model = "zai-coding-plan/glm-5.3"
 
-[models.spec-writer]
-model = "deepseek/deepseek-v4-flash"
-
 [models.design-partner]
 model = "deepseek/deepseek-v4-flash"
 

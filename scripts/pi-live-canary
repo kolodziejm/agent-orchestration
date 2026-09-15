@@ -39,7 +39,6 @@ KNOWN_AGENT_NAMES = frozenset(
     {
         "planner",
         "explorer",
-        "spec-writer",
         "validator",
         "worker",
         "worker-complex",

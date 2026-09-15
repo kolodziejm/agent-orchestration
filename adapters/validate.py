@@ -21,12 +21,9 @@ from common import validate_capabilities, validate_profile
 ROOT = ADAPTERS_DIR.parent
 VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
 SCHEMA_ERROR_LIMIT = 8
-VIRTUAL_DELEGATION_TARGETS = frozenset({"vision-*"})
 ALLOWED_DELEGATES = {
-    "planner": frozenset({"explorer", "spec-writer"}),
+    "planner": frozenset({"explorer"}),
     "reviewer": frozenset({"explorer"}),
-    "worker": frozenset({"vision-*"}),
-    "worker-complex": frozenset({"vision-*"}),
 }
 
 
@@ -90,7 +87,7 @@ def validate_document(document: object, schema: dict, *, source: Path) -> None:
 
 def validate_delegation_graph(roles: dict[str, dict]) -> None:
     """Validate only the canonical role graph and its fail-closed leaf boundary."""
-    valid_targets = set(roles) | set(VIRTUAL_DELEGATION_TARGETS)
+    valid_targets = set(roles)
     for role in sorted(roles):
         config = roles[role]
         delegates = config.get("delegates", [])
@@ -174,6 +171,29 @@ def validate_routing(
     # Unknown targets and cycles intentionally precede policy-edge checks so
     # each failure category remains deterministic and independently useful.
     validate_delegation_graph(roles)
+
+    edit_capable = {role for role, config in roles.items() if config["edit"] == "allow"}
+    if edit_capable != {"worker", "worker-complex"}:
+        rendered = ", ".join(sorted(edit_capable)) or "<none>"
+        raise SystemExit(
+            "Repository persistence policy: only worker and worker-complex may have "
+            f"edit = allow; found {rendered}"
+        )
+    planner = roles.get("planner")
+    if planner is None or planner["edit"] != "deny" or planner["bash"] != "deny":
+        raise SystemExit(
+            "Repository persistence policy: planner must have edit = deny and bash = deny"
+        )
+    if planner["delegates"] != ["explorer"]:
+        raise SystemExit(
+            "Repository persistence policy: planner may delegate only to explorer"
+        )
+    reviewer = roles.get("reviewer")
+    if reviewer is None or reviewer["delegates"] != ["explorer"]:
+        raise SystemExit(
+            "Repository persistence policy: reviewer may delegate only to explorer"
+        )
+
     for role, config in roles.items():
         if config["mode"] not in {"primary", "subagent"}:
             raise SystemExit(f"Invalid mode for role {role!r}: {config['mode']!r}")

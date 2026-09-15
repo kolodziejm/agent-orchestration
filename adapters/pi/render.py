@@ -31,17 +31,36 @@ SUPPORTED_PROFILES = {
     "hybrid": frozenset({"openai", "deepseek"}),
     "openai": frozenset({"openai"}),
     "deepseek": frozenset({"deepseek"}),
+    "glm": frozenset({"zai"}),
+}
+# The generic profiles/glm.toml belongs to other harnesses. Keep the Pi source
+# profile separate and resolve the user-facing Pi identifier explicitly.
+PROFILE_SOURCE_FILES = {
+    "hybrid": "hybrid.toml",
+    "openai": "openai.toml",
+    "deepseek": "deepseek.toml",
+    "glm": "pi-glm.toml",
+}
+PROFILE_SOURCE_NAMES = {
+    "hybrid": "hybrid",
+    "openai": "openai",
+    "deepseek": "deepseek",
+    "glm": "pi-glm",
 }
 PROFILE_STATUS_EXTENSIONS = {
     "hybrid": (("deepseek-price-status.js", "deepseek-price-status.js"),),
+    "deepseek": (("deepseek-price-status.js", "deepseek-price-status.js"),),
     "openai": (
         ("codex-pace-status.js", "codex-pace-core.mjs"),
         ("codex-pace-loader.ts", "codex-pace-loader.ts"),
     ),
+    "glm": (("glm-price-status.js", "glm-price-status.js"),),
 }
 PROFILE_STATUS_ENTRYPOINTS = {
     "hybrid": "./deepseek-price-status.js",
     "openai": "./codex-pace-loader.ts",
+    "deepseek": "./deepseek-price-status.js",
+    "glm": "./glm-price-status.js",
 }
 DELEGATION_CHILD_EXTENSIONS = {
     "planner": "delegation-ceiling-planner.js",
@@ -52,7 +71,7 @@ DELEGATION_EXTENSION_FILES = (
     "delegation-ceiling-planner.js",
     "delegation-ceiling-reviewer.js",
 )
-PROFILE_EXTENSION_FILES = (*DELEGATION_EXTENSION_FILES, "git-read.ts")
+PROFILE_EXTENSION_FILES = (*DELEGATION_EXTENSION_FILES, "git-read.ts", "primary-policy.js")
 READ_TOOLS = ["read", "grep", "find", "ls"]
 # Pi's MCP directTools expose these concrete names. This is intentionally a
 # role-specific exception rather than a general capability abstraction: the
@@ -96,6 +115,41 @@ UX_CRITIC_TOOLS = [
     "appium_screenshot",
     "appium_screen_recording",
 ]
+# Validator gets a distinct deterministic acceptance list. It intentionally
+# omits video/recording, lifecycle, session/device-management, and code-eval
+# capabilities granted to neither mechanical acceptance nor a prepared UX run.
+VALIDATOR_MCP_TOOLS = [
+    "browser_navigate",
+    "browser_navigate_back",
+    "browser_snapshot",
+    "browser_find",
+    "browser_click",
+    "browser_fill_form",
+    "browser_type",
+    "browser_press_key",
+    "browser_select_option",
+    "browser_hover",
+    "browser_drag",
+    "browser_mouse_wheel",
+    "browser_wait_for",
+    "browser_resize",
+    "browser_take_screenshot",
+    "appium_get_active_element",
+    "appium_find_element",
+    "appium_get_text",
+    "appium_get_element_attribute",
+    "appium_get_page_source",
+    "appium_gesture",
+    "appium_drag_and_drop",
+    "appium_set_value",
+    "appium_mobile_press_key",
+    "appium_mobile_keyboard",
+    "appium_get_window_size",
+    "appium_orientation",
+    "appium_context",
+    "appium_alert",
+    "appium_screenshot",
+]
 SAFE_MODEL_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -127,11 +181,14 @@ def tools_for(role: str, config: dict) -> list[str]:
         tools.extend(["edit", "write"])
     # Pi cannot represent the canonical `ask` capability. These narrowly scoped
     # exceptions need commands for their contracts while preserving role-specific
-    # source-editing boundaries.
-    if config["bash"] == "allow" or role in {"validator", "debugger", "planner"}:
+    # source-editing boundaries. Planner and design-partner deliberately have
+    # no bash/edit/write capabilities under the canonical read-only contract.
+    if config["bash"] == "allow" or role in {"validator", "debugger"}:
         tools.append("bash")
+    if role == "validator":
+        tools.extend(VALIDATOR_MCP_TOOLS)
     delegates = set(config.get("delegates", []))
-    if delegates & {"explorer", "spec-writer"}:
+    if delegates & {"explorer"}:
         tools.append("subagent")
     return tools
 
@@ -164,10 +221,14 @@ def frontmatter(role: str, config: dict, model_config: dict, allowed_providers: 
     return "\n".join(lines)
 
 
-def control_plane(profile: dict, allowed_providers: frozenset[str]) -> dict:
+def control_plane(
+    profile: dict,
+    allowed_providers: frozenset[str],
+    profile_name: str | None = None,
+) -> dict:
     source = profile["control_plane"]
     return {
-        "profile": profile["name"],
+        "profile": profile_name or profile["name"],
         "primary": {
             "model": pi_model(source["primary"]["model"], allowed_providers),
             "thinking": source["primary"]["effort"],
@@ -204,8 +265,20 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
         raise SystemExit(f"Unsupported Pi profile: {profile_name!r}")
     routing = load_toml(ROOT / "policy" / "routing.toml")
     roles = routing["roles"]
-    profile_path = ROOT / "profiles" / f"{profile_name}.toml"
+    profile_path = ROOT / "profiles" / PROFILE_SOURCE_FILES[profile_name]
     profile = load_toml(profile_path)
+    expected_name = PROFILE_SOURCE_NAMES[profile_name]
+    if profile.get("name") != expected_name:
+        raise SystemExit(
+            f"Pi profile source {profile_path} must declare name = {expected_name!r}"
+        )
+    # The legacy OpenAI/DeepSeek/Hybrid sources are shared with other
+    # adapters and may omit harness metadata. The Pi-specific GLM source is
+    # owned by this adapter, so its harness declaration remains mandatory.
+    if profile_name == "glm" and profile.get("harness") != "pi":
+        raise SystemExit(
+            f"Pi profile source {profile_path} must declare harness = \"pi\""
+        )
     validate_profile(
         profile,
         profile_path,
@@ -229,22 +302,29 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
         f"{policy}\n\n{addendum}\n"
     )
     (output / "_shared" / "control-plane.json").write_text(
-        json.dumps(control_plane(profile, allowed_providers), indent=2, sort_keys=True) + "\n"
+        json.dumps(control_plane(profile, allowed_providers, profile_name), indent=2, sort_keys=True) + "\n"
     )
     (output / "_shared" / "degradations.md").write_text(
         """# Pi adapter degradations
 
 - Supported pi-subagents releases at or above the v0.67.0 minimum-tested baseline reject `permissions.bash` and always allow shell calls
-  when the `bash` tool is present. For canonical `bash = \"ask\"` roles other than validator,
-  debugger, and planner this adapter omits `bash`, enforcing a stricter no-shell ceiling. Install and configure
-  a separate permission wrapper if command-level allow/deny behavior is required; headless
-  children still cannot forward an `ask` decision to the parent UI.
+  when the `bash` tool is present. For canonical `bash = \"ask\"` roles other than validator
+  and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
+  permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
+  permission configuration or bridges. Headless children still cannot forward an `ask` decision to the parent UI.
 - The profile launcher selects the primary session and Pi user agent files configure
   subagents. Pi cannot install the small model or built-in build/plan mappings; their
   mapped values are recorded in `control-plane.json` as profile intent and are not installed.
-- Validator, debugger, and planner receive `bash` despite canonical `bash = "ask"` because
-  their contracts require mechanical checks or repository commands. Debugger remains source-edit
-  read-only; planner retains its existing edit/write/subagent capabilities.
+- Validator and debugger receive `bash` despite canonical `bash = "ask"` because their
+  contracts require mechanical checks or repository commands. Planner and design-partner
+  are structurally read-only and omit `bash`, `edit`, and `write`; reviewer remains
+  read-only and explorer remains read-only. Debugger remains source-edit read-only.
+- Validator has a separate deterministic browser/Appium MCP allowlist. Direct MCP tools
+  require an available background/async child and a prepared URL/session; when that
+  provider or session is unavailable, acceptance is reported as `BLOCKED`, never shifted
+  to UX-Critic. The validator list excludes video/recording, evaluation, upload/drop/tab,
+  lifecycle, device/session management, file, driver-settings, perform-actions, and clipboard
+  controls. UX-Critic's independent allowlist remains unchanged.
 - UX-Critic is an on-demand, read-only runtime audit. Its Pi agent file has an
   explicit allowlist of verified Playwright MCP and Appium MCP interaction,
   inspection, screenshot, and recording tools, plus Pi's built-in image-capable
@@ -253,14 +333,12 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
   running URL/session, device, scope, identity, reference, and screenshot
   destination first.
 - Planner and reviewer receive the `subagent` tool plus a child-only,
-  profile-owned capability ceiling. The planner ceiling allows only `explorer`
-  and `spec-writer`; the reviewer ceiling allows only `explorer`. The guard
-  resolves pi-subagents through its public `./capability-ceiling` export and
-  fails closed if that package or registration is unavailable. This is a
-  child-selection boundary, not an OS sandbox or a command-level shell policy.
-- Every other canonical role is a leaf and receives no `subagent` tool. The
-  selected profile has no concrete `vision-*` role among its ten canonical
-  roles, so wildcard visual delegation remains guidance only.
+  profile-owned capability ceiling. Both ceilings fail closed and allow only
+  `explorer`; planner is structurally read-only and reviewer remains read-only.
+  The ceiling is a child-selection boundary, not an OS sandbox or a command-level shell policy.
+- Every other canonical role is a leaf and receives no `subagent` tool. When
+  the primary cannot inspect images natively, it routes visual work directly
+  to an existing image-capable role according to the shared policy.
 - `explorer` receives the manifest-owned `git_read` child tool and still has no
   `bash` capability. Its frontmatter declares `acceptanceRole: read-only` for
   acceptance inference only; this metadata does not grant or revoke tools or
@@ -318,7 +396,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
         managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
     package_output = extension_output / "package.json"
     status_entrypoint = PROFILE_STATUS_ENTRYPOINTS.get(profile_name)
-    package_extensions = ([status_entrypoint] if status_entrypoint else []) + ["./git-read.ts"]
+    package_extensions = ["./primary-policy.js"] + ([status_entrypoint] if status_entrypoint else []) + ["./git-read.ts"]
     package_output.write_text(json.dumps({
         "type": "module",
         "pi": {"extensions": package_extensions},

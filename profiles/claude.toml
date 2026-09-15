@@ -47,10 +47,6 @@ variant = "medium"
 model = "opus"
 variant = "high"
 
-[models.spec-writer]
-model = "sonnet"
-variant = "low"
-
 [models.reviewer]
 model = "opus"
 variant = "high"

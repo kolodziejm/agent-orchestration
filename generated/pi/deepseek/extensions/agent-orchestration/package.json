@@ -2,6 +2,8 @@
   "type": "module",
   "pi": {
     "extensions": [
+      "./primary-policy.js",
+      "./deepseek-price-status.js",
       "./git-read.ts"
     ]
   }

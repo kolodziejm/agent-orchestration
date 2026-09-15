@@ -71,18 +71,35 @@ class RoutingValidationTests(unittest.TestCase):
         roles = self.validator.validate_routing(
             self.validator.load_toml(path), source=path, schema=self.schema
         )
-        self.assertEqual(
-            roles["planner"]["delegates"], ["explorer", "spec-writer"]
-        )
+        self.assertEqual(roles["planner"]["delegates"], ["explorer"])
         self.assertEqual(roles["reviewer"]["delegates"], ["explorer"])
+        self.assertEqual(roles["worker"]["delegates"], [])
+        self.assertEqual(roles["worker-complex"]["delegates"], [])
+        self.assertEqual(roles["planner"]["edit"], "deny")
+        self.assertEqual(roles["planner"]["bash"], "deny")
+        self.assertEqual(
+            [role for role, config in roles.items() if config["edit"] == "allow"],
+            ["worker", "worker-complex"],
+        )
 
-    def test_virtual_vision_target_is_not_traversed_as_a_graph_node(self):
+    def test_worker_roles_are_leaves_and_virtual_vision_targets_are_rejected(self):
         self.validator.validate_delegation_graph(
             {
-                "worker": {"delegates": ["vision-*"]},
-                "worker-complex": {"delegates": ["vision-*"]},
+                "worker": {"delegates": []},
+                "worker-complex": {"delegates": []},
             }
         )
+        with self.assertRaisesRegex(SystemExit, "leaf role 'worker'"):
+            self.validator.validate_delegation_graph(
+                {
+                    "worker": {"delegates": ["worker-complex"]},
+                    "worker-complex": {"delegates": []},
+                }
+            )
+        with self.assertRaisesRegex(SystemExit, "unknown delegation target"):
+            self.validator.validate_delegation_graph(
+                {"worker": {"delegates": ["vision-*"]}}
+            )
 
     def test_profile_schema_rejects_wrong_model_types_before_semantic_checks(self):
         profile = {

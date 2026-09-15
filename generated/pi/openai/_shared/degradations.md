@@ -1,16 +1,23 @@
 # Pi adapter degradations
 
 - Supported pi-subagents releases at or above the v0.67.0 minimum-tested baseline reject `permissions.bash` and always allow shell calls
-  when the `bash` tool is present. For canonical `bash = "ask"` roles other than validator,
-  debugger, and planner this adapter omits `bash`, enforcing a stricter no-shell ceiling. Install and configure
-  a separate permission wrapper if command-level allow/deny behavior is required; headless
-  children still cannot forward an `ask` decision to the parent UI.
+  when the `bash` tool is present. For canonical `bash = "ask"` roles other than validator
+  and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
+  permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
+  permission configuration or bridges. Headless children still cannot forward an `ask` decision to the parent UI.
 - The profile launcher selects the primary session and Pi user agent files configure
   subagents. Pi cannot install the small model or built-in build/plan mappings; their
   mapped values are recorded in `control-plane.json` as profile intent and are not installed.
-- Validator, debugger, and planner receive `bash` despite canonical `bash = "ask"` because
-  their contracts require mechanical checks or repository commands. Debugger remains source-edit
-  read-only; planner retains its existing edit/write/subagent capabilities.
+- Validator and debugger receive `bash` despite canonical `bash = "ask"` because their
+  contracts require mechanical checks or repository commands. Planner and design-partner
+  are structurally read-only and omit `bash`, `edit`, and `write`; reviewer remains
+  read-only and explorer remains read-only. Debugger remains source-edit read-only.
+- Validator has a separate deterministic browser/Appium MCP allowlist. Direct MCP tools
+  require an available background/async child and a prepared URL/session; when that
+  provider or session is unavailable, acceptance is reported as `BLOCKED`, never shifted
+  to UX-Critic. The validator list excludes video/recording, evaluation, upload/drop/tab,
+  lifecycle, device/session management, file, driver-settings, perform-actions, and clipboard
+  controls. UX-Critic's independent allowlist remains unchanged.
 - UX-Critic is an on-demand, read-only runtime audit. Its Pi agent file has an
   explicit allowlist of verified Playwright MCP and Appium MCP interaction,
   inspection, screenshot, and recording tools, plus Pi's built-in image-capable
@@ -19,14 +26,12 @@
   running URL/session, device, scope, identity, reference, and screenshot
   destination first.
 - Planner and reviewer receive the `subagent` tool plus a child-only,
-  profile-owned capability ceiling. The planner ceiling allows only `explorer`
-  and `spec-writer`; the reviewer ceiling allows only `explorer`. The guard
-  resolves pi-subagents through its public `./capability-ceiling` export and
-  fails closed if that package or registration is unavailable. This is a
-  child-selection boundary, not an OS sandbox or a command-level shell policy.
-- Every other canonical role is a leaf and receives no `subagent` tool. The
-  selected profile has no concrete `vision-*` role among its ten canonical
-  roles, so wildcard visual delegation remains guidance only.
+  profile-owned capability ceiling. Both ceilings fail closed and allow only
+  `explorer`; planner is structurally read-only and reviewer remains read-only.
+  The ceiling is a child-selection boundary, not an OS sandbox or a command-level shell policy.
+- Every other canonical role is a leaf and receives no `subagent` tool. When
+  the primary cannot inspect images natively, it routes visual work directly
+  to an existing image-capable role according to the shared policy.
 - `explorer` receives the manifest-owned `git_read` child tool and still has no
   `bash` capability. Its frontmatter declares `acceptanceRole: read-only` for
   acceptance inference only; this metadata does not grant or revoke tools or

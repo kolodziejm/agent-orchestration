@@ -47,10 +47,6 @@ variant = "low"
 model = "openai/gpt-5.6-sol"
 variant = "high"
 
-[models.spec-writer]
-model = "deepseek/deepseek-flash"
-variant = "low"
-
 [models.design-partner]
 model = "deepseek/deepseek-flash"
 variant = "high"

@@ -1,0 +1,60 @@
+version = 1
+name = "pi-glm"
+addendum = "pi-glm.md"
+harness = "pi"
+
+[control_plane.primary]
+model = "zai/glm-5.3"
+effort = "high"
+
+[control_plane]
+small_model = "zai/glm-5.3-flash"
+
+[control_plane.builtins.build]
+model = "zai/glm-5.3"
+effort = "high"
+
+[control_plane.builtins.plan]
+model = "zai/glm-5.3"
+effort = "high"
+
+[capabilities]
+native_vision = true
+primary_installable = true
+supported_variants = ["low", "high", "max"]
+
+[models.worker]
+model = "zai/glm-5.3-flash"
+variant = "high"
+
+[models.worker-complex]
+model = "zai/glm-5.3-flash"
+variant = "max"
+
+[models.validator]
+model = "zai/glm-5.3-flash"
+variant = "high"
+
+[models.debugger]
+model = "zai/glm-5.3"
+variant = "high"
+
+[models.explorer]
+model = "zai/glm-5.3-flash"
+variant = "high"
+
+[models.planner]
+model = "zai/glm-5.3"
+variant = "high"
+
+[models.design-partner]
+model = "zai/glm-5.3-flash"
+variant = "high"
+
+[models.reviewer]
+model = "zai/glm-5.3"
+variant = "high"
+
+[models.ux-critic]
+model = "zai/glm-5.3-flash"
+variant = "high"

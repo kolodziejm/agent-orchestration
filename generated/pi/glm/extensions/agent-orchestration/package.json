@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./primary-policy.js",
+      "./glm-price-status.js",
+      "./git-read.ts"
+    ]
+  }
+}

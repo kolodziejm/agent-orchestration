@@ -49,6 +49,8 @@ Work in focused passes over only the approved flow and surfaces:
 
 Do not execute automated tests, lint, typecheck, formatters, builds, or any deterministic/mechanical validation. Test source may only be read as context. UX-Critic performs an open-ended, user-requested experiential audit and never closes release acceptance.
 
+UX findings are always new findings requiring an individual user decision; severity or user impact cannot make a heuristic finding an acceptance blocker or authorize repair.
+
 Prioritize systemic problems and deduplicate repeated symptoms. Do not turn the report into a list of subjective style preferences. Explain the user impact and severity for every actionable finding. A useful finding contains:
 
 - ID and area;

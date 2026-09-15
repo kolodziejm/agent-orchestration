@@ -33,7 +33,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             supported = profile["capabilities"]["supported_variants"]
             expected_supported = (
                 {"low", "high", "max"}
-                if name == "deepseek"
+                if name in {"deepseek", "pi-glm"}
                 else {"low", "medium", "high", "max", "xhigh"}
             )
             self.assertEqual(set(supported), expected_supported, name)
@@ -62,11 +62,29 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 "validator": ("openai/gpt-5.6-luna", "medium"),
                 "planner": ("openai/gpt-5.6-sol", "high"),
                 "reviewer": ("openai/gpt-5.6-sol", "high"),
-                "spec-writer": ("openai/gpt-5.6-luna", "medium"),
                 "design-partner": ("openai/gpt-5.6-luna", "high"),
                 "ux-critic": ("openai/gpt-5.6-luna", "high"),
             },
         )
+
+        glm = profiles["pi-glm"]
+        self.assertEqual(glm["control_plane"], {
+            "primary": {"model": "zai/glm-5.3", "effort": "high"},
+            "small_model": "zai/glm-5.3-flash",
+            "builtins": {
+                "build": {"model": "zai/glm-5.3", "effort": "high"},
+                "plan": {"model": "zai/glm-5.3", "effort": "high"},
+            },
+        })
+        sol_roles = {"debugger", "planner", "reviewer"}
+        for role, config in glm["models"].items():
+            expected_model = (
+                "zai/glm-5.3"
+                if role in sol_roles
+                else "zai/glm-5.3-flash"
+            )
+            expected_variant = "max" if role == "worker-complex" else "high"
+            self.assertEqual((config["model"], config["variant"]), (expected_model, expected_variant), role)
 
     def test_renderers_reject_a_profile_with_missing_control_plane_effort(self):
         """This test will fail when a renderer silently ignores incomplete control-plane intent."""
@@ -136,6 +154,62 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "After implementation, give `validator`",
         ):
             self.assertNotIn(contradictory_wording, policy)
+
+    def test_finding_authorization_boundary_allows_only_deterministic_in_scope_blockers(self):
+        """REGRESSION CONTRACT: evidence, severity, and broad instructions never authorize new repair work."""
+        policy = (ROOT / "policy" / "orchestration.md").read_text()
+        for phrase in (
+            "evidence/findings, never implementation authorization by themselves",
+            "Severity labels, including `P0` or `Critical`, do not grant mutation authority.",
+            "earlier broad instruction such as `act`, `proceed`, `fix`, or `implement`",
+            "Only a deterministic, reproducible failure of an already-authorized acceptance criterion",
+            "deterministic test/lint/typecheck/build/compile/format failure",
+            "A validator `FAIL` is not automatically an acceptance blocker.",
+            "One `debugger` -> `worker` -> `validator` repair cycle is allowed only for a validation failure classified as an acceptance blocker",
+            "`BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations",
+            "duplicate rules/code, cleanup, refactors, quality improvements, newly proposed behavior, UX changes",
+            "Critical security or data-loss findings must stop progress and be presented immediately.",
+            "A P0/security finding from a reviewer or UX critic is a new finding requiring an individual decision",
+            "If classification is uncertain, default to a finding and ask rather than auto-fix.",
+        ):
+            self.assertIn(phrase, policy)
+
+    def test_individual_finding_decisions_are_done_skip_snooze_and_recorded(self):
+        """REGRESSION CONTRACT: each non-blocker finding gets its own explicit outcome before repair."""
+        policy = (ROOT / "policy" / "orchestration.md").read_text()
+        for phrase in (
+            "Before launching a repair worker for each non-blocker finding",
+            "one individual `Done` / `Skip` / `Snooze` question for that finding",
+            "Each actionable finding has a stable ID and exactly one recorded outcome.",
+            "`Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it",
+            "question-count limit",
+            "every finding remains a separate question and answer, never a package approval by default",
+            "Record each outcome in the handoff and final synthesis",
+            "do not re-propose a skipped finding in the same task unless evidence materially changes",
+        ):
+            self.assertIn(phrase, policy)
+        self.assertNotIn("Prefer one single-choice question per actionable finding", policy)
+
+    def test_role_contracts_make_finding_authorization_boundary_explicit(self):
+        """REGRESSION CONTRACT: role outputs and repair handoffs cannot authorize unrelated findings."""
+        contracts = {
+            role: (ROOT / "roles" / f"{role}.md").read_text()
+            for role in (
+                "reviewer", "ux-critic", "planner", "debugger", "validator",
+                "explorer", "worker", "worker-complex",
+            )
+        }
+        self.assertIn("Reviewer output is evidence/findings only", contracts["reviewer"])
+        self.assertIn("individual Done / Skip / Snooze decision", contracts["reviewer"])
+        self.assertIn("Validator output is evidence/findings only and never implementation authorization", contracts["validator"])
+        self.assertIn("`FAIL` alone is insufficient", contracts["validator"])
+        self.assertIn("Planning output is evidence, findings, and recommendations, not implementation authorization", contracts["planner"])
+        self.assertIn("Debugger output is evidence/findings only, not implementation authorization", contracts["debugger"])
+        self.assertIn("Explorer output is evidence/findings only and never mutation authority", contracts["explorer"])
+        for role in ("worker", "worker-complex"):
+            self.assertIn("exact acceptance blocker", contracts[role])
+            self.assertIn("Broad directives such as `act`, `proceed`, `fix it`, or `implement`", contracts[role])
+        self.assertIn("UX findings are always new findings requiring an individual user decision", contracts["ux-critic"])
 
     def test_role_contracts_separate_authoring_acceptance_and_heuristic_ux_audits(self):
         worker = (ROOT / "roles" / "worker.md").read_text()

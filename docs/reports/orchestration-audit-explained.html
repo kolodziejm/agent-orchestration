@@ -15,6 +15,7 @@
     <div class="eyebrow">agent-orchestration / audit mental model</div>
     <h1>Dobra polityka. Niepełne egzekwowanie.</h1>
     <p class="lead">Repozytorium dobrze opisuje, jak system ma działać. Największa luka polega na tym, że część kluczowych zasad jest obietnicą dla modelu, a nie ograniczeniem wymuszanym przez adapter lub runtime.</p>
+    <p class="lead"><strong>Aktywna topologia delegowania:</strong> <code>planner → explorer</code>; planner nie ma innej krawędzi delegowania.</p>
     <div class="meta">
       <span class="pill good">170 deterministic tests</span>
       <span class="pill good">deterministic check in CI</span>
@@ -66,7 +67,7 @@
 
       <article class="finding" data-sev="P2"><div class="f-top"><h3>Gates i repair budget są tylko w prozie</h3><span class="sev">Deferred</span></div><p>Ten milestone nie dodaje maszyny stanów, licznika prób ani artefaktu decyzji użytkownika.</p><dl><dt>Dowód</dt><dd><code>policy/orchestration.md:122–183</code></dd><dt>Status</dt><dd>jawnie odroczone, aby nie budować control-plane poza zakresem</dd><dt>Później</dt><dd>machine-readable transitions + verdict/finding IDs</dd></dl></article>
 
-      <article class="finding" data-sev="P2"><div class="f-top"><h3>Pi nie zamyka granic fail-closed</h3><span class="sev">Partial</span></div><p>Liście nie dostają <code>subagent</code>, a planner i reviewer mają zainstalowane child-only allowed-agent ceilings przez publiczne API pi-subagents.</p><dl><dt>Dowód</dt><dd><code>delegation-ceiling-*.js</code> + renderer/install tests</dd><dt>Chronione</dt><dd>target ceilings są deterministycznie testowane; planner → explorer/spec-writer; reviewer → explorer</dd><dt>Pozostaje</dt><dd>shell degradation i izolacja OS nie są sandboxem</dd></dl></article>
+      <article class="finding" data-sev="P2"><div class="f-top"><h3>Pi nie zamyka granic fail-closed</h3><span class="sev">Partial</span></div><p>Liście nie dostają <code>subagent</code>, a planner i reviewer mają zainstalowane child-only allowed-agent ceilings przez publiczne API pi-subagents.</p><dl><dt>Dowód</dt><dd><code>delegation-ceiling-*.js</code> + renderer/install tests</dd><dt>Chronione</dt><dd>target ceilings są deterministycznie testowane; planner → explorer; reviewer → explorer</dd><dt>Pozostaje</dt><dd>shell degradation i izolacja OS nie są sandboxem</dd></dl></article>
 
       <article class="finding" data-sev="P2"><div class="f-top"><h3>Brak właściciela worktree</h3><span class="sev">Deferred</span></div><p>„Safe isolation” pozostaje oceną agenta, a nie sprawdzalnym stanem.</p><dl><dt>Dowód</dt><dd><code>policy/orchestration.md:23</code></dd><dt>Status</dt><dd>brak lease, registry i manifestu w tym milestone</dd><dt>Później</dt><dd>task manifest: worktree, writer, scope, lease/status</dd></dl></article>
 

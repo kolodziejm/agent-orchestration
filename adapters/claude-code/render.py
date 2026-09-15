@@ -8,16 +8,16 @@ has no per-subagent equivalent):
   Claude Code; permission prompts are configured at the session level, not
   per agent file. `Bash` is therefore granted to rendered roles that request
   or ask for it, since they need it for investigation (e.g. running read-only
-  inspection commands). The canonical `ux-critic` role is the narrow
-  exception: its `bash = "deny"` is enforced by omitting Bash entirely.
-  Session-level Claude Code permission settings remain the operator's responsibility.
+  inspection commands). Structurally read-only roles with `bash = "deny"`
+  (planner, design-partner, and ux-critic) omit Bash entirely. Session-level
+  Claude Code permission settings remain the operator's responsibility.
 - Claude Code uses a flat subagent topology. The orchestrator performs the
   delegation described by `delegates` and passes returned evidence in the
   handoff; rendered subagent files do not expose nested `Agent(<target>)`
   tools.
 - All `delegates` entries are omitted because Claude Code's rendered
   subagents cannot invoke nested agents. Native vision support means the
-  active Claude profile also needs no separate `vision-*` delegation.
+  active Claude profile can inspect images directly.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def load_claude_profile() -> dict:
 
 def tools_for(config: dict, native_vision: bool, role: str | None = None) -> str:
     tools = list(BASE_TOOLS)
-    if role == "ux-critic" and config.get("bash") == "deny":
+    if config.get("bash") == "deny":
         tools.remove("Bash")
     edit = config["edit"]
     if edit == "allow":

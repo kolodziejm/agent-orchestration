@@ -16,9 +16,6 @@
     "reviewer": {
       "model": "zai-coding-plan/glm-5.3"
     },
-    "spec-writer": {
-      "model": "deepseek/deepseek-v4-flash"
-    },
     "ux-critic": {
       "model": "deepseek/deepseek-v4-flash"
     },

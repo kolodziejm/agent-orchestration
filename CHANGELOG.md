@@ -4,6 +4,14 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Remove dedicated `vision-*` delegation: `worker` and `worker-complex` are leaves, and
+  vision-incapable primaries route directly to existing image-capable roles.
+- Simplify orchestration by removing the `spec-writer` role and planning-artifact guard;
+  planners now return managed output, while selected worker tiers own repository persistence.
+- Make Pi permissions, authentication, MCP configuration, and theme selection/files
+  operator-owned: installers neither copy nor claim them, preserve legacy files during the
+  one-time manifest migration, and continue transactional cleanup of retired project files.
+
 - Extend the production Pi adapter with isolated OpenAI and DeepSeek bundles, explicit
   fail-closed provider mapping, exact all-role DeepSeek Flash routing, native vision,
   executable profile launchers, and deterministic committed snapshots.

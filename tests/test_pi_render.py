@@ -24,6 +24,17 @@ UX_CRITIC_TOOLS = [
     "appium_set_value", "appium_mobile_press_key", "appium_mobile_keyboard", "appium_get_window_size",
     "appium_orientation", "appium_context", "appium_alert", "appium_screenshot", "appium_screen_recording",
 ]
+VALIDATOR_MCP_TOOLS = [
+    "browser_navigate", "browser_navigate_back", "browser_snapshot", "browser_find",
+    "browser_click", "browser_fill_form", "browser_type", "browser_press_key",
+    "browser_select_option", "browser_hover", "browser_drag", "browser_mouse_wheel",
+    "browser_wait_for", "browser_resize", "browser_take_screenshot",
+    "appium_get_active_element", "appium_find_element", "appium_get_text",
+    "appium_get_element_attribute", "appium_get_page_source", "appium_gesture",
+    "appium_drag_and_drop", "appium_set_value", "appium_mobile_press_key",
+    "appium_mobile_keyboard", "appium_get_window_size", "appium_orientation",
+    "appium_context", "appium_alert", "appium_screenshot",
+]
 
 
 EXPECTED = {
@@ -32,13 +43,13 @@ EXPECTED = {
             role: f"openai-codex/gpt-5.6-{'sol' if role in {'debugger', 'planner', 'reviewer'} else 'luna'}"
             for role in (
                 "worker", "worker-complex", "validator", "debugger", "explorer",
-                "planner", "spec-writer", "design-partner", "reviewer", "ux-critic",
+                "planner", "design-partner", "reviewer", "ux-critic",
             )
         },
         "efforts": {
             "worker": "high", "worker-complex": "max", "validator": "medium",
             "debugger": "high", "explorer": "medium", "planner": "high",
-            "spec-writer": "medium", "design-partner": "high", "reviewer": "high",
+            "design-partner": "high", "reviewer": "high",
             "ux-critic": "high",
         },
     },
@@ -51,25 +62,44 @@ EXPECTED = {
             )
             for role in (
                 "worker", "worker-complex", "validator", "debugger", "explorer",
-                "planner", "spec-writer", "design-partner", "reviewer", "ux-critic",
+                "planner", "design-partner", "reviewer", "ux-critic",
             )
         },
         "efforts": {
             "worker": "high", "worker-complex": "max", "validator": "high",
             "debugger": "high", "explorer": "low", "planner": "high",
-            "spec-writer": "low", "design-partner": "high", "reviewer": "high",
+            "design-partner": "high", "reviewer": "high",
             "ux-critic": "high",
         },
     },
     "deepseek": {
         "models": {role: "deepseek/deepseek-flash" for role in (
             "worker", "worker-complex", "validator", "debugger", "explorer",
-            "planner", "spec-writer", "design-partner", "reviewer", "ux-critic",
+            "planner", "design-partner", "reviewer", "ux-critic",
         )},
         "efforts": {
             "worker": "high", "worker-complex": "max", "validator": "high",
             "debugger": "max", "explorer": "low", "planner": "max",
-            "spec-writer": "low", "design-partner": "high", "reviewer": "max",
+            "design-partner": "high", "reviewer": "max",
+            "ux-critic": "high",
+        },
+    },
+    "glm": {
+        "models": {
+            "worker": "zai/glm-5.3-flash",
+            "worker-complex": "zai/glm-5.3-flash",
+            "validator": "zai/glm-5.3-flash",
+            "debugger": "zai/glm-5.3",
+            "explorer": "zai/glm-5.3-flash",
+            "planner": "zai/glm-5.3",
+            "design-partner": "zai/glm-5.3-flash",
+            "reviewer": "zai/glm-5.3",
+            "ux-critic": "zai/glm-5.3-flash",
+        },
+        "efforts": {
+            "worker": "high", "worker-complex": "max", "validator": "high",
+            "debugger": "high", "explorer": "high", "planner": "high",
+            "design-partner": "high", "reviewer": "high",
             "ux-critic": "high",
         },
     },
@@ -84,9 +114,17 @@ class PiRenderTests(unittest.TestCase):
             "exit the current Pi process",
             "pi-hybrid",
             "pi-openai",
+            "pi-deepseek",
+            "pi-glm",
             "01:00–04:00 and 06:00–10:00 UTC Monday–Friday",
             "DS peak ×1",
             "DS off-peak ×0.5",
+            "Hybrid and standalone DeepSeek",
+            "GLM peak ×3",
+            "GLM off-peak ×1",
+            "06:00–10:00 UTC Monday–Friday",
+            "×1.2",
+            "×0.4",
             "consumed% − elapsed%",
             "projected end utilization",
             "pace unavailable",
@@ -143,6 +181,42 @@ console.log(JSON.stringify(cases.map(([value]) => deepseekPricePeriod(new Date(v
             "DS off-peak ×0.5", "DS peak ×1", "DS peak ×1", "DS off-peak ×0.5",
             "DS off-peak ×0.5", "DS off-peak ×0.5",
         ])
+
+    def test_glm_price_status_has_exact_utc_boundaries_and_weekends(self):
+        """GLM-5.3 peak pricing is the weekday half-open UTC window only."""
+        source = ROOT / "adapters/pi/extensions/glm-price-status.js"
+        cases = [
+            "2026-09-11T05:59:00.000Z",
+            "2026-09-11T06:00:00.000Z",
+            "2026-09-11T09:59:00.000Z",
+            "2026-09-11T10:00:00.000Z",
+            "2026-09-12T07:00:00.000Z",
+            "2026-09-13T07:00:00.000Z",
+        ]
+        script = """
+import { glmPricePeriod, millisecondsToNextUtcMinute } from %s;
+const cases = %s;
+console.log(JSON.stringify({
+  labels: cases.map((value) => glmPricePeriod(new Date(value))),
+  refresh: [
+    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:00.000Z")),
+    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:00.500Z")),
+    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:59.999Z")),
+  ],
+}));
+""" % (json.dumps(source.as_uri()), json.dumps(cases))
+        result = subprocess.run(
+            ["node", "--input-type=module", "--eval", script],
+            cwd=ROOT, text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            "labels": [
+                "GLM off-peak ×1", "GLM peak ×3", "GLM peak ×3",
+                "GLM off-peak ×1", "GLM off-peak ×1", "GLM off-peak ×1",
+            ],
+            "refresh": [60_000, 59_500, 1],
+        })
 
     def test_codex_weekly_pace_formats_schedule_and_rejects_unusable_reports(self):
         """Weekly pace uses the seven-day bucket and degrades silently for unsafe data."""
@@ -271,8 +345,8 @@ console.log(JSON.stringify({ queries, statuses }));
         ])
         self.assertNotIn("secret-response-body", result.stdout + result.stderr)
 
-    def test_renderer_emits_only_the_status_adapter_owned_by_each_profile(self):
-        """Hybrid gets DeepSeek pricing, OpenAI gets Codex pace, and neither leaks across profiles."""
+    def test_deepseek_regression_contract_renders_only_its_canonical_status_adapter(self):
+        """REGRESSION CONTRACT: standalone DeepSeek loads canonical pricing and no other provider status."""
         expected = {
             "hybrid": (
                 [
@@ -282,8 +356,9 @@ console.log(JSON.stringify({ queries, statuses }));
                     "deepseek-price-status.js",
                     "git-read.ts",
                     "package.json",
+                    "primary-policy.js",
                 ],
-                {"type": "module", "pi": {"extensions": ["./deepseek-price-status.js", "./git-read.ts"]}},
+                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./deepseek-price-status.js", "./git-read.ts"]}},
             ),
             "openai": (
                 [
@@ -294,18 +369,33 @@ console.log(JSON.stringify({ queries, statuses }));
                     "delegation-ceiling-reviewer.js",
                     "git-read.ts",
                     "package.json",
+                    "primary-policy.js",
                 ],
-                {"type": "module", "pi": {"extensions": ["./codex-pace-loader.ts", "./git-read.ts"]}},
+                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./codex-pace-loader.ts", "./git-read.ts"]}},
             ),
             "deepseek": (
                 [
+                    "deepseek-price-status.js",
                     "delegation-ceiling-core.js",
                     "delegation-ceiling-planner.js",
                     "delegation-ceiling-reviewer.js",
                     "git-read.ts",
                     "package.json",
+                    "primary-policy.js",
                 ],
-                {"type": "module", "pi": {"extensions": ["./git-read.ts"]}},
+                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./deepseek-price-status.js", "./git-read.ts"]}},
+            ),
+            "glm": (
+                [
+                    "delegation-ceiling-core.js",
+                    "delegation-ceiling-planner.js",
+                    "delegation-ceiling-reviewer.js",
+                    "git-read.ts",
+                    "glm-price-status.js",
+                    "package.json",
+                    "primary-policy.js",
+                ],
+                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./glm-price-status.js", "./git-read.ts"]}},
             ),
         }
         for profile_name, (expected_names, expected_package) in expected.items():
@@ -321,10 +411,10 @@ console.log(JSON.stringify({ queries, statuses }));
                 self.assertEqual(files, sorted(expected_names))
                 manifest = json.loads((output / "manifest.json").read_text())
                 managed = manifest.get("managed_extensions", [])
-                self.assertEqual(
-                    sorted(managed),
-                    sorted(f"extensions/agent-orchestration/{name}" for name in expected_names),
-                )
+                expected_managed = [
+                    f"extensions/agent-orchestration/{name}" for name in expected_names
+                ]
+                self.assertEqual(sorted(managed), sorted(expected_managed))
                 if expected_package is not None:
                     self.assertEqual(
                         json.loads((extension_dir / "package.json").read_text()),
@@ -363,7 +453,7 @@ console.log(JSON.stringify({ queries, statuses }));
 
                 control = json.loads((output / "_shared" / "control-plane.json").read_text())
                 if profile_name == "deepseek":
-                    self.assertEqual(control["primary"], {"model": "deepseek/deepseek-flash", "thinking": "high"})
+                    self.assertEqual(control["primary"], {"model": "deepseek/deepseek-flash", "thinking": "max"})
                     self.assertEqual(control["small_model"], "deepseek/deepseek-flash")
                     self.assertEqual(control["builtins"]["build"], {"model": "deepseek/deepseek-flash", "thinking": "high"})
                     self.assertEqual(control["builtins"]["plan"], {"model": "deepseek/deepseek-flash", "thinking": "max"})
@@ -372,8 +462,13 @@ console.log(JSON.stringify({ queries, statuses }));
                     self.assertEqual(control["small_model"], "deepseek/deepseek-flash")
                     self.assertEqual(control["builtins"]["build"], {"model": "openai-codex/gpt-5.6-sol", "thinking": "medium"})
                     self.assertEqual(control["builtins"]["plan"], {"model": "openai-codex/gpt-5.6-sol", "thinking": "high"})
-                else:
+                elif profile_name == "openai":
                     self.assertEqual(control["small_model"], "openai-codex/gpt-5.6-luna")
+                else:
+                    self.assertEqual(control["primary"], {"model": "zai/glm-5.3", "thinking": "high"})
+                    self.assertEqual(control["small_model"], "zai/glm-5.3-flash")
+                    self.assertEqual(control["builtins"]["build"], {"model": "zai/glm-5.3", "thinking": "high"})
+                    self.assertEqual(control["builtins"]["plan"], {"model": "zai/glm-5.3", "thinking": "high"})
 
     def test_renderer_fails_closed_for_unknown_profile_and_model_provider_prefix(self):
         """This test will fail when unsupported profiles or malformed provider tokens are guessed."""
@@ -431,6 +526,7 @@ console.log(JSON.stringify({ queries, statuses }));
                 ("hybrid", fake_home / ".pi/agent"),
                 ("openai", fake_home / ".pi/profiles/openai"),
                 ("deepseek", fake_home / ".pi/profiles/deepseek"),
+                ("glm", fake_home / ".pi/profiles/glm"),
             ):
                 output = root / profile_name
                 subprocess.run([sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)], check=True)
@@ -497,12 +593,11 @@ console.log(JSON.stringify({ queries, statuses }));
     def test_command_capable_ask_roles_get_bash_without_widening_other_roles(self):
         """This test will fail when Pi drops required shell access or widens another ask role."""
         expected_tools = {
-            "validator": "read, grep, find, ls, bash",
+            "validator": ", ".join(["read", "grep", "find", "ls", "bash", *VALIDATOR_MCP_TOOLS]),
             "debugger": "read, grep, find, ls, bash",
-            "planner": "read, grep, find, ls, edit, write, bash, subagent",
+            "planner": "read, grep, find, ls, subagent",
             "reviewer": "read, grep, find, ls, subagent",
             "explorer": "read, grep, find, ls, git_read",
-            "spec-writer": "read, grep, find, ls, edit, write",
             "ux-critic": ", ".join(UX_CRITIC_TOOLS),
         }
         for profile_name in EXPECTED:
@@ -576,7 +671,7 @@ console.log(JSON.stringify({ queries, statuses }));
     def test_child_ceiling_wrappers_register_exact_targets_and_dispose_lifecycle_handles(self):
         """This test will fail when a child guard widens targets or leaks a registration."""
         for role, expected in {
-            "planner": ["explorer", "spec-writer"],
+            "planner": ["explorer"],
             "reviewer": ["explorer"],
         }.items():
             with self.subTest(role=role), tempfile.TemporaryDirectory() as directory:
@@ -664,7 +759,7 @@ console.log(JSON.stringify({allowed, acceptsExplorer: allowed.includes("explorer
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {
-                "allowed": ["explorer", "spec-writer"],
+                "allowed": ["explorer"],
                 "acceptsExplorer": True,
                 "deniesValidator": True,
             })
@@ -727,9 +822,9 @@ console.log(JSON.stringify({allowed, acceptsExplorer: allowed.includes("explorer
                         expected_tools.append("git_read")
                     if config["edit"] == "allow":
                         expected_tools += ["edit", "write"]
-                    if config["bash"] == "allow" or role in {"validator", "debugger", "planner"}:
+                    if config["bash"] == "allow" or role in {"validator", "debugger"}:
                         expected_tools.append("bash")
-                    if set(config.get("delegates", [])) & {"explorer", "spec-writer"}:
+                    if "explorer" in config.get("delegates", []):
                         expected_tools.append("subagent")
                 model = profile["models"][role]
                 expected_model = model["model"].replace("openai/", "openai-codex/", 1)
@@ -765,10 +860,31 @@ console.log(JSON.stringify({allowed, acceptsExplorer: allowed.includes("explorer
 
             note = (output / "_shared" / "degradations.md").read_text().lower()
             self.assertIn("permissions.bash", note)
-            self.assertIn("permission wrapper", note)
+            self.assertIn("operator-owned runtime state", note)
+            self.assertIn("do not copy or claim", note)
             self.assertIn("omits `bash`", note)
             self.assertIn("primary", note)
             self.assertIn("not installed", note)
+
+    def test_glm_uses_a_pi_specific_source_without_colliding_with_generic_glm(self):
+        """Pi GLM must not repurpose the generic OpenCode profiles/glm.toml source."""
+        generic = (ROOT / "profiles" / "glm.toml").read_text()
+        pi_source = (ROOT / "profiles" / "pi-glm.toml").read_text()
+        self.assertNotIn('harness = "pi"', generic)
+        self.assertIn('name = "pi-glm"', pi_source)
+        self.assertIn('harness = "pi"', pi_source)
+        self.assertIn('addendum = "pi-glm.md"', pi_source)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "glm"
+            result = subprocess.run(
+                [sys.executable, str(RENDER), "--profile", "glm", "--output", str(output)],
+                cwd=ROOT, text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads((output / "manifest.json").read_text())["profiles"], ["glm"])
+            bundle = "\n".join(path.read_text() for path in output.rglob("*") if path.is_file())
+            self.assertNotIn("opencode-go", bundle)
+            self.assertNotIn("profiles/glm.toml", bundle)
 
 
 if __name__ == "__main__":
