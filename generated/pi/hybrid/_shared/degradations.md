@@ -25,10 +25,12 @@
   it receives no `edit`, `write`, or shell tools. The primary must supply the
   running URL/session, device, scope, identity, reference, and screenshot
   destination first.
-- Planner and reviewer receive the `subagent` tool plus a child-only,
-  profile-owned capability ceiling. Both ceilings fail closed and allow only
-  `explorer`; planner is structurally read-only and reviewer remains read-only.
-  The ceiling is a child-selection boundary, not an OS sandbox or a command-level shell policy.
+- Planner and reviewer receive the `subagent` tool, and canonical policy restricts both to
+  the exact child target `explorer`; all other canonical roles receive no `subagent` tool.
+  On runtimes without a public framework-neutral child-target enforcement API, this is a
+  policy-level boundary represented in role contracts and rendered tool lists, not runtime enforcement.
+  The bundle does not claim fail-closed package integration. This boundary is
+  not an OS sandbox or a command-level shell policy.
 - Every other canonical role is a leaf and receives no `subagent` tool. When
   the primary cannot inspect images natively, it routes visual work directly
   to an existing image-capable role according to the shared policy.

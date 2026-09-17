@@ -4,7 +4,6 @@ description: "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
 model: zai/glm-5.3
 thinking: high
 tools: read, grep, find, ls, subagent
-subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-planner.js
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false

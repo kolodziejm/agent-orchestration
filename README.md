@@ -379,18 +379,20 @@ an agent's tool list, the Pi host passes it through. The adapter therefore omits
 `bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Command-level
 permission configuration remains operator-owned and is not copied or claimed by this project.
 Pi agent files configure child roles and each profile launcher selects the primary model.
-Planner and reviewer load child-only, profile-owned capability ceilings through the
-runtime's public `./capability-ceiling` integration; both allow only `explorer`. Missing
-runtime integration or registration fails closed, and the ceiling is a child-selection boundary rather than an
-OS sandbox or general command classifier. All other canonical roles lack `subagent`, so
-they are leaves at the Pi tool boundary. Pi cannot install the small model or built-in
-build/plan mappings, so each bundle's `_shared/control-plane.json` records those values as
-non-installed intent. When the primary cannot inspect images natively, it routes visual work
-once directly to existing image-capable canonical roles: `explorer` for repository evidence,
-`worker` or `worker-complex` for implementation, `validator` for deterministic checks,
-`design-partner` for product-flow exploration, and `ux-critic` only for an explicitly
-authorized runtime audit. Workers remain leaves, while validator and UX-critic boundaries
-continue to govern their visual checks.
+Planner and reviewer retain the `subagent` tool, while canonical policy restricts each to the
+exact child target `explorer`; all other canonical roles lack `subagent`, so they are leaves at
+the Pi tool boundary. Under runtimes without a public framework-neutral child-target
+enforcement API, that exact restriction is a policy-level boundary represented in role
+contracts and rendered tool lists, not runtime enforcement. This bundle does not claim
+fail-closed package integration, and the policy guidance is not an OS sandbox or general
+command classifier. Pi cannot install the small model or built-in build/plan mappings, so
+each bundle's `_shared/control-plane.json` records those values as non-installed intent.
+When the primary cannot inspect images natively, it routes visual work once directly to
+existing image-capable canonical roles: `explorer` for repository evidence, `worker` or
+`worker-complex` for implementation, `validator` for deterministic checks, `design-partner`
+for product-flow exploration, and `ux-critic` only for an explicitly authorized runtime
+audit. Workers remain leaves, while validator and UX-critic boundaries continue to govern
+their visual checks.
 
 The normal `./scripts/check` / `uv run --locked ./scripts/check` path is deterministic,
 credential-free, and never invokes a provider. An optional paid OpenAI integration

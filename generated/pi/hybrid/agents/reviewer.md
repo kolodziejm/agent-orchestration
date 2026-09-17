@@ -4,7 +4,6 @@ description: "Senior read-only reviewer and reasoning principal"
 model: openai-codex/gpt-5.6-sol
 thinking: high
 tools: read, grep, find, ls, subagent
-subagentOnlyExtensions: ../extensions/agent-orchestration/delegation-ceiling-reviewer.js
 defaultContext: fresh
 systemPromptMode: replace
 inheritProjectContext: false
