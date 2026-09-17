@@ -32,6 +32,8 @@ After scope is known, a large analysis spanning at least two independent top-lev
 - Unbounded or whole-initiative delegation is prohibited. One source-changing handoff owns at most one independently verifiable slice and one validator checkpoint; broad changes MUST be split before launch and MUST NOT be handed wholesale to `worker-complex`.
 - Every delegation MUST state an explicit stopping condition and use the strongest supported execution cap (turn, runtime, or tool-call). Reaching the cap returns partial progress or `BLOCKED` and never self-extends.
 - Potentially non-brief work MUST run in the background when the harness supports it so the primary remains responsive. Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action.
+- Validation expected to exceed five minutes or span two or more independent owning areas MUST, whenever safely separable, be decomposed into bounded, independently verifiable `validator` lanes. Each lane handoff MUST name its scope, exact checks, terminal condition, and expected deadline or maximum wait. An aggregate or overall `PASS` requires every required lane to be terminal and MUST NOT be inferred from partial lanes.
+- External monitors and validators MUST NOT wait indefinitely or silently self-extend. When an external job stalls or makes no meaningful progress past its declared deadline, return `BLOCKED` immediately with its last progress time, evidence/URLs, and exact prerequisite.
 - The primary announces the bounded slice before launch and reports completion, blocker, and checkpoint events without polling.
 - After each mutation slice, serial validation or checkpoint occurs before the next dependent slice is launched.
 - If a task cannot be safely bounded, pause and decompose it or ask the user rather than launching it.
@@ -150,6 +152,10 @@ Only a deterministic, reproducible failure of an already-authorized acceptance c
 The validator must independently inspect the relevant diff and choose the smallest useful validation matrix, including predefined deterministic acceptance and any required browser/device checks. For each acceptance criterion, report observable evidence that demonstrates the expected public behavior and return `PASS`, `FAIL`, or `BLOCKED`. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Validation confirms acceptance criteria; it is not a covert reviewer and must not expand into architecture critique or speculative design findings. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
 
 If validation fails, send the exact failure to `debugger`; do not ask validator to diagnose or fix it.
+
+### Release promotion gate
+
+Do not promote or merge to a release branch (for example, `master`) while any check expected for the release SHA—including CI, deployment, security, or dependency-maintenance/Dependabot checks—is failed, stalled, pending, unexpectedly skipped, or incomplete. Any expected conditional skip MUST be explicitly named and evidenced. An exception requires explicit, user-recorded risk acceptance naming each check, impact, mitigation/rollback, owner, and expiry; silence or green core CI is insufficient.
 
 ## Finding authorization boundary and automatic repair
 
