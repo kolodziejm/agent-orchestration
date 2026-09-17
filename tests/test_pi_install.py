@@ -184,7 +184,7 @@ class PiInstallTests(unittest.TestCase):
                 target / "auth.json",
                 target / "mcp.json",
                 target / "themes/custom-theme.json",
-                target / install.PI_RUNTIME_PACKAGE,
+                target / "npm/node_modules/operator-runtime/package.json",
             )
             for path in operator_paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
