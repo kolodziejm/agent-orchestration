@@ -416,8 +416,8 @@ def stalled_role_evidence(events: list[dict[str, Any]]) -> dict[str, bool]:
     """Recognize a bounded debugger/validator stall shape from launcher events.
 
     Pi's upstream child scheduler and tool cancellation remain outside this
-    repository. This detector therefore does not claim to exercise that
-    scheduler: it only records whether the harness saw role progress followed
+    repository. This detector does not claim exact target runtime enforcement;
+    it only records whether the harness saw role progress followed
     by a role-owned tool/child start before the launcher deadline expired.
     """
     progress_roles: set[str] = set()
@@ -592,11 +592,8 @@ def evaluate_evidence(
         for event in parent_tool_ends
     )
     planner_delegation = bool(planner_starts)
-    validator_started = any(target_of_event(event) == "validator" for event in child_starts)
 
     explorer_result = False
-    validator_denied = False
-    validator_receipt = False
     artifact_explorer_started = any(
         target_of_event(event) == "explorer" for event in artifact_child_starts
     )
@@ -617,26 +614,11 @@ def evaluate_evidence(
         if is_planner:
             planner_transcript_found = True
             explorer_result = explorer_result or _contains_all(text, "explorer", nonce, token)
-            validator_denied = validator_denied or _contains_all(
-                text, "validator", "capability ceiling"
-            )
-        if _contains_all(lower_name, "validator", "receipt") or _contains_all(
-            lower_name, "validator", "run"
-        ):
-            validator_receipt = True
-
-    # A structured receipt is authoritative even when its filename is opaque.
-    validator_receipt = validator_receipt or any(
-        target_of_event(event) == "validator" for event in artifact_child_starts
-    )
     evidence: dict[str, object] = {
         "planner_delegation": planner_delegation,
         "planner_completed": planner_completed,
         "planner_transcript": planner_transcript_found,
         "explorer_result": explorer_result,
-        "validator_denied": validator_denied,
-        "validator_started": validator_started,
-        "validator_receipt": validator_receipt,
         "marker_unchanged": marker_unchanged,
         "workspace_clean": workspace_clean,
         "unexpected_parent_tool_count": unexpected_parent_tool_count,
@@ -649,10 +631,8 @@ def evaluate_evidence(
         return evidence, "jsonl-parse-failed"
     if not (planner_delegation and planner_completed):
         return evidence, "evidence-failed"
-    if not (planner_transcript_found and explorer_result and validator_denied):
+    if not (planner_transcript_found and explorer_result):
         return evidence, "evidence-failed"
-    if validator_started or validator_receipt:
-        return evidence, "validator-started"
     if not marker_unchanged:
         return evidence, "marker-changed"
     if not workspace_clean:
@@ -827,9 +807,9 @@ def _prompt(workspace: Path, session_dir: Path, marker: Path) -> str:
         "before or after that invocation. The only enabled parent tool is subagent. Run it "
         "in the foreground with full progress and this dedicated sessionDir: "
         f"{session_dir}. The planner must launch exactly one explorer child to read "
-        f"{marker} and return its nonce and fixed token, then attempt exactly one validator "
-        "selection. The planner's capability ceiling must deny validator before a validator "
-        "child starts. Do not launch any other child or use any other delegation target. "
+        f"{marker} and return its nonce and fixed token. Do not launch any other child or "
+        "use any other delegation target. This canary observes only the supplied transcript "
+        "and bounded harness behavior; it does not claim exact target runtime enforcement. "
         f"Parent workspace: {workspace}."
     )
 
@@ -844,9 +824,6 @@ def run_canary(launcher: Path, timeout_seconds: float, max_output_bytes: int) ->
         "planner_completed": False,
         "planner_transcript": False,
         "explorer_result": False,
-        "validator_denied": False,
-        "validator_started": False,
-        "validator_receipt": False,
         "marker_unchanged": False,
         "workspace_clean": False,
         "unexpected_parent_tool_count": 0,

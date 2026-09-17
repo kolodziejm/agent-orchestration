@@ -25,8 +25,7 @@ SAFE_MANAGED_EXTENSION = re.compile(
     r"^extensions/(?:[A-Za-z0-9][A-Za-z0-9._-]*/(?:config|package)\.json|"
     r"agent-orchestration/(?:deepseek-price-status\.js|glm-price-status\.js|"
     r"codex-pace-status\.js|codex-pace-core\.mjs|codex-pace-loader\.ts|"
-    r"delegation-ceiling-core\.js|delegation-ceiling-planner\.js|"
-    r"delegation-ceiling-reviewer\.js|git-read\.ts|primary-policy\.js))$"
+    r"git-read\.ts|primary-policy\.js))$"
 )
 SAFE_MANAGED_FILE = re.compile(r"^themes/[A-Za-z0-9][A-Za-z0-9._-]*\.json$")
 # Migration-only compatibility: these paths may appear in an older manifest,
@@ -36,6 +35,13 @@ LEGACY_OPERATOR_MANAGED_EXTENSIONS = frozenset({
     "extensions/pi-permission-system/package.json",
 })
 LEGACY_RETIRED_PLANNING_GUARD = "extensions/agent-orchestration/planning-artifact-guard.js"
+# Migration-only compatibility: prior bundles claimed these unsupported files;
+# current rendering never copies, validates, or claims them.
+LEGACY_RETIRED_DELEGATION_EXTENSIONS = frozenset({
+    "extensions/agent-orchestration/delegation-ceiling-core.js",
+    "extensions/agent-orchestration/delegation-ceiling-planner.js",
+    "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
+})
 
 
 def text_diff(current: Path, desired: str, label: str) -> str:
@@ -62,7 +68,7 @@ def validate_manifest(manifest: dict, label: str) -> None:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
     extensions = manifest.get("managed_extensions", [])
     legacy_extensions = (
-        {LEGACY_RETIRED_PLANNING_GUARD}
+        {LEGACY_RETIRED_PLANNING_GUARD, *LEGACY_RETIRED_DELEGATION_EXTENSIONS}
         if label == "installed manifest"
         else set()
     )
@@ -236,13 +242,7 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     missing_paths = [path for path in validation_paths if not path.is_file()]
     if missing_paths:
         missing = sorted(str(path) for path in missing_paths)
-        child_names = {
-            "delegation-ceiling-core.js",
-            "delegation-ceiling-planner.js",
-            "delegation-ceiling-reviewer.js",
-            "git-read.ts",
-            "package.json",
-        }
+        child_names = {"git-read.ts", "package.json"}
         if any(path.name in child_names for path in missing_paths):
             raise RuntimeError(f"Missing installed Pi child-only extension: {missing}")
         raise RuntimeError(f"Missing installed Pi artifacts: {missing}")
@@ -315,10 +315,6 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         if not entrypoint_path.is_file() or entrypoint_path.is_symlink():
             raise RuntimeError("Missing installed Pi status extension entrypoint")
 
-    child_extensions = {
-        "planner": "delegation-ceiling-planner.js",
-        "reviewer": "delegation-ceiling-reviewer.js",
-    }
     primary_extension = "extensions/agent-orchestration/primary-policy.js"
     if primary_extension not in managed_extensions:
         raise RuntimeError("Pi primary policy extension is not manifest-owned")
@@ -326,34 +322,12 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     if primary_path.is_symlink() or not primary_path.is_file():
         raise RuntimeError("Missing installed Pi primary policy extension")
 
-    for extension_name in (
-        "delegation-ceiling-core.js",
-        *child_extensions.values(),
-        "git-read.ts",
-        "package.json",
-    ):
+    for extension_name in ("git-read.ts", "package.json"):
         managed_reference = f"extensions/agent-orchestration/{extension_name}"
         if managed_reference not in managed_extensions:
             raise RuntimeError("Pi child-only extension is not manifest-owned")
         managed_path = target / managed_reference
         if managed_path.is_symlink() or not managed_path.is_file():
-            raise RuntimeError("Missing installed Pi child-only extension")
-    for role, extension_name in child_extensions.items():
-        agent_path = target / "agents" / f"{role}.md"
-        expected_reference = f"../extensions/agent-orchestration/{extension_name}"
-        references = []
-        for line in agent_path.read_text().splitlines():
-            if line.startswith("subagentOnlyExtensions: "):
-                references.extend(
-                    item.strip() for item in line.split(": ", 1)[1].split(",") if item.strip()
-                )
-        if expected_reference not in references:
-            raise RuntimeError(f"Invalid Pi child-only extension reference: {agent_path}")
-        managed_reference = f"extensions/agent-orchestration/{extension_name}"
-        if managed_reference not in managed_extensions:
-            raise RuntimeError("Pi child-only extension is not manifest-owned")
-        extension_path = agent_path.parent / expected_reference
-        if not extension_path.is_file():
             raise RuntimeError("Missing installed Pi child-only extension")
     invalid_launchers = [
         path for path in launchers

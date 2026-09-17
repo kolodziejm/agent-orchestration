@@ -75,7 +75,6 @@ class PiLiveCanaryTests(unittest.TestCase):
                     "events": [
                         {{"type": "tool_execution_start", "toolName": "subagent", "args": {{"agent": "explorer"}}}},
                         {{"type": "tool_execution_end", "toolName": "subagent", "result": "nonce {{}} token {{}}".format(marker_data["nonce"], marker_data["token"])}},
-                        {{"error": "Capability ceiling denied validator before child start"}},
                     ],
                 }}
                 if mode == "redaction":
@@ -138,12 +137,10 @@ class PiLiveCanaryTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(payload["ok"])
             for key in (
-                "planner_delegation", "planner_transcript", "explorer_result",
-                "validator_denied", "marker_unchanged", "workspace_clean",
+                "planner_delegation", "planner_completed", "planner_transcript",
+                "explorer_result", "marker_unchanged", "workspace_clean",
             ):
                 self.assertTrue(payload[key], key)
-            self.assertFalse(payload["validator_started"])
-            self.assertFalse(payload["validator_receipt"])
             self.assertTrue(marker.exists())
             self.assertTrue(cwd_record.is_file())
             self.assertFalse(Path(cwd_record.read_text()).exists())
@@ -161,6 +158,9 @@ class PiLiveCanaryTests(unittest.TestCase):
             self.assertEqual(arguments[arguments.index("--tools") + 1], "subagent")
             self.assertIn("first action", arguments[-1])
             self.assertIn("only parent action", arguments[-1])
+            self.assertNotIn("validator", arguments[-1].lower())
+            self.assertIn("does not claim exact target runtime enforcement", arguments[-1])
+            self.assertTrue(payload["planner_completed"])
             self.assertEqual(payload["unexpected_parent_tool_count"], 0)
 
     def test_canary_rejects_an_unexpected_parent_tool_with_a_sanitized_counter(self):
@@ -294,7 +294,7 @@ class PiLiveCanaryTests(unittest.TestCase):
         self.assertEqual(len(nested_starts), 1)
         self.assertEqual(module["target_of_event"](nested_starts[0]), "explorer")
 
-    def test_allowed_planner_explorer_and_denied_validator_evidence_is_required(self):
+    def test_allowed_planner_explorer_evidence_is_required(self):
         module = runpy.run_path(str(CANARY))
         nonce = "fixture-nonce"
         token = "fixture-token"
@@ -340,15 +340,6 @@ class PiLiveCanaryTests(unittest.TestCase):
                     "result": f"explorer read {nonce} {token}",
                 },
             },
-            {
-                "recordType": "event",
-                "sourceEventType": "tool_execution_end",
-                "payload": {
-                    "toolName": "subagent",
-                    "argsPayload": encode_args("validator"),
-                    "result": "capability ceiling denied validator before child start",
-                },
-            },
         ]
         artifact_bytes = ("\n".join(json.dumps(record) for record in planner_records)).encode()
         evidence, category = module["evaluate_evidence"](
@@ -362,8 +353,7 @@ class PiLiveCanaryTests(unittest.TestCase):
         self.assertEqual(category, "passed")
         self.assertTrue(evidence["planner_delegation"])
         self.assertTrue(evidence["explorer_result"])
-        self.assertTrue(evidence["validator_denied"])
-        self.assertFalse(evidence["validator_started"])
+        self.assertTrue(evidence["planner_completed"])
         self.assertEqual(evidence["unexpected_parent_tool_count"], 0)
 
     def test_canary_parser_is_bounded_and_does_not_return_raw_lines(self):
