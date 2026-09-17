@@ -1,0 +1,8 @@
+# Pi installer simplification mindmap — approved goal: synchronize the rendered orchestration bundle and manifest while leaving Pi/operator runtime ownership with the operator.
+**Non-goals:** no framework installation, migration, provider/runtime selection, or operator-state ownership; Unit 1 does not change production, rendering, generated bundles, or package manifests. **Building blocks:** rendered bundle · manifest synchronizer · operator runtime · delegation ceiling · contract suite.
+**Decision:** the installer must never install, migrate, or select a framework, or mutate the operator runtime; source/bootstrap ownership contracts are retired first.
+## Units (status; dependencies)
+**1 — Retire OpenAI source/bootstrap ownership contracts:** completed (`.venv/bin/python -m unittest tests.test_pi_install` PASS; 35 tests); deps: none. **2 — Define rendered-bundle ownership boundary:** planned; deps: 1. **3 — Simplify manifest synchronization:** planned; deps: 2.
+**4 — Remove source settings/package/runtime synthesis:** planned; deps: 3. **5 — Preserve operator runtime state:** planned; deps: 3–4. **6 — Align launcher and adoption behavior:** planned; deps: 3, 5.
+**7 — Align non-provider contract coverage:** planned; deps: 4–6. **8 — Refresh Pi operator guidance:** planned; deps: 2–7. **9 — Reconcile generated bundle artifacts:** planned; deps: 3–8. **10 — Verify delegation-ceiling compatibility and complete the suite:** planned; compatibility deferred to Unit 10; deps: 7–9.
+## Canonical references: [installer](../adapters/pi/install.py) · [tests](../tests/test_pi_install.py) · [README](../README.md)
