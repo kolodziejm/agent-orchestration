@@ -399,6 +399,7 @@ class PiLiveCanaryTests(unittest.TestCase):
             launcher.write_text("#!/bin/sh\nexit 0\n")
             launcher.chmod(stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
             environment = os.environ.copy()
+            environment.pop("CI", None)
             environment.update({
                 "AGENT_ORCHESTRATION_PI_LIVE_CANARY": "1",
                 "AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK": "I_ACCEPT_OPENAI_USAGE",
