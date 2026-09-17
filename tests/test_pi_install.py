@@ -129,73 +129,6 @@ def write_deepseek_source(root: Path) -> Path:
     return root
 
 
-def write_openai_source(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    settings = {
-        "defaultProvider": "openai-codex",
-        "defaultModel": "gpt-source",
-        "defaultThinkingLevel": "high",
-        "theme": "source-theme",
-        "packages": ["npm:pi-subagents@0.67.0", "npm:@narumitw/pi-usage@0.31.1"],
-    }
-    (root / "settings.json").write_text(json.dumps(settings) + "\n")
-    packages = {
-        "pi-subagents": ("pi-subagents", "0.67.0", "export default function noop() {}\n"),
-        "@narumitw/pi-usage": (
-            "@narumitw/pi-usage", "0.31.1",
-            "export default function noop() {}\n"
-            "export const adapterForProvider=(id)=>({id});\n"
-            "export const resolveUsageAuth=async()=>({type:'oauth'});\n"
-            "export const queryProviderUsage=async()=>{const now=Date.now();return {\n"
-            " providerId:'openai-codex',capturedAt:now,buckets:[{id:'codex:secondary',\n"
-            " used:60,unit:'percent',windowMinutes:10080,resetsAt:(now+3.5*86400000)/1000}]};};\n",
-        ),
-    }
-    for relative, (name, version, source) in packages.items():
-        package = root / "npm/node_modules" / relative
-        package.mkdir(parents=True, exist_ok=True)
-        (package / "package.json").write_text(json.dumps({
-            "name": name, "version": version, "pi": {"extensions": ["dist/index.ts"]},
-        }) + "\n")
-        (package / "dist").mkdir()
-        (package / "dist/index.ts").write_text(source)
-    openai_provider = {
-        "checkedAt": 1700000000000,
-        "models": [{"id": "gpt-5.6-sol"}, {"id": "gpt-5.6-luna"}],
-    }
-    (root / "models-store.json").write_text(json.dumps({
-        "openai-codex": openai_provider,
-        "deepseek": {"models": [{"id": "must-not-copy"}]},
-    }) + "\n")
-    (root / "auth.json").write_text(json.dumps({
-        "openai-codex": {
-            "type": "oauth", "access": "secret-access", "refresh": "secret-refresh",
-            "expires": 1900000000000, "accountId": "account",
-        },
-        "deepseek": {"type": "api_key", "key": "must-not-copy"},
-    }) + "\n")
-    (root / "mcp.json").write_text(json.dumps({
-        "mcpServers": {
-            "appium": {
-                "command": "synthetic-appium",
-                "args": ["--transport", "stdio"],
-                "env": {"SYNTHETIC_TOKEN": "mcp-secret-token-never-print"},
-            },
-            "open-design": {
-                "url": "https://mcp.invalid/synthetic",
-                "headers": {"Authorization": "mcp-secret-header-never-print"},
-            },
-            "trello": {
-                "command": "synthetic-trello",
-                "env": {"API_KEY": "mcp-secret-key-never-print"},
-                "adapterOwnedField": {"preserve": [True, 7, None]},
-            },
-        },
-        "adapterOwnedTopLevel": {"preserve": "exactly"},
-    }, indent=2) + "\n")
-    return root
-
-
 def remove_sandbox_from_deepseek_source(source: Path) -> None:
     settings_path = source / "settings.json"
     settings = json.loads(settings_path.read_text())
@@ -219,121 +152,6 @@ def package_names(settings: dict) -> dict[str, str]:
 
 
 class PiInstallTests(unittest.TestCase):
-    def test_openai_bootstrap_leaves_mcp_config_operator_owned(self):
-        """OpenAI never copies or reports the source MCP configuration."""
-        install = load_install_module()
-        secret_values = (
-            "mcp-secret-token-never-print",
-            "mcp-secret-header-never-print",
-            "mcp-secret-key-never-print",
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            target = root / "openai"
-
-            dry_stdout = io.StringIO()
-            dry_stderr = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", dry_stdout
-            ), mock.patch("sys.stderr", dry_stderr):
-                result = install.install(
-                    target, dry_run=True, profile="openai", source=source,
-                )
-            self.assertEqual(result, 0)
-            self.assertFalse((target / "mcp.json").exists())
-            self.assertNotIn("mcp.json", dry_stdout.getvalue())
-            dry_output = dry_stdout.getvalue() + dry_stderr.getvalue()
-            for secret in secret_values:
-                self.assertNotIn(secret, dry_output)
-
-            install_stdout = io.StringIO()
-            install_stderr = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", install_stdout
-            ), mock.patch("sys.stderr", install_stderr):
-                result = install.install(
-                    target, dry_run=False, profile="openai", source=source,
-                )
-            self.assertEqual(result, 0)
-            self.assertFalse((target / "mcp.json").exists())
-            install_output = install_stdout.getvalue() + install_stderr.getvalue()
-            for secret in secret_values:
-                self.assertNotIn(secret, install_output)
-
-    def test_openai_ignores_missing_malformed_or_linked_source_mcp(self):
-        """Source MCP state is outside the installer contract for every source shape."""
-        install = load_install_module()
-        cases = {
-            "missing": None,
-            "malformed": "not json\n",
-            "linked": "linked",
-        }
-        for name, value in cases.items():
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                source = write_openai_source(root / "source")
-                mcp = source / "mcp.json"
-                if value is None:
-                    mcp.unlink()
-                elif value == "linked":
-                    mcp.unlink()
-                    linked = root / "linked-mcp.json"
-                    linked.write_text('{"operator": "owned"}\n')
-                    mcp.symlink_to(linked)
-                else:
-                    mcp.write_text(value)
-                target = root / "target"
-                result = install.install(target, dry_run=True, profile="openai", source=source)
-                self.assertEqual(result, 0)
-                self.assertFalse((target / "mcp.json").exists())
-    def test_openai_mcp_is_preserved_byte_for_byte_and_outside_transaction(self):
-        """Existing target MCP bytes, mode, inode, and mtime are operator-owned."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            target = root / "target"
-            target.mkdir()
-            target_mcp = target / "mcp.json"
-            original = b'{"mcpServers":{"old":{"command":"synthetic-old"}}}\n'
-            target_mcp.write_bytes(original)
-            target_mcp.chmod(0o644)
-            before = (target_mcp.read_bytes(), target_mcp.stat().st_mode & 0o777,
-                      target_mcp.stat().st_ino, target_mcp.stat().st_mtime_ns)
-
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="openai", source=source)
-                install.install(target, dry_run=False, profile="openai", source=source)
-
-            self.assertEqual(target_mcp.read_bytes(), before[0])
-            self.assertEqual(target_mcp.stat().st_mode & 0o777, before[1])
-            self.assertEqual(target_mcp.stat().st_ino, before[2])
-            self.assertEqual(target_mcp.stat().st_mtime_ns, before[3])
-
-    def test_openai_bootstrap_leaves_a_target_mcp_symlink_untouched(self):
-        """An existing target MCP symlink remains opaque to the installer."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = write_openai_source(root / "source")
-            target = root / "target"
-            target.mkdir()
-            outside = root / "outside-mcp.json"
-            outside.write_text('{"mcpServers":{"outside":{"command":"preserve"}}}\n')
-            (target / "mcp.json").symlink_to(outside)
-            result = install.install(target, dry_run=True, profile="openai", source=source)
-            self.assertEqual(result, 0)
-            self.assertTrue((target / "mcp.json").is_symlink())
-            self.assertEqual(
-                outside.read_text(),
-                '{"mcpServers":{"outside":{"command":"preserve"}}}\n',
-            )
-
     def test_installed_status_package_rejects_the_opposite_profile_entrypoint(self):
         """Installed validation must reject a package that selects the other provider's status."""
         install = load_install_module()
@@ -371,13 +189,10 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             bin_dir = root / "bin"
-            source = write_openai_source(root / "source")
             deepseek_source = write_deepseek_source(root / "deepseek-source")
             cases = (
                 ("hybrid", root / "hybrid", None,
                  "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
-                ("openai", root / "openai", source,
-                 "agent-orchestration-codex-pace", "agent-orchestration-deepseek-price"),
                 ("deepseek", root / "deepseek", deepseek_source,
                  "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
             )
@@ -420,170 +235,6 @@ class PiInstallTests(unittest.TestCase):
                 self.assertIn(expected, status_keys, result.stdout)
                 self.assertNotIn(rejected, status_keys, result.stdout)
 
-    def test_openai_bootstrap_rejects_a_dependency_aggregate_without_pi_manifest(self):
-        """Package metadata alone must not make a non-loadable aggregate look like pi-usage."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = write_openai_source(root / "source")
-            manifest_path = source / "npm/node_modules/@narumitw/pi-usage/package.json"
-            manifest = json.loads(manifest_path.read_text())
-            manifest.pop("pi")
-            manifest_path.write_text(json.dumps(manifest) + "\n")
-            target = root / "openai"
-            with self.assertRaisesRegex(SystemExit, "Pi extension manifest"):
-                install.install(target, dry_run=False, profile="openai", source=source)
-            self.assertFalse(target.exists())
-
-    def test_openai_migrates_manifest_owned_legacy_status_adapter(self):
-        """A prior managed Codex status file is removed while installing the loader bridge."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            target = root / "openai"
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="openai", source=source)
-                manifest_path = target / install.MANIFEST_NAME
-                manifest = json.loads(manifest_path.read_text())
-                manifest["managed_extensions"] = [
-                    "extensions/agent-orchestration/codex-pace-status.js",
-                    "extensions/agent-orchestration/package.json",
-                ]
-                manifest_path.write_text(json.dumps(manifest) + "\n")
-                legacy = target / "extensions/agent-orchestration/codex-pace-status.js"
-                legacy.write_text("export default function legacy() {}\n")
-                install.install(target, dry_run=False, profile="openai", source=source)
-            self.assertFalse(legacy.exists())
-            self.assertTrue((target / "extensions/agent-orchestration/codex-pace-loader.ts").is_file())
-
-    def test_openai_bootstrap_builds_complete_pure_root_and_redacts_oauth(self):
-        """A missing OpenAI root is bootstrapped from hybrid without exposing or broadening auth."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            target = root / "openai"
-            output = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
-                "sys.stdout", output
-            ):
-                result = install.install(
-                    target, dry_run=False, profile="openai", source=source,
-                )
-
-            self.assertEqual(result, 0)
-            self.assertNotIn("secret-access", output.getvalue())
-            self.assertNotIn("secret-refresh", output.getvalue())
-            settings = json.loads((target / "settings.json").read_text())
-            self.assertEqual(settings["defaultProvider"], "openai-codex")
-            self.assertEqual(settings["defaultModel"], "gpt-5.6-sol")
-            self.assertEqual(settings["defaultThinkingLevel"], "medium")
-            self.assertEqual(set(package_names(settings)), {"pi-subagents", "@narumitw/pi-usage"})
-            runtime = json.loads((target / install.PI_RUNTIME_PACKAGE).read_text())
-            self.assertEqual((runtime["name"], runtime["version"]), ("pi-subagents", "0.67.0"))
-            self.assertEqual(
-                set(json.loads((target / "models-store.json").read_text())),
-                {"openai-codex"},
-            )
-            self.assertFalse((target / "auth.json").exists())
-            self.assertFalse((target / "extensions/agent-orchestration/codex-pace-status.js").exists())
-            self.assertTrue((target / "extensions/agent-orchestration/codex-pace-core.mjs").is_file())
-            loader = target / "extensions/agent-orchestration/codex-pace-loader.ts"
-            self.assertTrue(loader.is_file())
-            self.assertNotIn("__PI_USAGE_ENTRYPOINT__", loader.read_text())
-            self.assertIn(
-                str(source / "npm/node_modules/@narumitw/pi-usage/dist/index.ts"),
-                loader.read_text(),
-            )
-            self.assertEqual(len(list((target / "agents").glob("*.md"))), 9)
-            self.assertTrue((target / "extensions/agent-orchestration/git-read.ts").is_file())
-
-    def test_openai_bootstrap_syncs_safe_baseline_and_preserves_target_only_settings(self):
-        """OpenAI syncs approved baseline settings without replacing operator state."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            source_settings_path = source / "settings.json"
-            source_settings = json.loads(source_settings_path.read_text())
-            source_settings.update({
-                "lastChangelogVersion": "0.67.0",
-                "externalEditor": "fixture-editor",
-                "tuiMode": "compact",
-                "treeFilterMode": "directories",
-                "doubleEscapeAction": "clear-input",
-                "terminal": "fixture-terminal",
-                "subagents": {"enabled": True, "maxChildren": 3},
-                "extensions": ["source-extension"],
-                "extensionConfig": {"token": "source-extension-secret"},
-                "permissionState": {"read": "allow"},
-                "auth": {"access": "source-auth-secret"},
-                "mcpServers": {"source": {"command": "source-mcp"}},
-            })
-            source_settings_path.write_text(json.dumps(source_settings) + "\n")
-            target = root / "openai"
-            target.mkdir()
-            target_settings = {
-                "theme": "target-theme",
-                "targetOnlySetting": {"preserve": True},
-                "targetSecret": "target-settings-secret",
-                "packages": ["target-package"],
-            }
-            (target / "settings.json").write_text(json.dumps(target_settings) + "\n")
-
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="openai", source=source)
-
-            configured = json.loads((target / "settings.json").read_text())
-            for key in (
-                "lastChangelogVersion", "externalEditor", "tuiMode", "treeFilterMode",
-                "doubleEscapeAction", "terminal", "subagents",
-            ):
-                self.assertEqual(configured[key], source_settings[key])
-            self.assertEqual(configured["theme"], "target-theme")
-            self.assertEqual(configured["targetOnlySetting"], {"preserve": True})
-            self.assertEqual(configured["targetSecret"], "target-settings-secret")
-            for key in ("extensions", "extensionConfig", "permissionState", "auth", "mcpServers"):
-                self.assertNotIn(key, configured)
-            self.assertEqual(
-                configured["defaultProvider"], "openai-codex",
-            )
-            self.assertEqual(configured["defaultModel"], "gpt-5.6-sol")
-            self.assertEqual(configured["defaultThinkingLevel"], "medium")
-
-    def test_openai_bootstrap_does_not_copy_source_theme_or_source_only_sensitive_settings(self):
-        """A fresh OpenAI target receives no source theme or extension-specific state."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            source_settings_path = source / "settings.json"
-            source_settings = json.loads(source_settings_path.read_text())
-            source_settings.update({
-                "theme": "source-theme",
-                "piUsageExtension": {"apiToken": "source-extension-secret"},
-                "permissionState": {"write": "allow"},
-            })
-            source_settings_path.write_text(json.dumps(source_settings) + "\n")
-            target = root / "openai"
-
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="openai", source=source)
-
-            configured = json.loads((target / "settings.json").read_text())
-            self.assertNotIn("theme", configured)
-            self.assertNotIn("piUsageExtension", configured)
-            self.assertNotIn("permissionState", configured)
-
     def test_git_reader_is_manifest_owned_and_explorer_only_in_every_installed_profile(self):
         """REGRESSION CONTRACT: installation must load only the explorer Git reader and reject lifecycle tampering."""
         install = load_install_module()
@@ -593,7 +244,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home.mkdir()
             cases = {
                 "hybrid": (root / "hybrid", None),
-                "openai": (root / "openai", write_openai_source(root / "openai-source")),
                 "deepseek": (root / "deepseek", write_deepseek_source(root / "deepseek-source")),
                 "glm": (root / "glm", None),
             }
@@ -1239,25 +889,6 @@ class PiInstallTests(unittest.TestCase):
                     )
             self.assertEqual(launcher.read_text(), "unmanaged launcher\n")
 
-    def test_default_hybrid_migrates_manifest_owned_legacy_openai_main_target(self):
-        """This test will fail when the former main OpenAI bundle cannot migrate safely to hybrid."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            target = root / "agent"
-            write_pi_runtime(target)
-            source = write_openai_source(root / "openai-source")
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="openai", source=source)
-                install.install(target, dry_run=False, profile="hybrid")
-            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
-            self.assertEqual(manifest["profiles"], ["hybrid"])
-            self.assertIn("deepseek/deepseek-flash", (target / "agents/worker.md").read_text())
-            self.assertIn("openai-codex/gpt-5.6-sol", (target / "agents/reviewer.md").read_text())
-            self.assertTrue((target / "models-store.json").is_file())
-
     def test_profile_installation_is_isolated_and_rejects_profile_mismatch(self):
         """This test will fail when one Pi profile can overwrite or adopt another profile's target."""
         install = load_install_module()
@@ -1266,20 +897,14 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             hybrid_target = root / "hybrid"
-            openai_target = root / "openai"
             deepseek_target = root / "deepseek"
             glm_target = root / "glm"
             write_pi_runtime(hybrid_target)
-            write_pi_runtime(openai_target)
             write_pi_runtime(deepseek_target)
             write_pi_runtime(glm_target)
             source = write_deepseek_source(root / "source")
-            openai_source = write_openai_source(root / "openai-source")
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(hybrid_target, dry_run=False, profile="hybrid")
-                install.install(
-                    openai_target, dry_run=False, profile="openai", source=openai_source
-                )
                 install.install(deepseek_target, dry_run=False, profile="deepseek", source=source)
                 install.install(glm_target, dry_run=False, profile="glm")
                 with self.assertRaisesRegex(SystemExit, "profile mismatch"):
@@ -1288,14 +913,9 @@ class PiInstallTests(unittest.TestCase):
                     install.install(glm_target, dry_run=False, profile="hybrid")
             hybrid_worker = (hybrid_target / "agents/worker.md").read_text()
             hybrid_complex = (hybrid_target / "agents/worker-complex.md").read_text()
-            openai_bundle = "\n".join(
-                path.read_text() for path in (openai_target / "agents").glob("*.md")
-            )
             self.assertIn("deepseek/deepseek-flash", hybrid_worker)
             self.assertIn("deepseek/deepseek-flash", hybrid_complex)
             self.assertIn("thinking: max", hybrid_complex)
-            self.assertIn("openai-codex/", openai_bundle)
-            self.assertNotIn("deepseek/", openai_bundle)
             self.assertIn("deepseek/deepseek-flash", (deepseek_target / "agents/worker.md").read_text())
             glm_bundle = "\n".join(
                 path.read_text() for path in (glm_target / "agents").glob("*.md")
@@ -1365,8 +985,11 @@ class PiInstallTests(unittest.TestCase):
             root = Path(directory)
             fake_home = root / "home"
             fake_home.mkdir()
-            source = write_openai_source(root / "source")
-            (source / "themes").mkdir()
+            source = write_deepseek_source(root / "source")
+            source_settings_path = source / "settings.json"
+            source_settings = json.loads(source_settings_path.read_text())
+            source_settings["packages"] = [entry if isinstance(entry, str) else entry["source"] for entry in source_settings["packages"]]
+            source_settings_path.write_text(json.dumps(source_settings) + "\n")
             (source / "themes/source-theme.json").write_text(
                 '{"name":"source-theme","colors":{"accent":"#fff"}}\n'
             )
@@ -1566,7 +1189,7 @@ class PiInstallTests(unittest.TestCase):
     def test_manifest_migration_preserves_operator_files_and_removes_retired_project_artifacts(self):
         """Legacy claims are dropped without touching operator files or stale project artifacts."""
         install = load_install_module()
-        profiles = ("hybrid", "openai", "deepseek", "glm")
+        profiles = ("hybrid", "deepseek", "glm")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
@@ -1577,8 +1200,6 @@ class PiInstallTests(unittest.TestCase):
                     source = None
                     if profile == "hybrid":
                         write_pi_runtime(target)
-                    elif profile == "openai":
-                        source = write_openai_source(root / f"{profile}-source")
                     elif profile == "deepseek":
                         source = write_deepseek_source(root / f"{profile}-source")
                     else:
