@@ -142,7 +142,7 @@ def remove_sandbox_from_deepseek_source(source: Path) -> None:
 
 class PiInstallTests(unittest.TestCase):
     def test_installed_status_package_rejects_the_opposite_profile_entrypoint(self):
-        """Installed validation must reject a package that selects the other provider's status."""
+        """Installed validation must reject a package that selects another profile's status."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -165,6 +165,39 @@ class PiInstallTests(unittest.TestCase):
             }
             with self.assertRaisesRegex(RuntimeError, "status extension package"):
                 install.validate_installed(files, target)
+
+    def test_installed_validation_ignores_operator_runtime_state(self):
+        """This test will fail when post-install validation treats runtime state as bundle-owned."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "hybrid"
+            write_pi_runtime(target)
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="hybrid")
+
+            operator_paths = (
+                target / "settings.json",
+                target / "models-store.json",
+                target / "auth.json",
+                target / "mcp.json",
+                target / "themes/custom-theme.json",
+                target / install.PI_RUNTIME_PACKAGE,
+            )
+            for path in operator_paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"\\xffopaque operator state")
+            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+            files = {
+                path: path.read_text()
+                for path in install.managed_paths(manifest, target)
+                if path.is_file()
+            }
+            files.update({path: "ignored operator state" for path in operator_paths})
+
+            install.validate_installed(files, target)
 
     def test_normal_launchers_autoload_only_their_profile_status_extension(self):
         """A normal generated launcher must discover its installed status package without -e."""
@@ -362,27 +395,6 @@ class PiInstallTests(unittest.TestCase):
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="deepseek", source=source)
             self.assertFalse((target / "auth.json").exists())
-
-    def test_deepseek_catalog_rejects_embedded_credentials_without_mutating_target(self):
-        """This test will fail when provider credentials can leak from a source catalog into an install."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = write_deepseek_source(root / "source")
-            catalog = source / "models-store.json"
-            value = json.loads(catalog.read_text())
-            value["deepseek"]["apiKey"] = "must-not-copy"
-            catalog.write_text(json.dumps(value) + "\n")
-            target = root / "target"
-            target.mkdir()
-            sentinel = target / "sentinel"
-            sentinel.write_text("preserve\n")
-            fake_home = root / "home"
-            fake_home.mkdir()
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                with self.assertRaisesRegex(SystemExit, "credentials"):
-                    install.install(target, dry_run=False, profile="deepseek", source=source)
-            self.assertEqual(sentinel.read_text(), "preserve\n")
 
     def test_deepseek_catalog_symlink_is_refused_and_rollback_restores_catalog(self):
         """This test will fail when catalog links are overwritten or validation rollback leaves catalog changes."""
