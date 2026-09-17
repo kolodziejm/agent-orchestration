@@ -371,15 +371,12 @@ def install(
     validate: bool = True,
     profile: str = "hybrid",
     bin_dir: Path | None = None,
-    source: Path | None = None,
 ) -> int:
     """Synchronize only the rendered bundle and its declared launcher.
 
-    ``source`` remains in the call contract while older CLI layers are retired;
-    it is intentionally unused.  The rendered manifest is the only source of
-    target ownership, so operator runtime state is opaque to this transaction.
+    The rendered manifest is the only source of target ownership, so operator
+    runtime state is opaque to this transaction.
     """
-    del source
     target = target.expanduser()
     if target.is_symlink():
         raise SystemExit(f"Refusing symlinked target root: {target}")
@@ -552,13 +549,6 @@ if __name__ == "__main__":
         "--profile", choices=("hybrid", "openai", "deepseek", "glm"), default="hybrid"
     )
     parser.add_argument("--target", type=Path)
-    parser.add_argument(
-        "--source",
-        "--base",
-        dest="source",
-        type=Path,
-        help="Deprecated staging option; accepted for compatibility but ignored",
-    )
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-validate", action="store_true")
@@ -576,6 +566,6 @@ if __name__ == "__main__":
     raise SystemExit(
         install(
             target, args.dry_run, args.adopt, not args.skip_validate,
-            args.profile, args.bin_dir, args.source,
+            args.profile, args.bin_dir,
         )
     )
