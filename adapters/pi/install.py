@@ -1175,164 +1175,93 @@ def install(
     bin_dir: Path | None = None,
     source: Path | None = None,
 ) -> int:
+    """Synchronize only the rendered bundle and its declared launcher.
+
+    ``source`` remains in the call contract while older CLI layers are retired;
+    it is intentionally unused.  The rendered manifest is the only source of
+    target ownership, so operator runtime state is opaque to this transaction.
+    """
+    del source
     target = target.expanduser()
     if target.is_symlink():
         raise SystemExit(f"Refusing symlinked target root: {target}")
     target = target.resolve()
-    source_files: tuple[str, str, dict[str, str], str] | None = None
-    openai_files: tuple[str, str, str, str] | None = None
-    glm_files: tuple[str, str, str | None] | None = None
-    catalog_content: str | None = None
-    explicit_glm_source = source is not None
-    if profile == "deepseek":
-        source = (source or (Path.home() / ".pi" / "agent")).expanduser().resolve()
-        validate_pi_runtime(source, "source Pi")
-        for relative in (
-            "settings.json",
-            DEEPSEEK_MODELS_STORE,
-            PI_RUNTIME_PACKAGE,
-            *DEEPSEEK_MANAGED_EXTENSIONS,
-        ):
-            assert_safe_destination(target / relative, target)
-        source_files = deepseek_source_files(
-            source, target, profile_primary_thinking("deepseek")
-        )
-        catalog_content = source_files[1]
-    elif profile == "hybrid":
-        catalog_source = source.expanduser().resolve() if source is not None else None
-        catalog_content = deepseek_catalog_content(catalog_source, target)
-    elif profile == "openai":
-        source = (source or (Path.home() / ".pi" / "agent")).expanduser().resolve()
-        if source.exists() or not dry_run:
-            openai_files = openai_source_files(source, target)
-    elif profile == "glm":
-        source_input = (source or (Path.home() / ".pi" / "agent")).expanduser()
-        if source_input.is_symlink():
-            raise SystemExit(f"Refusing symlinked GLM source root: {source_input}")
-        source = source_input.resolve()
-        if source.exists():
-            glm_files = glm_source_files(source, target)
-        elif not dry_run:
-            # A new GLM root must be bootstrapped from the canonical source.
-            # An already initialized root can still be repaired while that
-            # source is temporarily unavailable, without inventing packages,
-            # MCP data, themes, or auth state.
-            if explicit_glm_source or not (target / PI_RUNTIME_PACKAGE).is_file():
-                glm_files = glm_source_files(source, target)
-            else:
-                glm_files = glm_target_files(target)
+
     resolved_bin = None
-    launcher_path = None
+    launcher_paths: set[Path] = set()
     if bin_dir is not None:
         bin_dir = bin_dir.expanduser()
         if bin_dir.is_symlink():
             raise SystemExit(f"Refusing symlinked launcher directory: {bin_dir}")
         resolved_bin = bin_dir.resolve()
-        launcher_path = resolved_bin / f"pi-{profile}"
-        assert_safe_destination(launcher_path, resolved_bin)
-    if not dry_run and profile == "hybrid":
-        validate_pi_runtime(target)
-    target_existed = target.exists()
+
     with tempfile.TemporaryDirectory(prefix="agent-orchestration-") as directory:
         rendered = Path(directory) / "pi"
         subprocess.run(
             [sys.executable, str(RENDER), "--profile", profile, "--output", str(rendered)],
             check=True,
         )
-        if source_files is not None:
-            settings_content, catalog_content, extension_contents, runtime_manifest = source_files
-            rendered_manifest_path = rendered / "manifest.json"
-            rendered_manifest = json.loads(rendered_manifest_path.read_text())
-            rendered_manifest["managed_extensions"] = sorted(
-                set(rendered_manifest.get("managed_extensions", []))
-                | set(DEEPSEEK_MANAGED_EXTENSIONS)
-            )
-            rendered_manifest_path.write_text(json.dumps(rendered_manifest, indent=2) + "\n")
-            for relative, content in extension_contents.items():
-                destination = rendered / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_text(content)
-        if glm_files is not None:
-            settings_content, catalog_content, runtime_manifest = glm_files
-            rendered_manifest_path = rendered / "manifest.json"
-            rendered_manifest = json.loads(rendered_manifest_path.read_text())
-            rendered_manifest_path.write_text(json.dumps(rendered_manifest, indent=2) + "\n")
+        rendered_manifest_path = rendered / "manifest.json"
+        try:
+            rendered_manifest = json.loads(rendered_manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SystemExit(f"Malformed generated Pi manifest: {rendered_manifest_path}") from error
+        validate_manifest(rendered_manifest, "generated manifest")
+
         files, deletions = desired_state(rendered, target, adopt)
         manifest_path = target / MANIFEST_NAME
-        if launcher_path is None:
+        declared_launchers = rendered_manifest.get("launchers", [])
+        if resolved_bin is None:
             previously_installed = (
-                json.loads(manifest_path.read_text()).get("launchers", [])
+                json.loads(manifest_path.read_text(encoding="utf-8")).get("launchers", [])
                 if _has_entry(manifest_path)
                 else []
             )
             installed_manifest = json.loads(files[manifest_path])
             installed_manifest["launchers"] = previously_installed
             files[manifest_path] = json.dumps(installed_manifest, indent=2) + "\n"
-        sensitive_paths: dict[Path, str] = {}
-        if profile == "deepseek":
-            settings_content, _catalog_content, _extension_contents, runtime_manifest = source_files
-            files[target / "settings.json"] = settings_content
-            files[target / PI_RUNTIME_PACKAGE] = runtime_manifest
-            sensitive_paths[target / "settings.json"] = "Settings"
-        if catalog_content is not None:
-            files[target / DEEPSEEK_MODELS_STORE] = catalog_content
-            sensitive_paths[target / DEEPSEEK_MODELS_STORE] = "Model catalog"
-        if glm_files is not None:
-            settings_content, catalog_content, runtime_manifest = glm_files
-            files[target / "settings.json"] = settings_content
-            files[target / GLM_MODELS_STORE] = catalog_content
-            sensitive_paths[target / "settings.json"] = "Settings"
-            sensitive_paths[target / GLM_MODELS_STORE] = "Model catalog"
-            if runtime_manifest is not None:
-                runtime_path = target / PI_RUNTIME_PACKAGE
-                assert_safe_destination(runtime_path, target)
-                files[runtime_path] = runtime_manifest
-        if openai_files is not None:
-            settings_content, openai_catalog, runtime_manifest, usage_entrypoint = openai_files
-            files[target / "settings.json"] = settings_content
-            files[target / DEEPSEEK_MODELS_STORE] = openai_catalog
-            files[target / PI_RUNTIME_PACKAGE] = runtime_manifest
-            sensitive_paths[target / "settings.json"] = "Settings"
-            sensitive_paths[target / DEEPSEEK_MODELS_STORE] = "Model catalog"
-            loader_path = target / "extensions/agent-orchestration/codex-pace-loader.ts"
-            loader = files.get(loader_path)
-            if loader is None or loader.count("__PI_USAGE_ENTRYPOINT__") != 1:
-                raise SystemExit("Generated Codex pace loader has an invalid package placeholder")
-            files[loader_path] = loader.replace("__PI_USAGE_ENTRYPOINT__", usage_entrypoint)
-        if launcher_path is not None:
-            manifest_exists = _has_entry(manifest_path)
-            installed_launchers: list[str] = []
-            if manifest_exists:
-                installed_manifest = json.loads(manifest_path.read_text())
-                installed_launchers = installed_manifest.get("launchers", [])
-            if (
-                _has_entry(launcher_path)
-                and launcher_path.name not in installed_launchers
-                and not adopt
-            ):
-                raise SystemExit(
-                    "Pi adoption required: existing unmanaged launcher found:\n"
-                    f"  - {launcher_path}\nRun again with --adopt to take ownership."
-                )
-            launcher = (rendered / launcher_path.name).read_text()
-            # GLM's launcher is intentionally tied to its canonical isolated
-            # profile root. Other profiles retain the existing --target
-            # override used by isolated installer fixtures.
-            if profile != "glm":
-                launcher = re.sub(
-                    r'^export PI_CODING_AGENT_DIR=.*$',
-                    f"export PI_CODING_AGENT_DIR={shlex.quote(str(target))}",
-                    launcher,
-                    count=1,
-                    flags=re.MULTILINE,
-                )
-            files[launcher_path] = launcher
+        else:
+            installed_launchers = (
+                json.loads(manifest_path.read_text(encoding="utf-8")).get("launchers", [])
+                if _has_entry(manifest_path)
+                else []
+            )
+            for launcher_name in declared_launchers:
+                launcher_path = resolved_bin / launcher_name
+                assert_safe_destination(launcher_path, resolved_bin)
+                if (
+                    _has_entry(launcher_path)
+                    and launcher_name not in installed_launchers
+                    and not adopt
+                ):
+                    raise SystemExit(
+                        "Pi adoption required: existing unmanaged launcher found:\n"
+                        f"  - {launcher_path}\nRun again with --adopt to take ownership."
+                    )
+                launcher_source = rendered / launcher_name
+                if not launcher_source.is_file() or launcher_source.is_symlink():
+                    raise SystemExit(f"Missing or linked generated Pi launcher: {launcher_source}")
+                launcher = launcher_source.read_text(encoding="utf-8")
+                # GLM's launcher is intentionally tied to its canonical isolated
+                # profile root. Other profiles retain the existing --target
+                # override used by isolated installer fixtures.
+                if profile != "glm":
+                    launcher = re.sub(
+                        r'^export PI_CODING_AGENT_DIR=.*$',
+                        f"export PI_CODING_AGENT_DIR={shlex.quote(str(target))}",
+                        launcher,
+                        count=1,
+                        flags=re.MULTILINE,
+                    )
+                files[launcher_path] = launcher
+                launcher_paths.add(launcher_path)
+
         changed = {
             path: content
             for path, content in files.items()
             if not path.exists()
-            or path.read_text() != content
-            or (path == launcher_path and not os.access(path, os.X_OK))
+            or path.read_bytes() != content.encode("utf-8")
+            or (path in launcher_paths and not os.access(path, os.X_OK))
         }
         deleted = {path for path in deletions if path.exists()}
 
@@ -1340,12 +1269,6 @@ def install(
             print("Pi configuration is already synchronized.")
             return 0
         for path, content in changed.items():
-            if path in sensitive_paths:
-                print(
-                    f"{sensitive_paths[path]} synchronization required "
-                    f"(contents redacted): {path}"
-                )
-                continue
             relative = (
                 path.relative_to(target)
                 if path == target or target in path.parents
@@ -1360,7 +1283,7 @@ def install(
 
         affected = set(changed) | deleted
         for path in affected:
-            root = resolved_bin if launcher_path is not None and path == launcher_path else target
+            root = resolved_bin if path in launcher_paths else target
             assert_safe_destination(path, root)
         originals = {
             path: (
@@ -1370,35 +1293,31 @@ def install(
             )
             for path in affected
         }
-        created_directories = {
-            parent
-            for path in affected
-            for parent in path.parents
-            if parent != target and target in parent.parents and not parent.exists()
-        }
-        if not target_existed:
-            created_directories.add(target)
-        if resolved_bin is not None and not resolved_bin.exists():
-            created_directories.add(resolved_bin)
+        created_directories: set[Path] = set()
+        for path in affected:
+            parent = path.parent
+            while not parent.exists():
+                created_directories.add(parent)
+                if parent == parent.parent:
+                    break
+                parent = parent.parent
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         backup_base = Path.home() / ".local" / "state" / "agent-orchestration" / "backups"
         backup_base.mkdir(parents=True, exist_ok=True)
         backup_root = Path(tempfile.mkdtemp(prefix=f"{stamp}-", dir=backup_base)) / "pi"
         for path, original in originals.items():
             if original is not None:
-                prefix = "launcher" if launcher_path is not None and path == launcher_path else "target"
+                prefix = "launcher" if path in launcher_paths else "target"
                 relative = path.name if prefix == "launcher" else path.relative_to(target)
                 backup = backup_root / prefix / relative
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 backup.write_bytes(original[0])
-                if path in sensitive_paths:
-                    backup.chmod(0o600)
 
         try:
             for path, content in changed.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
-                if launcher_path is not None and path == launcher_path:
+                path.write_text(content, encoding="utf-8")
+                if path in launcher_paths:
                     path.chmod(0o755)
             for path in deleted:
                 path.unlink()
@@ -1440,7 +1359,7 @@ if __name__ == "__main__":
         "--base",
         dest="source",
         type=Path,
-        help="Pi root supplying a validated bootstrap for DeepSeek/OpenAI/GLM profiles (default ~/.pi/agent); GLM auth remains deferred",
+        help="Deprecated staging option; accepted for compatibility but ignored",
     )
     parser.add_argument("--bin-dir", type=Path, default=Path.home() / ".local" / "bin")
     parser.add_argument("--dry-run", action="store_true")

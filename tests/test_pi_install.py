@@ -396,33 +396,6 @@ class PiInstallTests(unittest.TestCase):
                 install.install(target, dry_run=False, profile="deepseek", source=source)
             self.assertFalse((target / "auth.json").exists())
 
-    def test_deepseek_catalog_symlink_is_refused_and_rollback_restores_catalog(self):
-        """This test will fail when catalog links are overwritten or validation rollback leaves catalog changes."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            target = root / "target"
-            target.mkdir()
-            secret = root / "secret-models-store.json"
-            secret.write_text("keep me\n")
-            catalog = target / "models-store.json"
-            catalog.symlink_to(secret)
-            with self.assertRaisesRegex(SystemExit, "symlink"):
-                install.install(target, dry_run=True, adopt=True, profile="deepseek", source=source)
-            self.assertEqual(secret.read_text(), "keep me\n")
-
-            catalog.unlink()
-            catalog.write_text(json.dumps({"user": {"models": [{"id": "one"}]}}) + "\n")
-            before = catalog.read_bytes()
-            with mock.patch.object(Path, "home", return_value=fake_home), mock.patch.object(
-                install, "validate_installed", side_effect=RuntimeError("invalid")
-            ), self.assertRaisesRegex(RuntimeError, "invalid"):
-                install.install(target, dry_run=False, adopt=True, profile="deepseek", source=source)
-            self.assertEqual(catalog.read_bytes(), before)
-
     def test_unmanaged_extension_config_survives_bundle_install(self):
         """This test will fail when migration deletes a sandbox config not owned by the prior manifest."""
         install = load_install_module()
@@ -448,7 +421,7 @@ class PiInstallTests(unittest.TestCase):
             self.assertEqual(user_config.read_text(), '{"userOwned": true}\n')
 
     def test_deepseek_managed_extensions_require_adoption_reject_symlinks_and_clean_only_stale_managed_files(self):
-        """This test will fail when managed extension lifecycle can overwrite links or delete unrelated files."""
+        """This test will fail when manifest-owned extension lifecycle can overwrite links or delete unrelated files."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -456,7 +429,7 @@ class PiInstallTests(unittest.TestCase):
             fake_home.mkdir()
             source = write_deepseek_source(root / "source")
             target = root / "target"
-            collision = target / "extensions/subagent/config.json"
+            collision = target / "extensions/agent-orchestration/git-read.ts"
             collision.parent.mkdir(parents=True)
             collision.write_text("{}\n")
             with self.assertRaisesRegex(SystemExit, "adoption required"):
@@ -595,99 +568,64 @@ class PiInstallTests(unittest.TestCase):
             self.assertNotIn("keep-secret", output.getvalue())
 
     def test_deepseek_install_preserves_operator_runtime_state(self):
-        """Opaque operator state survives installation unchanged."""
+        """Opaque operator settings and runtime state survive installation byte-for-byte."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
             fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            # These bytes intentionally are not JSON: installer code must not
-            # inspect either opaque auth file while synchronizing the profile.
-            source_auth = source / "auth.json"
-            source_auth.write_bytes(b"\\xffsource-auth-opaque")
             target = root / "deepseek"
             target.mkdir()
-            target_auth = target / "auth.json"
-            target_auth.write_bytes(b"\\xfftarget-auth-opaque")
-            existing_catalog = {
-                "unrelated-provider": {"models": [{"id": "keep-me"}]},
-                "deepseek": {
-                    "baseUrl": "https://api.deepseek.com",
-                    "api": "openai-completions",
-                    "checkedAt": 1800000000000,
-                    "lastModified": 1800000000000,
-                    "etag": "target-etag",
-                    "models": [{
-                        "id": "deepseek-flash",
-                        "name": "DeepSeek V4.1 Flash (local newer)",
-                        "reasoning": True,
-                        "thinkingLevelMap": {"low": "low", "high": "high", "max": "max"},
-                        "input": ["text", "image"],
-                        "contextWindow": 2000000,
-                        "maxTokens": 512000,
-                    }],
-                },
+            operator_files = {
+                target / "settings.json": b"\\xffoperator-settings-opaque",
+                target / "auth.json": b"\\xffoperator-auth-opaque",
+                target / "models-store.json": b"operator-catalog-state\\n",
+                target / "mcp.json": b"\\xffoperator-mcp-opaque",
+                target / "runtime/state.sentinel": b"runtime-state",
+                target / "sessions/history.bin": b"session-history",
+                target / "cache/models.json": b"cache-state",
             }
-            catalog = target / "models-store.json"
-            catalog.write_text(json.dumps(existing_catalog, indent=2) + "\n")
-            catalog_before = catalog.read_bytes()
-            preserved = {
-                "sessions/history.bin": b"session-history",
-                "cache/models.json": b"cache-state",
-                "logs/pi.log": b"log-state",
-                "analytics/usage.json": b"analytics-state",
-                "history/mutable.json": b"mutable-history",
-            }
-            for relative, content in preserved.items():
-                path = target / relative
-                path.parent.mkdir(parents=True)
+            for path, content in operator_files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
+                path.chmod(0o640)
+            snapshots = {
+                path: (path.read_bytes(), path.stat().st_mode & 0o777)
+                for path in operator_files
+            }
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(
                     target,
                     dry_run=False,
                     profile="deepseek",
-                    source=source,
-                    bin_dir=root / "bin",
+                    source=root / "ignored-source",
                 )
-            self.assertEqual(catalog.read_bytes(), catalog_before)
-            self.assertEqual(target_auth.read_bytes(), b"\\xfftarget-auth-opaque")
-            self.assertEqual(source_auth.read_bytes(), b"\\xffsource-auth-opaque")
-            for relative, content in preserved.items():
-                self.assertEqual((target / relative).read_bytes(), content)
-            settings = json.loads((target / "settings.json").read_text())
-            self.assertEqual(
-                (settings["defaultProvider"], settings["defaultModel"], settings["defaultThinkingLevel"]),
-                ("deepseek", "deepseek-flash", "max"),
-            )
-            launcher = (root / "bin" / "pi-deepseek").read_text()
-            self.assertIn(f"PI_CODING_AGENT_DIR={str(target.resolve())}", launcher)
-            self.assertIn(
-                'PI_CODING_AGENT_SESSION_DIR="$HOME/.pi/agent/sessions"',
-                launcher,
-            )
+            for path, snapshot in snapshots.items():
+                self.assertEqual(
+                    (path.read_bytes(), path.stat().st_mode & 0o777),
+                    snapshot,
+                )
 
     def test_dry_run_redacts_operator_and_source_secrets(self):
-        """Dry-run reports redact operator and source secrets while ignoring MCP state."""
+        """Dry-run omits operator/source paths and leaves runtime state unchanged."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = write_deepseek_source(root / "source")
             target = root / "deepseek"
             target.mkdir()
-            (target / "settings.json").write_text(json.dumps({
-                "theme": "target-theme",
-                "targetSecret": "target-settings-secret",
-                "packages": [],
-            }) + "\n")
-            (target / "models-store.json").write_text(json.dumps({
-                "deepseek": {"models": [{"id": "invalid"}]},
-                "unrelated": {"token": "target-catalog-secret"},
-            }) + "\n")
-            (target / "mcp.json").write_text(json.dumps({
-                "mcpServers": {"target": {"command": "target-mcp-secret"}},
-            }) + "\n")
+            operator_files = {
+                target / "settings.json": b'{"targetSecret":"target-settings-secret"}\n',
+                target / "models-store.json": b'{"token":"target-catalog-secret"}\n',
+                target / "mcp.json": b'{"command":"target-mcp-secret"}\n',
+            }
+            for path, content in operator_files.items():
+                path.write_bytes(content)
+                path.chmod(0o640)
+            snapshots = {
+                path: (path.read_bytes(), path.stat().st_mode & 0o777)
+                for path in operator_files
+            }
             output = io.StringIO()
             with mock.patch("sys.stdout", output):
                 install.install(
@@ -703,7 +641,23 @@ class PiInstallTests(unittest.TestCase):
                 "deepseek-mcp-secret",
             ):
                 self.assertNotIn(secret, report)
-            self.assertGreaterEqual(report.count("(contents redacted)"), 2)
+            for path in (
+                *operator_files,
+                source / "settings.json",
+                source / "models-store.json",
+                source / "mcp.json",
+            ):
+                self.assertNotIn(str(path), report)
+            self.assertIn(
+                str(target / "extensions/agent-orchestration/git-read.ts"),
+                report,
+            )
+            for path, snapshot in snapshots.items():
+                self.assertEqual(
+                    (path.read_bytes(), path.stat().st_mode & 0o777),
+                    snapshot,
+                )
+            self.assertFalse((target / install.MANIFEST_NAME).exists())
 
     def test_manifest_migration_preserves_operator_files_and_removes_retired_project_artifacts(self):
         """Legacy claims are dropped without touching operator files or stale project artifacts."""
@@ -754,11 +708,6 @@ class PiInstallTests(unittest.TestCase):
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_bytes(content)
                         path.chmod(0o640)
-                    if profile != "hybrid":
-                        settings_path = target / "settings.json"
-                        settings = json.loads(settings_path.read_text())
-                        settings["theme"] = "custom-theme"
-                        settings_path.write_text(json.dumps(settings) + "\n")
                     snapshots = {
                         path: (path.read_bytes(), path.stat().st_mode & 0o777,
                                path.stat().st_ino, path.stat().st_mtime_ns)
@@ -784,8 +733,6 @@ class PiInstallTests(unittest.TestCase):
                              path.stat().st_ino, path.stat().st_mtime_ns),
                             snapshot,
                         )
-                    if profile != "hybrid":
-                        self.assertEqual(json.loads((target / "settings.json").read_text())["theme"], "custom-theme")
 
     def test_manifest_migration_rollback_restores_retired_artifacts_and_leaves_operator_files(self):
         """Validation failure restores project claims while operator state stays outside the transaction."""
