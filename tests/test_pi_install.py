@@ -110,7 +110,7 @@ class PiInstallTests(unittest.TestCase):
         pi = Path.home() / ".nvm/versions/node/v24.15.0/bin/pi"
         node = pi.with_name("node")
         if not pi.is_file() or not node.is_file():
-            self.skipTest("Pi 0.85.1 launcher runtime is unavailable")
+            self.skipTest("Pi launcher runtime is unavailable")
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

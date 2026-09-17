@@ -223,29 +223,31 @@ CI rerenders snapshots and fails on drift.
 
 ## Pi adapter
 
-The Pi adapter requires a locally installed `pi-subagents` release at or above the
-v0.67.0 minimum-supported, tested baseline in each profile directory. It renders a
-default hybrid bundle plus provider-pure OpenAI, DeepSeek, and Z.AI GLM alternatives. The provider-pure
-OpenAI profile routes `worker-complex` to GPT-5.6 Luna with maximum reasoning. The hybrid
-profile keeps its primary, built-ins, debugger, planner, and reviewer on GPT-5.6 Sol
-while routing the small model, routine and complex workers, validator, explorer,
+The Pi adapter renders a default hybrid bundle plus OpenAI, DeepSeek, and Z.AI GLM
+routing profiles. The manifest's `format_version: 1` is the internal orchestration bundle schema, not a Pi host or runtime version.
+The installer manages only manifest-owned policy, agent, workflow, extension, and launcher artifacts; it does not install, select, migrate, or validate framework packages.
+Active Tintinweb and other runtime packages remain operator-owned. The installer never modifies settings, catalogs, auth, MCP, themes, and provider state.
+
+The OpenAI profile routes `worker-complex` to GPT-5.6 Luna with maximum reasoning. The
+hybrid profile keeps its primary, built-ins, debugger, planner, and reviewer on GPT-5.6
+Sol while routing the small model, routine and complex workers, validator, explorer,
 design-partner, and UX critic to direct DeepSeek V4.1 Flash. The complex worker uses the
-model's maximum reasoning level. Provider mapping is explicit and fail-closed:
+model's maximum reasoning level. Model mapping is explicit and fail-closed:
 `openai/<id>` becomes `openai-codex/<id>`, `deepseek/<id>` remains
-`deepseek/<id>`, and `zai/<id>` remains `zai/<id>`; only the hybrid profile permits both OpenAI and DeepSeek prefixes, while provider-pure
-profiles reject cross-provider, unknown, and malformed tokens. Each bundle bakes the
-role's mapped model and variant (as `thinking`) into exactly nine `agents/*.md`
-definitions. Every role explicitly uses
+`deepseek/<id>`, and `zai/<id>` remains `zai/<id>`. Unknown and malformed tokens are
+rejected. Each bundle bakes the role's mapped model and variant (as `thinking`) into
+exactly nine `agents/*.md` definitions. Every role explicitly uses
 `defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
 inherited project context or skill catalog. The `extensions` field is intentionally
 omitted, so normal Pi extensions remain available subject to each role's strict tool
-allowlist. Each profile package also loads the managed `primary-policy.js` extension.
+allowlist. Each profile bundle also loads the managed `primary-policy.js` extension.
 The rendered Pi shared policy requires `max_turns` on every Agent call, defaults
 source-changing worker calls to `run_in_background: true`, and recommends caps of
-foreground ≤12 turns and background mutation ≤30 turns. Potentially blocking child tool calls must use
-their native timeout or an OS/harness-enforced timeout; `max_turns` alone cannot bound one tool call.
-When timeout and termination cannot be enforced, the operation is not delegated and stays bounded in the
-primary or returns `BLOCKED`. On primary `before_agent_start`, it appends the installed
+foreground ≤12 turns and background mutation ≤30 turns. Potentially blocking child tool
+calls must use their native timeout or an OS/harness-enforced timeout; `max_turns` alone
+cannot bound one tool call. When timeout and termination cannot be enforced, the operation
+is not delegated and stays bounded in the primary or returns `BLOCKED`. On primary
+`before_agent_start`, it appends the installed
 `agent-orchestration/_shared/orchestration-core.md` exactly once; child processes marked
 `PI_SUBAGENT_CHILD=1` are left unchanged. This uses Pi's system-prompt hook without
 managing or replacing user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files.
@@ -267,67 +269,35 @@ Preview a user installation without changing it:
 ```
 
 The default profile is `hybrid`, and its target is the main bare-Pi runtime at
-`~/.pi/agent`. Provider-pure OpenAI, DeepSeek, and Z.AI GLM target
-`~/.pi/profiles/openai`, `~/.pi/profiles/deepseek`, and `~/.pi/profiles/glm`; use `--target` for an isolated fixture. The installer places the matching
-`pi-hybrid`, `pi-openai`, `pi-deepseek`, or `pi-glm` launcher in `~/.local/bin` by default; use `--bin-dir`
-for an isolated fixture. Launchers invoke `$HOME/.nvm/versions/node/v24.15.0/bin/pi` with its colocated
-Node runtime rather than ambient `PATH`, share sessions under
-`$HOME/.pi/agent/sessions`, forward all arguments exactly, and contain no credentials.
-Install both switchable profiles, then exit the current Pi process before starting the
-other launcher (profile roots are selected only at process startup):
+`~/.pi/agent`. The OpenAI, DeepSeek, and Z.AI GLM profiles target
+`~/.pi/profiles/openai`, `~/.pi/profiles/deepseek`, and `~/.pi/profiles/glm`; use
+`--target` for an isolated fixture. The installer places the matching `pi-hybrid`,
+`pi-openai`, `pi-deepseek`, or `pi-glm` launcher in `~/.local/bin` by default; use
+`--bin-dir` for an isolated fixture. Launchers invoke the configured Pi executable with its colocated Node runtime rather than ambient `PATH`,
+share sessions under `$HOME/.pi/agent/sessions`, forward all arguments exactly, and contain no credentials. Install switchable profiles, then exit the current Pi process before starting the other launcher (profile roots are selected only at
+process startup):
 
 ```bash
 ./scripts/install-pi --profile hybrid
-./scripts/install-pi --profile openai --source ~/.pi/agent
+./scripts/install-pi --profile openai
 ./scripts/install-pi --profile glm
 pi-hybrid   # mixed OpenAI + DeepSeek routing at ~/.pi/agent
-pi-openai   # OpenAI-only routing at ~/.pi/profiles/openai
+pi-openai   # OpenAI routing at ~/.pi/profiles/openai
 pi-glm      # Z.AI GLM Coding Plan at ~/.pi/profiles/glm
 ```
 
-The OpenAI bootstrap validates the working hybrid runtime, resolves every configured
-package to its real package root, and installs provider-pure settings and model metadata.
-Authentication is an operator action after installation: run Pi's `/login openai-codex`
-(or configure the supported environment credential) inside `pi-openai`; the installer
-never reads or copies source OAuth state. The Pi-GLM profile is separate from the generic
-OpenCode `profiles/glm.toml` source: its Pi-specific source is `profiles/pi-glm.toml`, and
-its provider-pure catalog uses only the official `zai` provider at
-`https://api.z.ai/api/coding/paas/v4` with `glm-5.3` and `glm-5.3-flash` (1,000,000-token
-context; Flash accepts images while GLM-5.3 is text-only). Run `/login zai` inside
-`pi-glm` after installation. Permissions, authentication, MCP configuration, and theme
-selection/files are operator-owned runtime state; no profile installer copies, creates,
-adopts, validates, or claims those paths. Existing files are preserved byte-for-byte and
-fresh roots contain none of them. Credential values are never printed or written to
-repository artifacts. The OpenAI profile requires `@narumitw/pi-usage` 0.31.1 or newer
-with its public `adapterForProvider`, `resolveUsageAuth`, and `queryProviderUsage` exports.
-
-A real hybrid or GLM install reads `<target>/npm/node_modules/pi-subagents/package.json`; an
-OpenAI install bootstraps that runtime metadata from the validated `--source` (default
-`~/.pi/agent`). These paths fail closed unless the runtime reports a valid release at or above v0.67.0.
-On first installation, existing files at managed role or artifact names require explicit
-`--adopt`. The installer backs up every changed or removed project-managed file under a
-unique `~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
-validates the installed definitions, removes only stale claims recorded in its own
-manifest, and rolls back validation failures and interruptions. Hybrid settings remain
-untouched; OpenAI settings are generated from validated package roots and forced to
-OpenAI-only defaults. The hybrid installer preserves a valid existing direct DeepSeek
-catalog entry (including valid newer data), otherwise seeds the committed credential-free
-official DeepSeek V4.1 Flash entry; `--source` can instead supply a validated provider
-entry from another `models-store.json`. A manifest-owned legacy OpenAI installation at
-the main target is migrated in place to the hybrid profile; other profile mismatches still
-fail closed. For DeepSeek, it synchronizes the approved non-provider settings baseline and
-runtime metadata from the canonical Pi root, merges the required source packages into
-`settings.json`, and seeds the validated `deepseek` provider/model entry from the source
-`models-store.json`. It preserves target-only settings, unrelated providers and packages,
-valid newer catalog data, opaque authentication, shared sessions, caches, logs, analytics,
-and mutable runtime history. Authentication is never performed by bootstrap; configure a
-provider environment variable or complete Pi's `/login deepseek` flow manually. Permissions,
-authentication, MCP configuration, and theme selection/files remain operator-owned and are
-not copied, created, adopted, validated, or claimed by the installer. During the one-time
-manifest migration, previously claimed permission files and custom themes are left in place
-and simply omitted from the new manifest; retired project artifacts are still cleaned up.
-Shared policy, control-plane intent, degradation notes, and the optional workflow are
-namespaced under `<target>/agent-orchestration/`.
+On first installation, existing files at manifest-owned names require explicit `--adopt`.
+The installer backs up every changed or removed manifest-owned file under a unique
+`~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
+validates only the installed bundle artifacts and launchers, removes stale claims recorded
+in its own manifest, and rolls back validation failures and interruptions. Dry-run prints
+the planned writes and deletions without changing the target. Existing runtime files are
+left byte-for-byte untouched, including settings, catalogs, auth, MCP, themes, provider
+state, sessions, caches, logs, analytics, and runtime history. Credential values are never
+printed or written to repository artifacts. A prior manifest's legacy operator-owned
+claims are dropped without deleting those files; retired project artifacts remain subject
+to the manifest's ordinary stale cleanup. Shared policy, control-plane intent, degradation
+notes, and the optional workflow are namespaced under `<target>/agent-orchestration/`.
 
 ### Pi planning, validator MCP, and operator-owned runtime state
 
@@ -380,18 +350,18 @@ fetching, hooks, pagers, external diff, textconv, color, rename detection, and s
 recursion. One execution-wide 10-second deadline and aggregate 64 KiB/2,000-line
 stdout+stderr caps cover probing, ref resolution, and the final command; cancellation and
 timeout use bounded termination. No full output is persisted. This extension deliberately
-uses a private bounded `child_process.spawn` helper because Pi 0.85.1 `pi.exec` buffers
+uses a private bounded `child_process.spawn` helper because the host's `pi.exec` buffers
 output without a hard transient cap.
 
 ### Pi profile status indicators
 
 The indicators are versioned adapter sources, rendered into snapshots, and installed as
-profile-owned extensions rather than patches to `node_modules`:
+profile-owned extensions rather than patches to the operator's installed package tree:
 
 - Hybrid and standalone DeepSeek show `DS peak ×1` for 01:00–04:00 and 06:00–10:00 UTC Monday–Friday. Every boundary outside those half-open periods, plus all weekend hours,
   shows `DS off-peak ×0.5`. This deterministic clock-only indicator makes the official
   half-price off-peak schedule visible without an API request and refreshes every minute.
-- OpenAI keeps `@narumitw/pi-usage`'s remaining/reset status and adds weekly Codex pace.
+- OpenAI keeps the configured usage integration's remaining/reset status and adds weekly Codex pace.
   `pace` is `consumed% − elapsed%` in percentage points, so a positive value means usage
   is ahead of schedule. `proj` is projected end utilization (`consumed / elapsed × 100`)
   once at least 1% of the weekly window has elapsed. It refreshes at session start, model
@@ -405,13 +375,13 @@ profile-owned extensions rather than patches to `node_modules`:
   minute boundary and makes no network or API calls.
 
 Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
-an agent's tool list, pi-subagents always passes it through. The adapter therefore omits
+an agent's tool list, the Pi host passes it through. The adapter therefore omits
 `bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Command-level
 permission configuration remains operator-owned and is not copied or claimed by this project.
 Pi agent files configure child roles and each profile launcher selects the primary model.
-Planner and reviewer load child-only, profile-owned capability ceilings through pi-subagents'
-public `./capability-ceiling` export; both allow only `explorer`. Missing package resolution
-or registration fails closed, and the ceiling is a child-selection boundary rather than an
+Planner and reviewer load child-only, profile-owned capability ceilings through the
+runtime's public `./capability-ceiling` integration; both allow only `explorer`. Missing
+runtime integration or registration fails closed, and the ceiling is a child-selection boundary rather than an
 OS sandbox or general command classifier. All other canonical roles lack `subagent`, so
 they are leaves at the Pi tool boundary. Pi cannot install the small model or built-in
 build/plan mappings, so each bundle's `_shared/control-plane.json` records those values as

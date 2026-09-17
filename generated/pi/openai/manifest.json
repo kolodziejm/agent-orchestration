@@ -1,7 +1,5 @@
 {
   "format_version": 1,
-  "adapter": "pi-subagents",
-  "adapter_format": "0.67.0",
   "roles": [
     "debugger",
     "design-partner",

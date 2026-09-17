@@ -1,6 +1,6 @@
 # Pi adapter degradations
 
-- Supported pi-subagents releases at or above the v0.67.0 minimum-tested baseline reject `permissions.bash` and always allow shell calls
+- Pi's native child permission model rejects `permissions.bash` and always allows shell calls
   when the `bash` tool is present. For canonical `bash = "ask"` roles other than validator
   and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
   permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
@@ -44,5 +44,4 @@
   fixed argv/environment hardening, no network/hooks/pagers/external diff/textconv,
   a shared 10-second deadline, and aggregate 64 KiB/2,000-line caps across stdout
   and stderr. The extension deliberately uses a private bounded `spawn` helper
-  instead of Pi 0.85.1's unbounded `pi.exec` buffering; it never persists full
-  output.
+  instead of the host's unbounded `pi.exec` buffering; it never persists full output.

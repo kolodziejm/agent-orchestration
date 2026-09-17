@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a supported Pi profile using the pi-subagents v0.67.0 baseline."""
+"""Render a supported Pi profile into an internal orchestration bundle."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = ROOT / "generated" / "pi"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 WORKFLOW_NAME = "feature-workflow-pilot"
+# The bundle format is this repository's internal orchestration schema, not a
+# Pi host or runtime-package version.
+BUNDLE_FORMAT_VERSION = 1
 SUPPORTED_PROFILES = {
     "hybrid": frozenset({"openai", "deepseek"}),
     "openai": frozenset({"openai"}),
@@ -252,9 +255,9 @@ def control_plane(
             "builtins": False,
         },
         "note": (
-            "The profile launcher selects the primary model and pi-subagents agent files "
-            "configure child roles. Pi cannot install the small-model or built-in mappings; "
-            "those values are recorded as control-plane intent."
+            "The profile launcher selects the primary model and Pi agent files configure "
+            "child roles. Pi cannot install the small-model or built-in mappings; those "
+            "values are recorded as control-plane intent."
         ),
     }
 
@@ -311,7 +314,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     (output / "_shared" / "degradations.md").write_text(
         """# Pi adapter degradations
 
-- Supported pi-subagents releases at or above the v0.67.0 minimum-tested baseline reject `permissions.bash` and always allow shell calls
+- Pi's native child permission model rejects `permissions.bash` and always allows shell calls
   when the `bash` tool is present. For canonical `bash = \"ask\"` roles other than validator
   and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
   permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
@@ -355,8 +358,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
   fixed argv/environment hardening, no network/hooks/pagers/external diff/textconv,
   a shared 10-second deadline, and aggregate 64 KiB/2,000-line caps across stdout
   and stderr. The extension deliberately uses a private bounded `spawn` helper
-  instead of Pi 0.85.1's unbounded `pi.exec` buffering; it never persists full
-  output.
+  instead of the host's unbounded `pi.exec` buffering; it never persists full output.
 """
     )
 
@@ -410,9 +412,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     (output / "manifest.json").write_text(
         json.dumps(
             {
-                "format_version": 1,
-                "adapter": "pi-subagents",
-                "adapter_format": "0.67.0",
+                "format_version": BUNDLE_FORMAT_VERSION,
                 "roles": sorted(roles),
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
