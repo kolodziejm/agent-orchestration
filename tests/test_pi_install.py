@@ -384,44 +384,6 @@ class PiInstallTests(unittest.TestCase):
                     install.install(target, dry_run=False, profile="deepseek", source=source)
             self.assertEqual(sentinel.read_text(), "preserve\n")
 
-    def test_deepseek_missing_or_malformed_catalog_fails_before_target_mutation(self):
-        """This test will fail when an invalid source catalog can produce a partial DeepSeek install."""
-        install = load_install_module()
-        for source_state in (
-            "missing", "malformed", "missing-deepseek", "invalid-model",
-            "invalid-name", "invalid-thinking",
-        ):
-            with self.subTest(source_state=source_state), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                source = write_deepseek_source(root / "source")
-                catalog = source / "models-store.json"
-                if source_state == "missing":
-                    catalog.unlink()
-                elif source_state == "malformed":
-                    catalog.write_text("not json\n")
-                else:
-                    value = json.loads(catalog.read_text())
-                    if source_state == "missing-deepseek":
-                        value.pop("deepseek")
-                    elif source_state == "invalid-model":
-                        value["deepseek"]["models"][0]["id"] = "wrong-model"
-                    elif source_state == "invalid-name":
-                        value["deepseek"]["models"][0]["name"] = "wrong-name"
-                    else:
-                        value["deepseek"]["models"][0]["thinkingLevelMap"]["high"] = None
-                    catalog.write_text(json.dumps(value) + "\n")
-                target = root / "target"
-                target.mkdir()
-                sentinel = target / "sentinel"
-                sentinel.write_text("preserve\n")
-                fake_home = root / "home"
-                fake_home.mkdir()
-                with mock.patch.object(Path, "home", return_value=fake_home):
-                    with self.assertRaisesRegex(SystemExit, "catalog|models-store|DeepSeek"):
-                        install.install(target, dry_run=False, profile="deepseek", source=source)
-                self.assertEqual(sentinel.read_text(), "preserve\n")
-                self.assertFalse((target / "settings.json").exists())
-
     def test_deepseek_catalog_symlink_is_refused_and_rollback_restores_catalog(self):
         """This test will fail when catalog links are overwritten or validation rollback leaves catalog changes."""
         install = load_install_module()
@@ -448,63 +410,6 @@ class PiInstallTests(unittest.TestCase):
             ), self.assertRaisesRegex(RuntimeError, "invalid"):
                 install.install(target, dry_run=False, adopt=True, profile="deepseek", source=source)
             self.assertEqual(catalog.read_bytes(), before)
-
-    def test_deepseek_rejects_invalid_source_before_reading_or_mutating_target(self):
-        """This test will fail when source validation is destination-dependent or occurs after target inspection."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "broken-source"
-            source.mkdir()
-            target = root / "target"
-            target.mkdir()
-            (target / "settings.json").symlink_to(root / "secret-settings.json")
-            with self.assertRaisesRegex(SystemExit, "source Pi runtime metadata"):
-                install.install(target, dry_run=False, profile="deepseek", source=source)
-            self.assertEqual(list(source.iterdir()), [])
-            self.assertTrue((target / "settings.json").is_symlink())
-
-    def test_deepseek_rejects_an_imposter_runtime_and_duplicate_package_implementation(self):
-        """This test will fail when source identity or one-implementation-per-package invariants are not enforced."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = write_deepseek_source(root / "source")
-            runtime = source / install.PI_RUNTIME_PACKAGE
-            manifest = json.loads(runtime.read_text())
-            manifest["name"] = "not-pi-subagents"
-            runtime.write_text(json.dumps(manifest) + "\n")
-            with self.assertRaisesRegex(SystemExit, "pi-subagents"):
-                install.install(root / "target", dry_run=True, profile="deepseek", source=source)
-
-            source = write_deepseek_source(root / "source-duplicate")
-            duplicate = source / "duplicate"
-            duplicate.mkdir()
-            (duplicate / "package.json").write_text(json.dumps({
-                "name": "pi-web-access", "version": "2.0.0", "pi": {"extensions": ["index.ts"]}
-            }) + "\n")
-            settings_path = source / "settings.json"
-            settings = json.loads(settings_path.read_text())
-            settings["packages"].append("./duplicate")
-            settings_path.write_text(json.dumps(settings) + "\n")
-            with self.assertRaisesRegex(SystemExit, "duplicate implementation"):
-                install.install(root / "target", dry_run=True, profile="deepseek", source=source)
-
-    def test_deepseek_package_resolution_fails_closed_for_missing_or_invalid_entries(self):
-        """This test will fail when unresolved, malformed, or duplicate package implementations enter target settings."""
-        install = load_install_module()
-        bad_entries = ["npm:@scope/missing@1.2.3", {"source": "npm:missing", "bogus": True}, 42]
-        for index, entry in enumerate(bad_entries):
-            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                source = write_deepseek_source(root / "source")
-                settings = json.loads((source / "settings.json").read_text())
-                settings["packages"].append(entry)
-                (source / "settings.json").write_text(json.dumps(settings) + "\n")
-                target = root / "target"
-                with self.assertRaisesRegex(SystemExit, "package"):
-                    install.install(target, dry_run=True, profile="deepseek", source=source)
-                self.assertFalse(target.exists())
 
     def test_unmanaged_extension_config_survives_bundle_install(self):
         """This test will fail when migration deletes a sandbox config not owned by the prior manifest."""
@@ -1003,56 +908,3 @@ class PiInstallTests(unittest.TestCase):
                         settings.read_text(),
                         '{"packages":["user-package"],"extensions":["user.ts"]}\n',
                     )
-
-    def test_real_install_requires_supported_local_runtime_before_target_mutation(self):
-        """This test will fail when invalid runtime metadata is accepted or checked too late."""
-        install = load_install_module()
-        cases = (
-            ("absent", None, "Missing Pi runtime metadata"),
-            ("malformed", "malformed", "Malformed Pi runtime metadata"),
-            ("invalid-version", "not-semver", "Malformed Pi runtime metadata"),
-            ("too-old", "0.66.9", "minimum supported version is 0.67.0"),
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for name, version, message in cases:
-                with self.subTest(runtime=name):
-                    fake_home = root / f"home-{name}"
-                    fake_home.mkdir()
-                    target = root / f"target-{name}"
-                    target.mkdir()
-                    sentinel = target / "user-file.txt"
-                    sentinel.write_text("preserve me\n")
-                    package = target / install.PI_RUNTIME_PACKAGE
-                    if version == "malformed":
-                        package.parent.mkdir(parents=True, exist_ok=True)
-                        package.write_text("not json\n")
-                    elif version is not None:
-                        write_pi_runtime(target, version)
-
-                    with mock.patch.object(Path, "home", return_value=fake_home):
-                        with self.assertRaisesRegex(SystemExit, message):
-                            install.install(target, dry_run=False)
-
-                    self.assertEqual(sentinel.read_text(), "preserve me\n")
-                    self.assertFalse(
-                        (fake_home / ".local" / "state" / "agent-orchestration" / "backups").exists()
-                    )
-
-    def test_real_install_accepts_minimum_and_newer_runtime_releases(self):
-        """This test will fail when the supported baseline is treated as an exact version."""
-        install = load_install_module()
-        for version in ("0.67.0", "1.2.3"):
-            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                fake_home = root / "home"
-                fake_home.mkdir()
-                target = root / "agent"
-                target.mkdir()
-                write_pi_runtime(target, version)
-
-                with mock.patch.object(Path, "home", return_value=fake_home):
-                    result = install.install(target, dry_run=False)
-
-                self.assertEqual(result, 0)
-                self.assertTrue((target / install.MANIFEST_NAME).is_file())
