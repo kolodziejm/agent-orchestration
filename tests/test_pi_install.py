@@ -3,6 +3,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -10,7 +11,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT / "adapters" / "pi" / "render.py"
 INSTALL = ROOT / "adapters" / "pi" / "install.py"
 
 
@@ -23,124 +23,32 @@ def load_install_module():
     return module
 
 
-def write_pi_runtime(target: Path, version: str = "0.67.0") -> Path:
-    package = target / "npm" / "node_modules" / "pi-subagents" / "package.json"
-    package.parent.mkdir(parents=True, exist_ok=True)
-    package.write_text(json.dumps({"name": "pi-subagents", "version": version}) + "\n")
-    return package
-
-
-def write_deepseek_source(root: Path) -> Path:
-    settings = {
-        "defaultProvider": "openai-codex",
-        "defaultModel": "gpt-source",
-        "defaultThinkingLevel": "medium",
-        "lastChangelogVersion": "0.67.0",
-        "theme": "source-theme",
-        "externalEditor": "fixture-editor",
-        "tuiMode": "compact",
-        "treeFilterMode": "directories",
-        "doubleEscapeAction": "clear-input",
-        "terminal": "fixture-terminal",
-        "subagents": {"enabled": True, "maxChildren": 3},
-        "packages": [
-            "npm:pi-web-access",
-            "npm:pi-subagents@0.67.0",
-            "npm:@gotgenes/pi-permission-system@31.1.3",
-            {"source": "npm:@erichll/pi-auto-review@0.17.0", "autoload": False,
-             "extensions": ["src/index.ts"]},
-            "./local/pi-sandbox",
-        ],
-    }
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "settings.json").write_text(json.dumps(settings) + "\n")
-    (root / "themes").mkdir()
-    (root / "themes/source-theme.json").write_text(
-        '{"name":"source-theme","colors":{"accent":"#fff"}}\n'
-    )
-    (root / "mcp.json").write_text(json.dumps({
-        "mcpServers": {
-            "deepseek-fixture": {
-                "command": "synthetic-deepseek-mcp",
-                "env": {"DEEPSEEK_MCP_TOKEN": "deepseek-mcp-secret"},
-            },
-        },
-        "adapterOwnedTopLevel": {"preserve": "exactly"},
-    }, indent=2) + "\n")
-    (root / "models-store.json").write_text(json.dumps({
-        "deepseek": {
-            "baseUrl": "https://api.deepseek.com",
-            "api": "openai-completions",
-            "compat": {"thinkingFormat": "deepseek"},
-            "models": [{
-                "id": "deepseek-flash",
-                "name": "DeepSeek V4.1 Flash",
-                "reasoning": True,
-                "thinkingLevelMap": {"low": "low", "high": "high", "max": "max"},
-                "input": ["text", "image"],
-                "contextWindow": 1000000,
-                "maxTokens": 384000,
-                "cost": {"input": 0.2, "output": 0.8, "cacheRead": 0.02, "cacheWrite": 0.2},
-            }],
-            "checkedAt": 1700000000000,
-            "lastModified": 1700000000000,
-            "etag": "synthetic-deepseek-etag",
-        }
-    }) + "\n")
-    packages = {
-        "pi-web-access": ("pi-web-access", "1.0.0"),
-        "pi-subagents": ("pi-subagents", "0.67.0"),
-        "@gotgenes/pi-permission-system": ("@gotgenes/pi-permission-system", "31.1.3"),
-        "@erichll/pi-auto-review": ("@erichll/pi-auto-review", "0.17.0"),
-    }
-    for relative, (name, version) in packages.items():
-        manifest = root / "npm" / "node_modules" / relative / "package.json"
-        manifest.parent.mkdir(parents=True, exist_ok=True)
-        manifest.write_text(json.dumps({"name": name, "version": version, "pi": {"extensions": ["index.ts"]}}) + "\n")
-        # Pi's autoloader invokes every declared extension as a factory. Keep
-        # fixture package entrypoints valid under the installed runtime rather
-        # than masking startup failures with production changes.
-        (manifest.parent / "index.ts").write_text("export default function fixtureExtension() {}\n")
-    local = root / "local" / "pi-sandbox"
-    local.mkdir(parents=True)
-    (local / "package.json").write_text(json.dumps({"name": "@erichll/pi-sandbox", "version": "0.17.1", "pi": {"extensions": ["index.ts"]}}) + "\n")
-
-    managed = {
-        "subagent/config.json": {"scheduledRuns": {"enabled": False}},
-        "pi-sandbox/config.json": {"subagents": {"provider": "off"}},
-        "pi-permission-system/config.json": {
-            "piInfrastructureReadPaths": ["~/.pi/agent/*"],
-            "permission": {"read": "allow"},
-        },
-        "pi-permission-system/package.json": {
-            "name": "@gotgenes/pi-permission-system-bridge",
-            "private": True,
-            "pi": {"extensions": [str(root / "npm/node_modules/@gotgenes/pi-permission-system/index.ts")]},
-        },
-        "pi-auto-review/config.json": {
-            "model": "openai-codex/gpt-source", "reasoning": "low"
-        },
-    }
-    for relative, content in managed.items():
-        path = root / "extensions" / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(content) + "\n")
-    return root
-
-
-def remove_sandbox_from_deepseek_source(source: Path) -> None:
-    settings_path = source / "settings.json"
-    settings = json.loads(settings_path.read_text())
-    settings["packages"] = [
-        entry
-        for entry in settings["packages"]
-        if (entry if isinstance(entry, str) else entry["source"]) != "./local/pi-sandbox"
-    ]
-    settings_path.write_text(json.dumps(settings) + "\n")
-    (source / "extensions/pi-sandbox/config.json").unlink()
-
-
 class PiInstallTests(unittest.TestCase):
+    def test_retired_source_and_base_options_are_rejected_before_install(self):
+        """Retired CLI options fail in argparse before installation can start."""
+        help_result = subprocess.run(
+            [sys.executable, str(INSTALL), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertNotIn("--source", help_result.stdout)
+        self.assertNotIn("--base", help_result.stdout)
+
+        for option in ("--source", "--base"):
+            with self.subTest(option=option):
+                result = subprocess.run(
+                    [sys.executable, str(INSTALL), option],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("unrecognized arguments", result.stderr)
+
     def test_installed_status_package_rejects_the_opposite_profile_entrypoint(self):
         """Installed validation must reject a package that selects another profile's status."""
         install = load_install_module()
@@ -149,7 +57,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "hybrid"
-            write_pi_runtime(target)
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="hybrid")
             package_path = target / "extensions/agent-orchestration/package.json"
@@ -174,7 +81,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "hybrid"
-            write_pi_runtime(target)
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="hybrid")
 
@@ -211,22 +117,18 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             bin_dir = root / "bin"
-            deepseek_source = write_deepseek_source(root / "deepseek-source")
             cases = (
-                ("hybrid", root / "hybrid", None,
+                ("hybrid", root / "hybrid",
                  "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
-                ("deepseek", root / "deepseek", deepseek_source,
+                ("deepseek", root / "deepseek",
                  "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
             )
-            for profile, target, profile_source, expected, rejected in cases:
+            for profile, target, expected, rejected in cases:
                 with self.subTest(profile=profile), mock.patch.object(
                     Path, "home", return_value=fake_home
                 ):
-                    if profile == "hybrid":
-                        write_pi_runtime(target)
                     install.install(
-                        target, dry_run=False, profile=profile, source=profile_source,
-                        bin_dir=bin_dir,
+                        target, dry_run=False, profile=profile, bin_dir=bin_dir,
                     )
                 env = os.environ.copy()
                 env.update({
@@ -265,15 +167,13 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             cases = {
-                "hybrid": (root / "hybrid", None),
-                "deepseek": (root / "deepseek", write_deepseek_source(root / "deepseek-source")),
-                "glm": (root / "glm", None),
+                "hybrid": root / "hybrid",
+                "deepseek": root / "deepseek",
+                "glm": root / "glm",
             }
-            for profile, (target, source) in cases.items():
+            for profile, target in cases.items():
                 with self.subTest(profile=profile), mock.patch.object(Path, "home", return_value=fake_home):
-                    if profile in {"hybrid", "glm"}:
-                        write_pi_runtime(target)
-                    install.install(target, dry_run=False, profile=profile, source=source)
+                    install.install(target, dry_run=False, profile=profile)
                 reader = target / "extensions/agent-orchestration/git-read.ts"
                 primary = target / "extensions/agent-orchestration/primary-policy.js"
                 package = json.loads((target / "extensions/agent-orchestration/package.json").read_text())
@@ -299,7 +199,7 @@ class PiInstallTests(unittest.TestCase):
                         self.assertNotIn("acceptanceRole:", role_content)
                         self.assertNotIn("git_read", role_content)
 
-            target, _source = cases["hybrid"]
+            target = cases["hybrid"]
             manifest_path = target / install.MANIFEST_NAME
             manifest = json.loads(manifest_path.read_text())
             manifest_path.write_text(json.dumps(manifest) + "\n")
@@ -327,99 +227,6 @@ class PiInstallTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Git reader|child-only extension"):
                 install.validate_installed(files, target)
 
-    def test_hybrid_install_preserves_operator_settings_and_auth(self):
-        """A hybrid install preserves operator settings and never copies source credentials."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            (source / "auth.json").write_text('{"deepseek":{"apiKey":"must-not-copy"}}\n')
-            target = root / "hybrid"
-            target.mkdir()
-            write_pi_runtime(target)
-            settings = target / "settings.json"
-            settings.write_text('{"theme":"keep","packages":["user-package"]}\n')
-
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                result = install.install(
-                    target, dry_run=False, profile="hybrid", source=source,
-                )
-
-            self.assertEqual(result, 0)
-            self.assertEqual(settings.read_text(), '{"theme":"keep","packages":["user-package"]}\n')
-            self.assertFalse((target / "auth.json").exists())
-
-    def test_deepseek_install_preserves_unrelated_catalog_entries(self):
-        """Operator-owned catalog entries survive installation unchanged."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            target = root / "deepseek"
-            target.mkdir()
-            existing = {
-                "user-provider": {"api": "openai-completions", "models": [{"id": "user-model"}]},
-                "deepseek": {
-                    "baseUrl": "https://api.deepseek.com",
-                    "api": "openai-completions",
-                    "checkedAt": 1800000000000, "lastModified": 1800000000000, "etag": "target-etag", "models": [{
-                    "id": "deepseek-flash", "name": "DeepSeek V4.1 Flash (local newer)",
-                    "reasoning": True,
-                    "thinkingLevelMap": {"low": "low", "high": "high", "max": "max"},
-                    "input": ["text", "image"],
-                    "contextWindow": 2000000,
-                    "maxTokens": 512000,
-                }]},
-            }
-            catalog = target / "models-store.json"
-            catalog.write_text(json.dumps(existing) + "\n")
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, adopt=True, profile="deepseek", source=source)
-            configured = json.loads(catalog.read_text())
-            self.assertEqual(configured["user-provider"], existing["user-provider"])
-
-    def test_deepseek_install_never_copies_source_credentials(self):
-        """Operator credentials remain private across installation."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            (source / "auth.json").write_text('{"deepseek":{"apiKey":"secret"}}\n')
-            target = root / "deepseek"
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="deepseek", source=source)
-            self.assertFalse((target / "auth.json").exists())
-
-    def test_unmanaged_extension_config_survives_bundle_install(self):
-        """This test will fail when migration deletes a sandbox config not owned by the prior manifest."""
-        install = load_install_module()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            fake_home = root / "home"
-            fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
-            target = root / "deepseek"
-
-            with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="deepseek", source=source)
-                manifest_path = target / install.MANIFEST_NAME
-                manifest = json.loads(manifest_path.read_text())
-                manifest_path.write_text(json.dumps(manifest) + "\n")
-                user_config = target / "extensions/pi-sandbox/config.json"
-                user_config.parent.mkdir(parents=True)
-                user_config.write_text('{"userOwned": true}\n')
-                remove_sandbox_from_deepseek_source(source)
-
-                install.install(target, dry_run=False, profile="deepseek", source=source)
-
-            self.assertEqual(user_config.read_text(), '{"userOwned": true}\n')
-
     def test_deepseek_managed_extensions_require_adoption_reject_symlinks_and_clean_only_stale_managed_files(self):
         """This test will fail when manifest-owned extension lifecycle can overwrite links or delete unrelated files."""
         install = load_install_module()
@@ -427,26 +234,25 @@ class PiInstallTests(unittest.TestCase):
             root = Path(directory)
             fake_home = root / "home"
             fake_home.mkdir()
-            source = write_deepseek_source(root / "source")
             target = root / "target"
             collision = target / "extensions/agent-orchestration/git-read.ts"
             collision.parent.mkdir(parents=True)
             collision.write_text("{}\n")
             with self.assertRaisesRegex(SystemExit, "adoption required"):
-                install.install(target, dry_run=True, profile="deepseek", source=source)
+                install.install(target, dry_run=True, profile="deepseek")
             secret = root / "secret"
             secret.write_text("preserve\n")
             collision.unlink()
             collision.symlink_to(secret)
             with self.assertRaisesRegex(SystemExit, "symlink"):
-                install.install(target, dry_run=True, adopt=True, profile="deepseek", source=source)
+                install.install(target, dry_run=True, adopt=True, profile="deepseek")
             self.assertEqual(secret.read_text(), "preserve\n")
             collision.unlink()
             unrelated = target / "extensions/custom/config.json"
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("keep\n")
             with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, adopt=True, profile="deepseek", source=source)
+                install.install(target, dry_run=False, adopt=True, profile="deepseek")
                 manifest_path = target / install.MANIFEST_NAME
                 manifest = json.loads(manifest_path.read_text())
                 manifest["managed_extensions"].append("extensions/retired/config.json")
@@ -454,7 +260,7 @@ class PiInstallTests(unittest.TestCase):
                 stale = target / "extensions/retired/config.json"
                 stale.parent.mkdir(parents=True)
                 stale.write_text("stale\n")
-                install.install(target, dry_run=False, profile="deepseek", source=source)
+                install.install(target, dry_run=False, profile="deepseek")
             self.assertFalse(stale.exists())
             self.assertEqual(unrelated.read_text(), "keep\n")
     def test_launcher_install_requires_adoption_is_executable_idempotent_and_rolls_back(self):
@@ -469,20 +275,19 @@ class PiInstallTests(unittest.TestCase):
             bin_dir.mkdir()
             launcher = bin_dir / "pi-deepseek"
             launcher.write_text("user launcher\n")
-            source = write_deepseek_source(root / "source")
             with mock.patch.object(Path, "home", return_value=fake_home):
                 with self.assertRaisesRegex(SystemExit, "adoption required"):
-                    install.install(target, dry_run=True, profile="deepseek", bin_dir=bin_dir, source=source)
+                    install.install(target, dry_run=True, profile="deepseek", bin_dir=bin_dir)
                 self.assertEqual(launcher.read_text(), "user launcher\n")
-                install.install(target, dry_run=False, adopt=True, profile="deepseek", bin_dir=bin_dir, source=source)
+                install.install(target, dry_run=False, adopt=True, profile="deepseek", bin_dir=bin_dir)
                 self.assertTrue(os.access(launcher, os.X_OK))
                 before = launcher.read_bytes()
-                install.install(target, dry_run=False, profile="deepseek", bin_dir=bin_dir, source=source)
+                install.install(target, dry_run=False, profile="deepseek", bin_dir=bin_dir)
                 self.assertEqual(launcher.read_bytes(), before)
                 launcher.write_text("locally changed\n")
                 with mock.patch.object(install, "validate_installed", side_effect=RuntimeError("invalid")):
                     with self.assertRaisesRegex(RuntimeError, "invalid"):
-                        install.install(target, dry_run=False, profile="deepseek", bin_dir=bin_dir, source=source)
+                        install.install(target, dry_run=False, profile="deepseek", bin_dir=bin_dir)
                 self.assertEqual(launcher.read_text(), "locally changed\n")
 
     def test_bundle_only_install_does_not_claim_an_uninstalled_launcher(self):
@@ -493,12 +298,11 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "deepseek"
-            source = write_deepseek_source(root / "source")
             bin_dir = root / "bin"
             bin_dir.mkdir()
             launcher = bin_dir / "pi-deepseek"
             with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(target, dry_run=False, profile="deepseek", source=source)
+                install.install(target, dry_run=False, profile="deepseek")
                 launcher.write_text("unmanaged launcher\n")
                 with self.assertRaisesRegex(SystemExit, "adoption required"):
                     install.install(
@@ -506,7 +310,6 @@ class PiInstallTests(unittest.TestCase):
                         dry_run=True,
                         profile="deepseek",
                         bin_dir=bin_dir,
-                        source=source,
                     )
             self.assertEqual(launcher.read_text(), "unmanaged launcher\n")
 
@@ -520,16 +323,12 @@ class PiInstallTests(unittest.TestCase):
             hybrid_target = root / "hybrid"
             deepseek_target = root / "deepseek"
             glm_target = root / "glm"
-            write_pi_runtime(hybrid_target)
-            write_pi_runtime(deepseek_target)
-            write_pi_runtime(glm_target)
-            source = write_deepseek_source(root / "source")
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(hybrid_target, dry_run=False, profile="hybrid")
-                install.install(deepseek_target, dry_run=False, profile="deepseek", source=source)
+                install.install(deepseek_target, dry_run=False, profile="deepseek")
                 install.install(glm_target, dry_run=False, profile="glm")
                 with self.assertRaisesRegex(SystemExit, "profile mismatch"):
-                    install.install(hybrid_target, dry_run=False, profile="deepseek", source=source)
+                    install.install(hybrid_target, dry_run=False, profile="deepseek")
                 with self.assertRaisesRegex(SystemExit, "profile mismatch"):
                     install.install(glm_target, dry_run=False, profile="hybrid")
             hybrid_worker = (hybrid_target / "agents/worker.md").read_text()
@@ -552,7 +351,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "glm"
-            write_pi_runtime(target)
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="glm", bin_dir=root / "bin")
             auth = target / "auth.json"
@@ -567,8 +365,8 @@ class PiInstallTests(unittest.TestCase):
             self.assertEqual(auth.read_bytes(), before)
             self.assertNotIn("keep-secret", output.getvalue())
 
-    def test_deepseek_install_preserves_operator_runtime_state(self):
-        """Opaque operator settings and runtime state survive installation byte-for-byte."""
+    def test_install_preserves_operator_state_and_tintinweb_package_entry(self):
+        """This test will fail when success mutates operator state or creates a legacy package path."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -577,13 +375,16 @@ class PiInstallTests(unittest.TestCase):
             target = root / "deepseek"
             target.mkdir()
             operator_files = {
-                target / "settings.json": b"\\xffoperator-settings-opaque",
+                target / "settings.json": (
+                    b'{"packages":["npm:@tintinweb/pi-subagents@0.19.0", "npm:user-extension"]}\n'
+                ),
+                target / "models-store.json": b"operator-catalog-state\n",
                 target / "auth.json": b"\\xffoperator-auth-opaque",
-                target / "models-store.json": b"operator-catalog-state\\n",
                 target / "mcp.json": b"\\xffoperator-mcp-opaque",
+                target / "themes/custom-theme.json": b"operator-theme\n",
+                target / "npm/node_modules/operator-runtime/package.json": b"operator-package\n",
+                target / "npm/node_modules/operator-runtime/dist/index.js": b"operator-extension\n",
                 target / "runtime/state.sentinel": b"runtime-state",
-                target / "sessions/history.bin": b"session-history",
-                target / "cache/models.json": b"cache-state",
             }
             for path, content in operator_files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -594,32 +395,39 @@ class PiInstallTests(unittest.TestCase):
                 for path in operator_files
             }
             with mock.patch.object(Path, "home", return_value=fake_home):
-                install.install(
-                    target,
-                    dry_run=False,
-                    profile="deepseek",
-                    source=root / "ignored-source",
-                )
+                install.install(target, dry_run=False, profile="deepseek")
             for path, snapshot in snapshots.items():
                 self.assertEqual(
                     (path.read_bytes(), path.stat().st_mode & 0o777),
                     snapshot,
                 )
+            self.assertEqual(
+                json.loads((target / "settings.json").read_text())["packages"][0],
+                "npm:@tintinweb/pi-subagents@0.19.0",
+            )
+            self.assertFalse((target / "npm/node_modules/pi-subagents").exists())
 
-    def test_dry_run_redacts_operator_and_source_secrets(self):
-        """Dry-run omits operator/source paths and leaves runtime state unchanged."""
+    def test_dry_run_leaves_operator_state_and_package_trees_unchanged(self):
+        """This test will fail when dry-run reads or mutates operator-owned runtime paths."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = write_deepseek_source(root / "source")
             target = root / "deepseek"
             target.mkdir()
             operator_files = {
-                target / "settings.json": b'{"targetSecret":"target-settings-secret"}\n',
-                target / "models-store.json": b'{"token":"target-catalog-secret"}\n',
-                target / "mcp.json": b'{"command":"target-mcp-secret"}\n',
+                target / "settings.json": (
+                    b'{"packages":["npm:@tintinweb/pi-subagents@0.19.0"],"secret":"operator-settings-secret"}\n'
+                ),
+                target / "models-store.json": b"catalog-secret\n",
+                target / "auth.json": b"auth-secret\n",
+                target / "mcp.json": b"mcp-secret\n",
+                target / "themes/custom-theme.json": b"theme-secret\n",
+                target / "npm/node_modules/operator-runtime/package.json": b"package-secret\n",
+                target / "npm/node_modules/operator-runtime/dist/index.js": b"extension-secret\n",
+                target / "runtime/state.sentinel": b"runtime-state-secret\n",
             }
             for path, content in operator_files.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
                 path.chmod(0o640)
             snapshots = {
@@ -628,36 +436,22 @@ class PiInstallTests(unittest.TestCase):
             }
             output = io.StringIO()
             with mock.patch("sys.stdout", output):
-                install.install(
-                    target,
-                    dry_run=True,
-                    adopt=True,
-                    profile="deepseek",
-                    source=source,
-                )
+                install.install(target, dry_run=True, adopt=True, profile="deepseek")
             report = output.getvalue()
             for secret in (
-                "target-settings-secret", "target-catalog-secret", "target-mcp-secret",
-                "deepseek-mcp-secret",
+                "operator-settings-secret", "catalog-secret", "auth-secret", "mcp-secret",
+                "theme-secret", "package-secret", "extension-secret", "runtime-state-secret",
             ):
                 self.assertNotIn(secret, report)
-            for path in (
-                *operator_files,
-                source / "settings.json",
-                source / "models-store.json",
-                source / "mcp.json",
-            ):
+            for path in operator_files:
                 self.assertNotIn(str(path), report)
-            self.assertIn(
-                str(target / "extensions/agent-orchestration/git-read.ts"),
-                report,
-            )
             for path, snapshot in snapshots.items():
                 self.assertEqual(
                     (path.read_bytes(), path.stat().st_mode & 0o777),
                     snapshot,
                 )
             self.assertFalse((target / install.MANIFEST_NAME).exists())
+            self.assertFalse((target / "npm/node_modules/pi-subagents").exists())
 
     def test_manifest_migration_preserves_operator_files_and_removes_retired_project_artifacts(self):
         """Legacy claims are dropped without touching operator files or stale project artifacts."""
@@ -670,16 +464,8 @@ class PiInstallTests(unittest.TestCase):
             for profile in profiles:
                 with self.subTest(profile=profile):
                     target = root / profile
-                    source = None
-                    if profile == "hybrid":
-                        write_pi_runtime(target)
-                    elif profile == "deepseek":
-                        source = write_deepseek_source(root / f"{profile}-source")
-                    else:
-                        write_pi_runtime(target)
-                        source = write_deepseek_source(root / f"{profile}-source")
                     with mock.patch.object(Path, "home", return_value=fake_home):
-                        install.install(target, dry_run=False, profile=profile, source=source)
+                        install.install(target, dry_run=False, profile=profile)
                     manifest_path = target / install.MANIFEST_NAME
                     manifest = json.loads(manifest_path.read_text())
                     manifest["roles"].append("spec-writer")
@@ -718,7 +504,7 @@ class PiInstallTests(unittest.TestCase):
                     with mock.patch.object(Path, "home", return_value=fake_home), mock.patch(
                         "sys.stdout", output
                     ):
-                        install.install(target, dry_run=False, profile=profile, source=source)
+                        install.install(target, dry_run=False, profile=profile)
                     current = json.loads(manifest_path.read_text())
                     self.assertNotIn("spec-writer", current["roles"])
                     self.assertNotIn("extensions/agent-orchestration/planning-artifact-guard.js", current["managed_extensions"])
@@ -742,7 +528,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "hybrid"
-            write_pi_runtime(target)
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="hybrid")
             manifest_path = target / install.MANIFEST_NAME
@@ -810,7 +595,6 @@ class PiInstallTests(unittest.TestCase):
             fake_home = Path(directory) / "home"
             fake_home.mkdir()
             with mock.patch.object(Path, "home", return_value=fake_home):
-                write_pi_runtime(target)
                 install.install(target, dry_run=False, adopt=True)
 
                 manifest_path = target / ".agent-orchestration.pi-manifest.json"
@@ -847,9 +631,33 @@ class PiInstallTests(unittest.TestCase):
                     fake_home.mkdir()
                     target = root / "agent"
                     target.mkdir()
-                    write_pi_runtime(target)
-                    settings = target / "settings.json"
-                    settings.write_text('{"packages":["user-package"],"extensions":["user.ts"]}\n')
+                    operator_files = {
+                        target / "settings.json": (
+                            b'{"packages":["npm:@tintinweb/pi-subagents@0.19.0", "npm:user-extension"]}\n',
+                            0o640,
+                        ),
+                        target / "models-store.json": (b"operator-catalog-state\n", 0o600),
+                        target / "auth.json": (b"\\xffoperator-auth-opaque", 0o600),
+                        target / "mcp.json": (b"\\xffoperator-mcp-opaque", 0o640),
+                        target / "themes/custom-theme.json": (b"operator-theme\n", 0o644),
+                        target / "npm/node_modules/operator-runtime/package.json": (
+                            b"operator-package\n",
+                            0o640,
+                        ),
+                        target / "npm/node_modules/operator-runtime/dist/index.js": (
+                            b"operator-extension\n",
+                            0o644,
+                        ),
+                        target / "runtime/state.sentinel": (b"runtime-state", 0o600),
+                    }
+                    for path, (content, mode) in operator_files.items():
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(content)
+                        path.chmod(mode)
+                    snapshots = {
+                        path: (path.read_bytes(), path.stat().st_mode & 0o777)
+                        for path in operator_files
+                    }
                     before = sorted(
                         path.relative_to(target) for path in target.rglob("*")
                     )
@@ -863,7 +671,8 @@ class PiInstallTests(unittest.TestCase):
 
                     after = sorted(path.relative_to(target) for path in target.rglob("*"))
                     self.assertEqual(after, before)
-                    self.assertEqual(
-                        settings.read_text(),
-                        '{"packages":["user-package"],"extensions":["user.ts"]}\n',
-                    )
+                    for path, snapshot in snapshots.items():
+                        self.assertEqual(
+                            (path.read_bytes(), path.stat().st_mode & 0o777),
+                            snapshot,
+                        )
