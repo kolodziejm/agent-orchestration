@@ -6,7 +6,7 @@ import { StringEnum, Type } from "@earendil-works/pi-ai";
 /**
  * This extension is intentionally the only place in the repository that uses
  * child_process.spawn. It is a Git-specific, fixed-argv reader rather than a
- * general command runner. Pi 0.85.1's pi.exec buffers output before resolving,
+ * general command runner. The host's pi.exec buffers output before resolving,
  * so it cannot provide the aggregate transient cap required here.
  */
 export const GIT_EXECUTABLE = "git";

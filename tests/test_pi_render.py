@@ -134,6 +134,30 @@ class PiRenderTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIn(text, readme)
 
+    def test_manifest_uses_internal_bundle_schema_without_runtime_identity(self):
+        """The manifest version names the internal bundle schema, never a runtime package."""
+        expected_keys = {
+            "format_version", "roles", "profiles", "launchers",
+            "managed_extensions", "workflows", "shared",
+        }
+        for profile_name in EXPECTED:
+            with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / profile_name
+                result = subprocess.run(
+                    [sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)],
+                    cwd=ROOT, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                manifest = json.loads((output / "manifest.json").read_text())
+                self.assertEqual(manifest["format_version"], 1)
+                self.assertEqual(set(manifest), expected_keys)
+                self.assertNotIn("adapter", manifest)
+                self.assertNotIn("adapter_format", manifest)
+                for guidance in ("_shared/degradations.md", "_shared/control-plane.json"):
+                    content = (output / guidance).read_text()
+                    self.assertNotIn("pi-subagents", content)
+                    self.assertNotIn("0.67.0", content)
+
     def test_hybrid_deepseek_price_refresh_aligns_to_utc_minute_boundaries(self):
         """A session started mid-minute must update exactly when a pricing boundary begins."""
         source = ROOT / "adapters/pi/extensions/deepseek-price-status.js"
@@ -657,7 +681,7 @@ console.log(JSON.stringify({ queries, statuses }));
                 degradation = (output / "_shared/degradations.md").read_text()
                 self.assertIn("64 KiB/2,000-line caps", degradation)
                 self.assertIn("bounded `spawn` helper", degradation)
-                self.assertIn("Pi 0.85.1's", degradation)
+                self.assertIn("unbounded `pi.exec` buffering", degradation)
                 self.assertIn("acceptanceRole: read-only", degradation)
                 self.assertIn("does not grant or revoke tools", degradation)
                 explorer = (output / "agents/explorer.md").read_text()

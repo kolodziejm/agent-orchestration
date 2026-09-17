@@ -56,13 +56,33 @@ class ToolingContractTests(unittest.TestCase):
                 manifest = json.loads(
                     (isolated / "generated" / "pi" / profile / "manifest.json").read_text()
                 )
-                self.assertEqual(manifest["adapter"], "pi-subagents")
-                self.assertEqual(manifest["adapter_format"], "0.67.0")
+                self.assertEqual(manifest["format_version"], 1)
+                self.assertNotIn("adapter", manifest)
+                self.assertNotIn("adapter_format", manifest)
                 self.assertEqual(manifest["profiles"], [profile])
                 self.assertTrue(manifest["roles"])
                 self.assertTrue(
                     (isolated / "generated" / "pi" / profile / "agents" / "worker.md").is_file()
                 )
+                for guidance in ("degradations.md", "control-plane.json"):
+                    content = (
+                        isolated / "generated" / "pi" / profile / "_shared" / guidance
+                    ).read_text()
+                    self.assertNotIn("pi-subagents", content)
+                    self.assertNotIn("0.67.0", content)
+
+            readme = (isolated / "README.md").read_text()
+            for phrase in (
+                "internal orchestration bundle schema",
+                "manifest-owned policy, agent, workflow, extension, and launcher artifacts",
+                "does not install, select, migrate, or validate framework packages",
+                "settings, catalogs, auth, MCP, themes, and provider state",
+                "Active Tintinweb and other runtime packages remain operator-owned",
+            ):
+                self.assertIn(phrase, readme)
+            self.assertNotIn("--source", readme)
+            self.assertNotIn("--base", readme)
+            self.assertNotIn("bootstrap", readme.lower())
 
             checked = subprocess.run(
                 [str(isolated / "scripts" / "check")],

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely install generated pi-subagents definitions into a Pi user directory."""
+"""Safely install generated orchestration artifacts into a Pi user directory."""
 
 from __future__ import annotations
 
