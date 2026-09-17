@@ -46,11 +46,15 @@ orchestrator
 
 Delegation is for leverage, not ceremony. The primary may directly execute a coherent,
 bounded low- or medium-risk change when no context-protection, independent-verification,
-real parallelism, specialization, or risk separation reason requires delegation. Delegated
-source-changing worker output still requires an independent validator. Workers may author
-tests in scope but must not execute verification; `validator` owns predefined deterministic
-acceptance, including browser/device checks. Both worker tiers are leaves; the primary
-routes visual work directly to existing image-capable roles. `worker` is the routine executor and
+real parallelism, specialization, or risk separation reason requires delegation. Every
+source-changing handoff owns at most one independently verifiable slice and one validator
+checkpoint; unbounded or whole-initiative delegation is prohibited. Each delegation has
+an explicit stop condition and execution cap, and potentially non-brief work runs in the
+background when supported so the primary remains responsive. Delegated source-changing
+worker output still requires an independent validator. Workers may author tests in scope
+but must not execute verification; `validator` owns predefined deterministic acceptance,
+including browser/device checks. Both worker tiers are leaves; the primary routes visual
+work directly to existing image-capable roles. `worker` is the routine executor and
 `worker-complex` is reserved for sufficiently specified changes whose implementation
 requires unusually difficult reasoning. A stronger worker must not compensate for unclear
 product intent. After scope is known, large analysis spanning at least two independent
@@ -230,7 +234,9 @@ definitions. Every role explicitly uses
 inherited project context or skill catalog. The `extensions` field is intentionally
 omitted, so normal Pi extensions remain available subject to each role's strict tool
 allowlist. Each profile package also loads the managed `primary-policy.js` extension.
-On primary `before_agent_start`, it appends the installed
+The rendered Pi shared policy requires `max_turns` on every Agent call, defaults
+source-changing worker calls to `run_in_background: true`, and recommends caps of
+foreground ≤12 turns and background mutation ≤30 turns. On primary `before_agent_start`, it appends the installed
 `agent-orchestration/_shared/orchestration-core.md` exactly once; child processes marked
 `PI_SUBAGENT_CHILD=1` are left unchanged. This uses Pi's system-prompt hook without
 managing or replacing user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files.

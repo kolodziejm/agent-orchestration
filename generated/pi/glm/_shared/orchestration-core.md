@@ -26,6 +26,15 @@ Independent ready mutation lanes are parallel-by-default when the harness can pr
 
 After scope is known, a large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel, non-overlapping `explorer` evidence lanes concurrently. In Pi, launch one `workflowScript` wave with `runs.all`; other harnesses use their equivalent concurrent batch. After the fanout barrier, exactly one synthesis owner/writer follows, and implementation validation remains serial after that writer. Serialization is permitted only for a genuine data dependency, indivisible shared state, or too-small scope; the delegation or handoff must record the applicable reason. Do not turn this rule into runtime parsing, a workflow engine, or harness-specific enforcement.
 
+### Bounded delegation and responsiveness
+
+- Unbounded or whole-initiative delegation is prohibited. One source-changing handoff owns at most one independently verifiable slice and one validator checkpoint; broad changes MUST be split before launch and MUST NOT be handed wholesale to `worker-complex`.
+- Every delegation MUST state an explicit stopping condition and use the strongest supported execution cap (turn, runtime, or tool-call). Reaching the cap returns partial progress or `BLOCKED` and never self-extends.
+- Potentially non-brief work MUST run in the background when the harness supports it so the primary remains responsive. Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action.
+- The primary announces the bounded slice before launch and reports completion, blocker, and checkpoint events without polling.
+- After each mutation slice, serial validation or checkpoint occurs before the next dependent slice is launched.
+- If a task cannot be safely bounded, pause and decompose it or ask the user rather than launching it.
+
 ### Internal orchestration language
 
 Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and non-user-facing child reports default to concise technical English. Preserve quoted user requirements in their original language when nuance matters and add a concise English normalization. Keep user-facing replies and explicitly user-facing artifacts in the language requested by the user; never force internal reports into Polish merely because the user-facing conversation is Polish.
@@ -239,3 +248,7 @@ Keep orchestration event-based: wait for completion, a blocker, a decision, or a
 - `glm-5.3` is the text-only Sol/control-plane model. `glm-5.3-flash` is the image-capable Luna/small-model model; use it for roles that must inspect supplied images or screenshots.
 - Both GLM models have a 1,000,000-token context window and support the Pi thinking levels `low`, `high`, and `max`. Authentication is intentionally deferred to `/login zai` after launching `pi-glm`; this profile installer never copies or creates credentials.
 - The GLM-5.3 status footer uses the official weekday 06:00–10:00 UTC peak window (14:00–18:00 Singapore time): `GLM peak ×3`; all other times, including weekends, show `GLM off-peak ×1`. GLM-5.3-Flash is billed at ×1.2 peak and ×0.4 off-peak; these Flash multipliers are documented separately and are not shown in the compact primary footer.
+
+## Pi operational note
+
+For every Pi Agent call, set `max_turns`. Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`; foreground calls require a clearly brief, bounded scope and a low turn cap. Use conservative defaults of foreground ≤12 turns and background mutation ≤30 turns. Apply the canonical cap behavior: exceeding a slice requires a new orchestrator decision rather than automatic continuation.

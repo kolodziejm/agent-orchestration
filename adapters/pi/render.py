@@ -72,6 +72,10 @@ DELEGATION_EXTENSION_FILES = (
     "delegation-ceiling-reviewer.js",
 )
 PROFILE_EXTENSION_FILES = (*DELEGATION_EXTENSION_FILES, "git-read.ts", "primary-policy.js")
+PI_OPERATIONAL_NOTE = """## Pi operational note
+
+For every Pi Agent call, set `max_turns`. Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`; foreground calls require a clearly brief, bounded scope and a low turn cap. Use conservative defaults of foreground ≤12 turns and background mutation ≤30 turns. Apply the canonical cap behavior: exceeding a slice requires a new orchestrator decision rather than automatic continuation.
+"""
 READ_TOOLS = ["read", "grep", "find", "ls"]
 # Pi's MCP directTools expose these concrete names. This is intentionally a
 # role-specific exception rather than a general capability abstraction: the
@@ -299,7 +303,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     policy = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
     addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
     (output / "_shared" / "orchestration-core.md").write_text(
-        f"{policy}\n\n{addendum}\n"
+        f"{policy}\n\n{addendum}\n\n{PI_OPERATIONAL_NOTE}"
     )
     (output / "_shared" / "control-plane.json").write_text(
         json.dumps(control_plane(profile, allowed_providers, profile_name), indent=2, sort_keys=True) + "\n"

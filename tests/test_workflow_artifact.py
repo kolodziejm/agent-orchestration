@@ -72,7 +72,12 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 ("pi-deepseek", outputs["pi-deepseek"] / "_shared" / "orchestration-core.md"),
                 ("pi-glm", outputs["pi-glm"] / "_shared" / "orchestration-core.md"),
             ):
-                self.assertIn("Mandatory analysis fanout", core_path.read_text(), name)
+                content = core_path.read_text()
+                self.assertIn("Mandatory analysis fanout", content, name)
+                if name.startswith("pi-"):
+                    self.assertIn("For every Pi Agent call, set `max_turns`", content, name)
+                else:
+                    self.assertNotIn("For every Pi Agent call", content, name)
             self.assertNotIn("# Feature Workflow Pilot", (outputs["opencode"] / "profiles" / "_shared" / "orchestration-core.md").read_text())
             self.assertNotIn("# Feature Workflow Pilot", (outputs["codex"] / "AGENTS.md").read_text())
             self.assertNotIn("# Feature Workflow Pilot", (outputs["claude-code"] / "_shared" / "orchestration-core.md").read_text())
@@ -90,6 +95,14 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "one synthesis owner/writer",
             "implementation validation remains serial",
             "genuine data dependency, indivisible shared state, or too-small scope",
+            "### Bounded delegation and responsiveness",
+            "Unbounded or whole-initiative delegation is prohibited",
+            "at most one independently verifiable slice and one validator checkpoint",
+            "strongest supported execution cap (turn, runtime, or tool-call)",
+            "Potentially non-brief work MUST run in the background",
+            "reports completion, blocker, and checkpoint events without polling",
+            "serial validation or checkpoint occurs before the next dependent slice",
+            "cannot be safely bounded, pause and decompose it or ask the user",
             "Handoffs, task instructions, workflow labels, schemas, acceptance contracts",
             "original language when nuance matters",
             "user-facing replies and explicitly user-facing artifacts in the language requested by the user",

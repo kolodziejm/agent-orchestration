@@ -4,6 +4,11 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Add bounded delegation and responsiveness rules: source-changing handoffs own one
+  independently verifiable slice and validator checkpoint, capped work stops without
+  self-extension, and potentially non-brief work stays in the background when supported.
+  Pi renders explicit `max_turns` and `run_in_background` guidance with conservative
+  foreground and background mutation defaults.
 - Remove dedicated `vision-*` delegation: `worker` and `worker-complex` are leaves, and
   vision-incapable primaries route directly to existing image-capable roles.
 - Simplify orchestration by removing the `spec-writer` role and planning-artifact guard;
