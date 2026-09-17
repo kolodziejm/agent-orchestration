@@ -67,6 +67,12 @@ reports default to concise technical English; preserve original-language quotati
 an English normalization when nuance matters, while user-facing replies and artifacts stay
 in the user's requested language.
 
+## Reviewable-PR delivery
+
+When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Use one coherent concern per PR (and per fallback unit). The target is `<=400` human-authored maintained changed lines and `<=12` human-authored maintained changed files. Generated artifacts and lockfiles are excluded from those limits, but their lines/files are counted and reported separately. A `401–800` line or `13–24` file slice needs concrete rationale and explicit user approval before implementation or promotion; `>800` lines or `>24` files must be split and cannot be approved wholesale.
+
+If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees, while promotion and checkpoints stay ordered. After every PR or fallback unit, present a bird's-eye checkpoint covering purpose/concern, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, validation evidence, residual work, and the next proposed unit; ask explicitly before proceeding. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
+
 ## OpenCode adapter
 
 Requires Python 3.11 or newer (`python3` on `PATH`).
@@ -421,8 +427,10 @@ credential-free, and never invokes a provider. An optional paid OpenAI integrati
 canary is deliberately separate and local-only; it is available but not run by
 CI/default checks. It refuses without both explicit opt-in and acknowledgement,
 refuses whenever `CI` is set, requires the existing `pi-openai` launcher, and bounds
-its temporary workspace, runtime, output, and child count. Run it only when you
-accept OpenAI usage:
+its temporary workspace, runtime, output, and child count. The deterministic stalled
+`debugger`/`validator` coverage uses a local fake launcher to exercise the harness-owned
+wall-clock and cleanup boundary; it does not certify upstream Pi child scheduling or
+cancellation. Run it only when you accept OpenAI usage:
 
 ```bash
 AGENT_ORCHESTRATION_PI_LIVE_CANARY=1 \

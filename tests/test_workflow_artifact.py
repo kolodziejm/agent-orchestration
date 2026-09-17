@@ -143,6 +143,18 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "A steering message or request to stop is not equivalent to termination",
             "Never report an agent or task as terminated until it reaches a terminal state",
             "no replacement agent may duplicate the same scope while the prior task remains non-terminal",
+            "#### Debugger and validator handoff contract",
+            "Every primary handoff to `debugger` or `validator` MUST name",
+            "bounded scope and exact checks",
+            "terminal condition",
+            "whole-lane deadline or maximum wait",
+            "per-call timeout and termination expectation",
+            "progress evidence",
+            "last meaningful progress time",
+            "unfinished operation",
+            "exact prerequisite",
+            "declarative handoff contract",
+            "Do not invent a scheduler, watchdog, cancellation API, or timeout capability",
         )
         for phrase in bounded_phrases:
             self.assertIn(phrase, bounded_block)
@@ -204,6 +216,61 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 for phrase in pi_phrases:
                     self.assertIn(phrase, content, name)
 
+    def test_pilot_propagates_reviewable_delivery_boundaries_and_checkpoint_requirements(self):
+        """This fails when the pilot can start another slice without a bounded review unit or checkpoint."""
+        workflow = WORKFLOW.read_text()
+        start = workflow.index("### Explicit delivery slices and ordered review units")
+        end = workflow.index("For a large initiative, persist a mindmap", start)
+        delivery = workflow[start:end]
+
+        for phrase in (
+            "one bounded PR or fallback review unit and use one coherent concern per PR",
+            "suitable hosting/remote support and harness capability/authorization",
+            "PR is the default delivery unit",
+            "equivalently reviewable local branch, commit, or patch",
+            "does not assume a hosting provider or authorize automatic",
+            "branch, commit, push, merge, or PR creation",
+            "<=400` human-authored maintained changed lines",
+            "<=12` human-authored maintained changed files",
+            "generated artifacts and lockfiles",
+            "count and report generated-artifact and lockfile lines/files separately",
+            "401–800",
+            "13–24",
+            "concrete rationale and explicit user approval before implementation or promotion",
+            ">800` human-authored changed lines",
+            ">24` human-authored changed files",
+            "absolute maximum violation",
+            "must be split, not approved wholesale",
+            "isolated, non-overlapping branches or worktrees",
+            "promotion and user checkpoints remain ordered",
+            "After every PR or fallback review unit",
+            "waits for explicit user approval before the next PR or review unit",
+            "purpose/concern",
+            "behavior before/after",
+            "key decisions and approvals",
+            "human-authored diff lines/files",
+            "separate generated-artifact and lockfile lines/files",
+            "affected areas/files",
+            "risks",
+            "validation evidence or `not run`/`BLOCKED` status",
+            "residual work",
+            "next proposed PR or fallback unit",
+            "Earlier initiative or slice approval never implies approval for the next unit",
+        ):
+            self.assertIn(phrase, delivery)
+
+        expected_workflow = workflow
+        for path in (
+            ROOT / "generated" / "opencode" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "codex" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "claude-code" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "pi" / "hybrid" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "pi" / "openai" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "pi" / "deepseek" / "workflows" / "feature-workflow-pilot.md",
+            ROOT / "generated" / "pi" / "glm" / "workflows" / "feature-workflow-pilot.md",
+        ):
+            self.assertEqual(path.read_text(), expected_workflow, path)
+
     def test_pilot_keeps_finding_repairs_decision_gated_without_blanket_authorization(self):
         """REGRESSION CONTRACT: pilot gates cover named scope; later findings need individual outcomes."""
         workflow = WORKFLOW.read_text()
@@ -212,7 +279,14 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "do not authorize future findings discovered by review, audit, exploration, or validation",
             "only a deterministic, reproducible failure of an already-authorized in-scope acceptance criterion",
             "individual Done / Skip / Snooze decision",
-            "concise evidence, impact, recommendation, and scope/cost",
+            "clear, structured explanation",
+            "concrete problem or failure mode and evidence",
+            "affected scope and impact, including user-visible behavior, systems/components/files/contracts",
+            "detailed viable solution options—not just labels",
+            "implementation direction, scope/cost, trade-offs/risks",
+            "recommendation with rationale where appropriate",
+            "self-contained enough that the user does not need to infer context",
+            "These are disposition decisions, not solution selection or ambiguous package authorization.",
             "batch distinct questions up to its limit",
             "each finding remains a separate decision",
             "record every outcome",

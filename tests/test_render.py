@@ -92,6 +92,26 @@ class PolicyContractTests(unittest.TestCase):
                 profile = tomllib.load(handle)
             self.assertEqual(set(profile["models"]), expected, path.name)
 
+    def test_debugger_and_validator_contracts_fail_closed_on_stalled_calls(self):
+        """This fails when a child role can monitor or invoke a blocking call without a bound."""
+        required = (
+            "finite, explicit per-call deadline or timeout",
+            "`max_turns` limits turns only and is never a tool timeout",
+            "whole-lane deadline or maximum wait",
+            "Do not monitor or poll indefinitely",
+            "silently self-extend",
+            "cancel or terminate the underlying call/child",
+            "fail closed with `BLOCKED`",
+            "last meaningful progress",
+            "exact prerequisite needed to resume",
+        )
+        for role in ("debugger", "validator"):
+            contract = (ROLES / f"{role}.md").read_text()
+            start = contract.index("## Anti-stall execution contract")
+            anti_stall = contract[start:]
+            for phrase in required:
+                self.assertIn(phrase, anti_stall, role)
+
 
 class OpenCodeRenderTests(unittest.TestCase):
     def test_renderer_intentionally_excludes_pi_profiles(self):
@@ -669,6 +689,75 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             self.assertEqual(len({path.parents[3].name for path in backups}), 2)
 
 
+class OpenCodeInstallTimeoutTests(unittest.TestCase):
+    def test_renderer_timeout_is_finite_and_leaves_target_untouched(self):
+        """This fails when a stalled repository renderer can block installation indefinitely."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            sentinel = target / "sentinel.txt"
+            sentinel.write_text("preserve me")
+            calls = []
+
+            def run(command, **kwargs):
+                calls.append((command, kwargs))
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+            with mock.patch.object(install.subprocess, "run", side_effect=run):
+                with self.assertRaises(install.InstallTimeoutError) as raised:
+                    install.install(target, dry_run=False, validate=False)
+
+            self.assertEqual(calls[0][1]["timeout"], install.RENDER_TIMEOUT_SECONDS)
+            self.assertIn("OpenCode renderer timed out", str(raised.exception))
+            self.assertIn("no target files were changed", str(raised.exception))
+            self.assertEqual(sentinel.read_text(), "preserve me")
+
+    def test_config_validation_timeout_rolls_back_mutations_with_actionable_error(self):
+        """This fails when a stalled config diagnostic leaves a partial installation behind."""
+        install = load_install_module()
+        renderer = load_render_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            config_path = target / "profiles" / "openai" / "opencode.json"
+            config_path.parent.mkdir(parents=True)
+            original = json.dumps({"sentinel": "keep"})
+            config_path.write_text(original)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            validation_calls = []
+
+            def run(command, **kwargs):
+                if command[:2] == [sys.executable, str(RENDER)]:
+                    output = Path(command[command.index("--output") + 1])
+                    renderer.render(output)
+                    return subprocess.CompletedProcess(command, 0)
+                validation_calls.append((command, kwargs))
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+            with mock.patch.object(install.subprocess, "run", side_effect=run):
+                with mock.patch.object(Path, "home", return_value=fake_home):
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(install.InstallTimeoutError) as raised:
+                            install.install(target, dry_run=False, validate=True)
+
+            self.assertEqual(
+                validation_calls[0][0], ["opencode", "debug", "config"]
+            )
+            self.assertEqual(
+                validation_calls[0][1]["timeout"],
+                install.OPENCODE_CONFIG_TIMEOUT_SECONDS,
+            )
+            self.assertIn("opencode debug config", str(raised.exception))
+            self.assertIn(str(config_path), str(raised.exception))
+            self.assertIn("rolled back", str(raised.exception))
+            self.assertEqual(config_path.read_text(), original)
+            self.assertFalse((target / install.MANIFEST_NAME).exists())
+            self.assertFalse((target / "agents" / "debugger.md").exists())
+
+
 class OpenCodeInstallValidationTests(unittest.TestCase):
     def test_validation_checks_only_locally_configured_profiles(self):
         """REGRESSION CONTRACT: validate configured profiles only; TEST LAYER: installer integration test."""
@@ -707,6 +796,10 @@ class OpenCodeInstallValidationTests(unittest.TestCase):
             self.assertEqual(
                 [call[0] for call in validation_calls],
                 [["opencode", "debug", "config"]],
+            )
+            self.assertEqual(
+                [call[1]["timeout"] for call in validation_calls],
+                [install.OPENCODE_CONFIG_TIMEOUT_SECONDS],
             )
             self.assertEqual(
                 {

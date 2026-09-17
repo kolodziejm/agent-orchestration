@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "policy" / "orchestration.md"
 ROLE_CONTRACTS = {
     role: (ROOT / "roles" / f"{role}.md").read_text()
-    for role in ("planner", "reviewer", "validator")
+    for role in ("planner", "reviewer", "debugger", "validator")
 }
 
 

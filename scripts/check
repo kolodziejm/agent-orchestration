@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
 if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" && -z "${VIRTUAL_ENV:-}" && -z "${UV_RUN_RECURSION_DEPTH:-}" ]]; then
   exec env AGENT_ORCHESTRATION_UV_RUN=1 uv run --locked --project "$ROOT" "$0" "$@"
 fi
@@ -12,6 +10,9 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; th
   printf '%s\n' 'Python 3.11+ is required; run this command with: uv run --locked ./scripts/check' >&2
   exit 2
 fi
+
+TMP="$("$PYTHON" -c 'import tempfile; print(tempfile.mkdtemp(prefix="agent-orchestration-check-"))')"
+trap 'rm -rf "$TMP"' EXIT
 
 "$PYTHON" "$ROOT/adapters/validate.py"
 "$PYTHON" -m unittest discover -s "$ROOT/tests" -v

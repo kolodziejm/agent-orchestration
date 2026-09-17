@@ -74,6 +74,11 @@ SOURCE_EVENT_TYPE_KEYS = frozenset({"sourceeventtype", "source_event_type"})
 RECORD_TYPE_KEYS = frozenset({"recordtype", "record_type"})
 GENERIC_RECORD_KINDS = frozenset({"event", "record", "session", "message"})
 EVENT_KINDS = TOOL_START_KINDS | TOOL_END_KINDS
+# These are the bounded, harness-observable progress shapes used by the
+# deterministic stalled-role simulation. They are deliberately narrower than
+# arbitrary provider transcript text so the canary never exposes it.
+ROLE_STALL_ROLES = frozenset({"debugger", "validator"})
+ROLE_PROGRESS_KINDS = frozenset({"progress", "agent_progress", "checkpoint"})
 
 
 class CanaryError(Exception):
@@ -407,6 +412,41 @@ def target_of_event(event: dict[str, Any]) -> str | None:
     return _find_target(event)
 
 
+def stalled_role_evidence(events: list[dict[str, Any]]) -> dict[str, bool]:
+    """Recognize a bounded debugger/validator stall shape from launcher events.
+
+    Pi's upstream child scheduler and tool cancellation remain outside this
+    repository. This detector therefore does not claim to exercise that
+    scheduler: it only records whether the harness saw role progress followed
+    by a role-owned tool/child start before the launcher deadline expired.
+    """
+    progress_roles: set[str] = set()
+    stalled_roles: set[str] = set()
+    for event in events:
+        for value in _iter_nested_values(event):
+            if not isinstance(value, dict):
+                continue
+            role = target_of_event(value)
+            if role not in ROLE_STALL_ROLES:
+                continue
+            kind = _direct_event_kind(value)
+            normalized_kind = (
+                kind.lower().replace("-", "_") if isinstance(kind, str) else ""
+            )
+            if normalized_kind in ROLE_PROGRESS_KINDS:
+                progress_roles.add(role)
+                continue
+            if kind in TOOL_START_KINDS and role in progress_roles:
+                stalled_roles.add(role)
+
+    return {
+        "debugger_progress": "debugger" in progress_roles,
+        "validator_progress": "validator" in progress_roles,
+        "blocking_operation_started": bool(stalled_roles),
+        "stalled_role_after_progress": bool(stalled_roles),
+    }
+
+
 def event_id(event: dict[str, Any]) -> str | None:
     for value in _iter_nested_values(event):
         if isinstance(value, dict):
@@ -699,7 +739,7 @@ def _run_launcher(
     def pump(name: str, stream: Any) -> None:
         try:
             while True:
-                data = stream.read(4096)
+                data = stream.read1(4096)
                 if not data:
                     break
                 stream_queue.put((name, data))
@@ -810,6 +850,10 @@ def run_canary(launcher: Path, timeout_seconds: float, max_output_bytes: int) ->
         "marker_unchanged": False,
         "workspace_clean": False,
         "unexpected_parent_tool_count": 0,
+        "debugger_progress": False,
+        "validator_progress": False,
+        "blocking_operation_started": False,
+        "stalled_role_after_progress": False,
     }
     category = "internal-error"
     try:
@@ -824,6 +868,8 @@ def run_canary(launcher: Path, timeout_seconds: float, max_output_bytes: int) ->
             timeout_seconds=timeout_seconds,
             max_output_bytes=max_output_bytes,
         )
+        stall_evidence = stalled_role_evidence(events)
+        evidence.update(stall_evidence)
         try:
             marker_unchanged = marker.exists() and marker.read_bytes() == marker_before
         except OSError:
@@ -840,9 +886,15 @@ def run_canary(launcher: Path, timeout_seconds: float, max_output_bytes: int) ->
                 workspace_clean=workspace_clean,
                 parse_failed=parse_failed,
             )
+            evidence.update(stall_evidence)
             # Process safety bounds are authoritative and must not be masked
-            # by the incomplete evidence left after a forced termination.
-            category = process_category or evaluated_category
+            # by the incomplete evidence left after a forced termination. The
+            # more specific category is reserved for the bounded harness-owned
+            # debugger/validator stall shape.
+            if process_category == "timeout" and stall_evidence["stalled_role_after_progress"]:
+                category = "stalled-role-timeout"
+            else:
+                category = process_category or evaluated_category
         except CanaryError as error:
             category = error.category
             evidence["marker_unchanged"] = marker_unchanged

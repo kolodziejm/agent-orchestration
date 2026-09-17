@@ -45,6 +45,12 @@ After scope is known, a large analysis spanning at least two independent top-lev
 - After each mutation slice, serial validation or checkpoint occurs before the next dependent slice is launched.
 - If a task cannot be safely bounded, pause and decompose it or ask the user rather than launching it.
 
+#### Debugger and validator handoff contract
+
+Every primary handoff to `debugger` or `validator` MUST name all of the following: the bounded scope and exact checks; the terminal condition; the whole-lane deadline or maximum wait; the per-call timeout and termination expectation for every potentially blocking operation; and the progress evidence that must be reported. The progress evidence MUST include the last meaningful progress time, observable evidence, unfinished operation, and exact prerequisite when the lane expires or blocks. The handoff MUST forbid indefinite monitoring, retry past the lane deadline, and silent self-extension.
+
+This is a declarative handoff contract, not a runtime supplied by this repository. Do not invent a scheduler, watchdog, cancellation API, or timeout capability that the selected harness does not provide. If the named harness cannot enforce a per-call deadline and terminate the operation, the handoff must keep that operation out of the child lane and require `BLOCKED` instead.
+
 ### Internal orchestration language
 
 Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and non-user-facing child reports default to concise technical English. Preserve quoted user requirements in their original language when nuance matters and add a concise English normalization. Keep user-facing replies and explicitly user-facing artifacts in the language requested by the user; never force internal reports into Polish merely because the user-facing conversation is Polish.
@@ -128,6 +134,40 @@ This is a narrow standing exception to review-on-demand and documentation-only v
 
 For a large or uncertain initiative, apply the optional Feature Workflow Pilot in `workflows/feature-workflow-pilot.md`. Adapters package that artifact separately and must not inline its detailed procedure into every base prompt.
 
+## Reviewable-PR delivery contract
+
+When a repository has suitable hosting or remote support and the harness has the required capability and authorization, pull requests are the default delivery and review unit. Otherwise, use an equivalently reviewable local branch, commit, or patch and say explicitly which fallback was prepared. This contract does not grant authority to create, push, or merge branches, commits, or pull requests, does not assume a particular hosting provider, and must never claim that a remote action occurred when it did not. Use one coherent concern per PR (and per fallback review unit); unrelated concerns must be split even when the size limits would allow them together.
+
+### Slice accounting and approval
+
+Plans and implementation handoffs must account for the proposed review unit before work starts and again at completion. Count only human-authored maintained changes for the limits: human-authored changed lines and human-authored changed files. Generated artifacts and lockfiles are excluded from both limits, but their changed lines and files must be counted and reported separately. The accounting must distinguish at least human-authored lines/files, generated-artifact lines/files, and lockfile lines/files; do not hide excluded changes in the human-authored totals.
+
+- Prefer a slice at or below both target limits: `<=400` human-authored changed lines and `<=12` human-authored changed files.
+- A proposed slice above either target and within the hybrid band—`401–800` human-authored changed lines or `13–24` human-authored changed files—requires a concrete rationale and explicit user approval before implementation or promotion. Approval for one slice does not authorize a different slice or a later threshold breach.
+- `>800` human-authored changed lines or `>24` human-authored changed files is an absolute ceiling violation. The work must be split into smaller review units and must not be approved wholesale. Exactly `800` lines or `24` files is still at the ceiling and requires the above-target rationale and approval when the other target is also respected.
+- Prefer smaller slices below the targets when concern, dependency, validation, or review boundaries warrant them. Do not trade a line excess for a file excess or use generated/lockfile exclusions to conceal maintained work.
+
+The plan and handoff must name the single concern, review-unit boundary, expected accounting, affected areas, dependencies and ordering, and whether above-target approval is required. If implementation would cross an unapproved target, the worker stops before the threshold breach, reports the current accounting, and returns for an explicit decision or a split. No worker or orchestrator may continue past the absolute ceiling.
+
+### Ordered implementation and checkpoints
+
+Independent implementation may run in parallel only in isolated, non-overlapping branches or worktrees. This does not relax the existing fanout, bounded delegation, or serial validation rules: a parallel lane cannot bypass slice accounting, and promotion of PRs or fallback review units remains ordered. After each mutation slice, the required validation or checkpoint occurs before the next dependent slice is launched; after every PR or fallback review unit, the orchestrator must present the checkpoint below and wait for the user's explicit approval before proceeding to the next PR or review unit. Approval for the initiative, an earlier slice, or an earlier checkpoint is not approval for the next one. This contract does not change the review-on-demand, reviewer-verdict, independent-validation, or release-promotion gates elsewhere in this policy.
+
+The bird's-eye checkpoint after every PR or fallback review unit must include:
+
+- purpose and single concern;
+- behavior before and after;
+- key decisions and approvals, including any above-target rationale;
+- human-authored diff statistics: changed lines and files;
+- generated-artifact and lockfile statistics separately: changed lines and files for each;
+- affected areas and files;
+- risks and mitigations;
+- validation evidence, or an explicit `not run`/`BLOCKED` status and prerequisite;
+- residual work;
+- the next proposed PR or fallback review unit, if any.
+
+Completion reports and validation summaries must keep delivery status, diff accounting, and validation evidence distinct. They must identify the review unit and fallback status without implying that a remote PR, push, merge, or review occurred. When there is no next unit, report that explicitly rather than inferring permission to start more work.
+
 ## Implementation
 
 Give `worker` or `worker-complex` the approved scope, acceptance criteria, relevant planning artifacts, exclusions, and evidence already available. Use ordinary `worker` by default. Use `worker-complex` only when behavior is sufficiently specified but implementation itself requires unusually difficult reasoning. Missing or ambiguous requirements belong with the orchestrator or planner, not a stronger worker.
@@ -185,7 +225,7 @@ A **new finding** is every actionable issue that is not an acceptance blocker. T
 
 Critical security or data-loss findings must stop progress and be presented immediately. They are not silently auto-fixed unless their exact repair was already explicitly authorized by the original scope or acceptance criterion. A P0/security finding from a reviewer or UX critic is a new finding requiring an individual decision unless that deterministic security criterion is already authorized and has failed. P0/security severity and urgency do not bypass the decision gate.
 
-Before launching a repair worker for each non-blocker finding, the primary orchestrator must present concise evidence, impact, recommendation, and scope/cost, then ask one individual `Done` / `Skip` / `Snooze` question for that finding. Each actionable finding has a stable ID and exactly one recorded outcome. That outcome must be one of `Done`, `Skip`, `Snooze`, or an explicitly equivalent custom decision. `Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it without silently creating a ticket or artifact unless separately authorized. If the question tool supports multiple questions, show up to its question-count limit in one interaction and send overflow in additional interactions; every finding remains a separate question and answer, never a package approval by default. Record each outcome in the handoff and final synthesis, and do not re-propose a skipped finding in the same task unless evidence materially changes.
+Before launching a repair worker for each non-blocker finding, the primary orchestrator must present a clear, structured explanation: the concrete problem or failure mode and evidence; what it affects, including user-visible behavior, systems/components/files/contracts, and the practical consequence; and detailed viable solution options—not just labels—including implementation direction, scope/cost, trade-offs/risks, and a recommendation with rationale where appropriate. The individual `Done` / `Skip` / `Snooze` question must be self-contained enough that the user does not need to infer context: identify the finding and present or faithfully summarize the problem, affected scope/impact, and solution options/trade-offs before asking for disposition. Each actionable finding has a stable ID and exactly one recorded outcome. That outcome must be one of `Done`, `Skip`, `Snooze`, or an explicitly equivalent custom decision. `Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it without silently creating a ticket or artifact unless separately authorized. These are disposition decisions, not solution selection and not ambiguous package authorization. If the question tool supports multiple questions, show up to its question-count limit in one interaction and send overflow in additional interactions; every finding remains a separate question and answer, never a package approval by default. Record each outcome in the handoff and final synthesis, and do not re-propose a skipped finding in the same task unless evidence materially changes.
 
 ## Repair budget and stopping rule
 
@@ -224,21 +264,22 @@ The reviewer is read-only and analytical. It must not run formatters, linters, u
 
 ## Reviewer user-verdict gate
 
-After every reviewer result, including re-reviews, the orchestrator must first present a visible `Reviewer findings` section ordered by severity. Every actionable finding must include:
+After every reviewer result, including re-reviews, the orchestrator must first present a visible `Reviewer findings` section ordered by severity. Every actionable finding must include a clear, structured explanation:
 
 - a stable ID;
 - severity: `Critical`, `High`, `Medium`, or `Low`;
 - concise title;
-- evidence and concrete impact;
+- the concrete problem or failure mode and evidence;
+- what it affects, including user-visible behavior, systems/components/files/contracts, and the practical consequence;
 - exact file and line references when available;
 - the reviewer's comment;
-- recommended remediation and meaningful alternatives.
+- detailed viable solution options—not just labels—with implementation direction, scope/cost, trade-offs/risks, and a recommendation with rationale where appropriate.
 
 `Info` is an observation, not an actionable finding, and must not create a remediation question. If action is required, use at least `Low`. If there are no actionable findings, say so explicitly and do not ask remediation questions.
 
 Every reviewer finding is a new finding unless it is already exactly covered by an explicitly approved original acceptance criterion and the proposed repair solely restores that criterion. Reviewer output, recommendations, and severity never authorize remediation; even this narrow exception may enter automatic repair only when it is a deterministic acceptance blocker.
 
-After presenting findings, invoke the configured `question` tool. Require one individual single-choice question per actionable finding. Each question must offer `Done`, `Skip`/`Pomiń`, and `Snooze`; `Done` authorizes only that finding now. If the tool supports multiple questions, show distinct questions up to its question-count limit and send overflow in additional calls; never collapse findings into one package approval by default. Put the recommended choice first and append `(Recommended)` to its label. Rely on the tool's automatic custom/free-text choice for an explicitly equivalent custom decision; do not add `Other` or `Custom`. Use multiple selection only when a finding genuinely supports multiple compatible actions. If the configured question tool is unavailable, reproduce the same choices in plain chat and wait for the user's actual answer; silence is not approval.
+After presenting findings, invoke the configured `question` tool. Require one individual single-choice question per actionable finding. Each question must be self-contained enough that the user does not need to infer context: identify the finding and present or faithfully summarize the concrete problem or failure mode and evidence, affected scope/impact, and detailed solution options with implementation direction, scope/cost, trade-offs/risks, and recommendation/rationale where appropriate. Each question must offer `Done`, `Skip`/`Pomiń`, and `Snooze`; `Done` authorizes only that finding now. These are disposition decisions, not solution selection and not ambiguous package authorization. If the tool supports multiple questions, show distinct questions up to its question-count limit and send overflow in additional calls; never collapse findings into one package approval by default. Put the recommended choice first and append `(Recommended)` to its label. Rely on the tool's automatic custom/free-text choice for an explicitly equivalent custom decision; do not add `Other` or `Custom`. Use multiple selection only when a finding genuinely supports multiple compatible actions. If the configured question tool is unavailable, reproduce the same choices in plain chat and wait for the user's actual answer; silence is not approval.
 
 Do not delegate fixes until the user answers. Only selected or custom-approved scope may be delegated for correction; the default executor is `worker`, except that reviewer-approved planning-artifact corrections under the OpenSpec exception return through planner reasoning and then to the selected worker. Skipped, unselected, declined, implied, or silent approval leaves the finding untouched, including newly discovered Low or Medium findings. Approval for a finding covers the complete correction for that same finding, including residual work required to resolve it, within that finding's own repair budget. Briefly state the approved scope before delegating. Each user-approved finding has its own bounded budget of one correction plus one targeted re-review of the changed scope plus adjacent consequences, independent of the validation repair budget in "Repair budget and stopping rule"; the correction may contain all edits needed for that same finding. This bounded cycle does not authorize repair cycles beyond this finding's own budget. Do not start a broad or automatic review loop. If a finding remains unresolved, its repair budget is exhausted, or the work would require a new scope or product compromise, stop and return to the user for authorization.
 

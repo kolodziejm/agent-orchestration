@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,7 @@ class PiLiveCanaryTests(unittest.TestCase):
                 import json
                 import os
                 import pathlib
+                import subprocess
                 import sys
                 import time
 
@@ -36,6 +38,20 @@ class PiLiveCanaryTests(unittest.TestCase):
                 if argument_record:
                     pathlib.Path(argument_record).write_text(json.dumps(sys.argv[1:]))
                 mode = {mode!r}
+                if mode in ("stalled-debugger", "stalled-validator"):
+                    role = mode.removeprefix("stalled-")
+                    tool_name = "subagent" if role == "debugger" else "bash"
+                    print(json.dumps({{"type": "progress", "agent": role, "phase": "initial"}}), flush=True)
+                    print(json.dumps({{"type": "tool_execution_start", "toolName": tool_name, "args": {{"agent": role}}}}), flush=True)
+                    child_complete = os.environ.get("FAKE_CHILD_COMPLETED")
+                    if role == "debugger" and child_complete:
+                        subprocess.Popen([
+                            sys.executable,
+                            "-c",
+                            "import pathlib, sys, time; time.sleep(2); pathlib.Path(sys.argv[1]).write_text('completed')",
+                            child_complete,
+                        ], start_new_session=False)
+                    time.sleep(10)
                 if mode == "timeout":
                     time.sleep(10)
                 if mode == "output-bound":
@@ -180,6 +196,46 @@ class PiLiveCanaryTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(payload["category"], category)
                 self.assertNotIn("SECRET", result.stdout + result.stderr)
+
+    def test_harness_owned_debugger_child_stall_has_bounded_terminal_result_and_cleanup(self):
+        """This proves only the harness-owned stall shape, not upstream Pi scheduling."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child_complete = root / "debugger-child-completed"
+            result, payload, _marker = self.run_canary(
+                root,
+                mode="stalled-debugger",
+                AGENT_ORCHESTRATION_PI_LIVE_CANARY_TIMEOUT_SECONDS=0.5,
+                FAKE_CHILD_COMPLETED=child_complete,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(payload["category"], "stalled-role-timeout")
+            self.assertTrue(payload["debugger_progress"])
+            self.assertFalse(payload["validator_progress"])
+            self.assertTrue(payload["blocking_operation_started"])
+            self.assertTrue(payload["stalled_role_after_progress"])
+            self.assertTrue(payload["workspace_clean"])
+            self.assertLess(payload["duration_ms"], 5000)
+            time.sleep(0.7)
+            self.assertFalse(child_complete.exists())
+            self.assertNotIn("SECRET", result.stdout + result.stderr)
+
+    def test_harness_owned_validator_tool_stall_has_bounded_terminal_result(self):
+        """This proves a validator tool stall is terminal without claiming a real child run."""
+        with tempfile.TemporaryDirectory() as directory:
+            result, payload, _marker = self.run_canary(
+                Path(directory),
+                mode="stalled-validator",
+                AGENT_ORCHESTRATION_PI_LIVE_CANARY_TIMEOUT_SECONDS=0.5,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(payload["category"], "stalled-role-timeout")
+            self.assertFalse(payload["debugger_progress"])
+            self.assertTrue(payload["validator_progress"])
+            self.assertTrue(payload["blocking_operation_started"])
+            self.assertTrue(payload["stalled_role_after_progress"])
+            self.assertTrue(payload["workspace_clean"])
+            self.assertLess(payload["duration_ms"], 5000)
 
     def test_parser_accepts_real_parent_and_nested_retained_event_shapes(self):
         module = runpy.run_path(str(CANARY))

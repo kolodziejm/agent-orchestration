@@ -19,6 +19,26 @@ ROOT = Path(__file__).resolve().parents[2]
 RENDER = ROOT / "adapters" / "opencode" / "render.py"
 MANIFEST_NAME = ".agent-orchestration.manifest.json"
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# These are installer-owned subprocess boundaries. Keep them finite and fixed;
+# callers cannot turn a stalled renderer or runtime diagnostic into an
+# unbounded install.
+RENDER_TIMEOUT_SECONDS = 120
+OPENCODE_CONFIG_TIMEOUT_SECONDS = 30
+
+
+class InstallTimeoutError(RuntimeError):
+    """A bounded installer subprocess exceeded its owned deadline."""
+
+
+def _run_checked_with_timeout(
+    command: list[str], *, timeout: int, operation: str, recovery: str, **run_kwargs: object
+) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(command, check=True, timeout=timeout, **run_kwargs)
+    except subprocess.TimeoutExpired as error:
+        raise InstallTimeoutError(
+            f"{operation} timed out after {timeout}s; {recovery}"
+        ) from error
 
 
 def text_diff(current: Path, desired: str, label: str) -> str:
@@ -292,7 +312,12 @@ def install(target: Path, dry_run: bool, validate: bool, adopt: bool = False) ->
     target = target.resolve()
     with tempfile.TemporaryDirectory(prefix="agent-orchestration-") as directory:
         rendered = Path(directory) / "opencode"
-        subprocess.run([sys.executable, str(RENDER), "--output", str(rendered)], check=True)
+        _run_checked_with_timeout(
+            [sys.executable, str(RENDER), "--output", str(rendered)],
+            timeout=RENDER_TIMEOUT_SECONDS,
+            operation="OpenCode renderer",
+            recovery="no target files were changed; check renderer dependencies and retry.",
+        )
         files, deletions = desired_state(rendered, target, adopt)
         changed = {
             path: content
@@ -347,12 +372,17 @@ def install(target: Path, dry_run: bool, validate: bool, adopt: bool = False) ->
                     config = target / "profiles" / name / "opencode.json"
                     env = os.environ.copy()
                     env["OPENCODE_CONFIG"] = str(config)
-                    subprocess.run(
+                    _run_checked_with_timeout(
                         ["opencode", "debug", "config"],
+                        timeout=OPENCODE_CONFIG_TIMEOUT_SECONDS,
+                        operation=f"opencode debug config for {config}",
+                        recovery=(
+                            "all changed files were rolled back; check the OpenCode runtime "
+                            "and profile config before retrying."
+                        ),
                         cwd=Path.home(),
                         env=env,
                         stdout=subprocess.DEVNULL,
-                        check=True,
                     )
         except BaseException:
             for path, original in originals.items():
@@ -379,4 +409,8 @@ if __name__ == "__main__":
         help="take ownership of existing managed names on first installation",
     )
     args = parser.parse_args()
-    raise SystemExit(install(args.target, args.dry_run, not args.skip_validate, args.adopt))
+    try:
+        raise SystemExit(install(args.target, args.dry_run, not args.skip_validate, args.adopt))
+    except InstallTimeoutError as error:
+        print(f"OpenCode installation error: {error}", file=sys.stderr)
+        raise SystemExit(1) from error

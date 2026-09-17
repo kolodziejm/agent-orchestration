@@ -155,6 +155,120 @@ class ProfileControlPlaneTests(unittest.TestCase):
         ):
             self.assertNotIn(contradictory_wording, policy)
 
+    def test_reviewable_pr_delivery_contract_defines_limits_fallback_and_checkpoint(self):
+        """This fails when delivery can bypass review-unit sizing or the ordered user checkpoint."""
+        policy = (ROOT / "policy" / "orchestration.md").read_text()
+        start = policy.index("## Reviewable-PR delivery contract")
+        end = policy.index("## Implementation", start)
+        delivery = policy[start:end]
+
+        for phrase in (
+            "suitable hosting or remote support",
+            "required capability and authorization",
+            "pull requests are the default delivery and review unit",
+            "equivalently reviewable local branch, commit, or patch",
+            "must never claim that a remote action occurred",
+            "one coherent concern per PR",
+            "human-authored maintained changes",
+            "`<=400` human-authored changed lines",
+            "`<=12` human-authored changed files",
+            "Generated artifacts and lockfiles are excluded from both limits",
+            "changed lines and files must be counted and reported separately",
+            "401–800",
+            "13–24",
+            "concrete rationale and explicit user approval before implementation or promotion",
+            "`>800` human-authored changed lines",
+            "`>24` human-authored changed files",
+            "absolute ceiling violation",
+            "must be split into smaller review units",
+            "must not be approved wholesale",
+            "isolated, non-overlapping branches or worktrees",
+            "promotion of PRs or fallback review units remains ordered",
+            "after every PR or fallback review unit",
+            "wait for the user's explicit approval before proceeding",
+            "purpose and single concern",
+            "behavior before and after",
+            "key decisions and approvals",
+            "human-authored diff statistics",
+            "generated-artifact and lockfile statistics separately",
+            "affected areas and files",
+            "risks and mitigations",
+            "validation evidence",
+            "residual work",
+            "next proposed PR or fallback review unit",
+            "Completion reports and validation summaries must keep delivery status, diff accounting, and validation evidence distinct",
+        ):
+            self.assertIn(phrase, delivery)
+
+        self.assertIn("This contract does not grant authority to create, push, or merge", delivery)
+        self.assertIn("This contract does not change the review-on-demand", delivery)
+
+    def test_planner_and_workers_define_reviewable_pr_slice_boundaries(self):
+        """This fails when a plan or worker can silently widen a delivery slice."""
+        contracts = {
+            role: (ROOT / "roles" / f"{role}.md").read_text()
+            for role in ("planner", "worker", "worker-complex")
+        }
+        planner = contracts["planner"]
+        for phrase in (
+            "## Reviewable-PR slice planning",
+            "one coherent concern and one bounded PR or fallback review unit",
+            "expected accounting for human-authored maintained changed lines/files",
+            "generated-artifact changed lines/files",
+            "lockfile changed lines/files",
+            "`<=400` lines and `<=12` files",
+            "`401–800` line or `13–24` file slice requires a concrete rationale",
+            "explicit user approval before implementation or promotion",
+            "`>800` human-authored changed lines or `>24` human-authored changed files",
+            "absolute ceiling",
+            "must be split rather than proposed for wholesale approval",
+            "checkpoint fields",
+            "next proposed unit",
+            "stop before an unapproved threshold breach",
+            "PR/fallback promotion and user checkpoints remain ordered",
+        ):
+            self.assertIn(phrase, planner)
+
+        for role, contract in contracts.items():
+            for phrase in (
+                "one coherent concern and one bounded PR or fallback review unit",
+                "human-authored maintained changed lines/files",
+                "generated-artifact changed lines/files",
+                "lockfile changed lines/files",
+                "`>800` human-authored changed lines or `>24` human-authored changed files",
+                "absolute ceiling",
+                "Parallel implementation",
+            ):
+                self.assertIn(phrase, contract, role)
+            if role in ("worker", "worker-complex"):
+                self.assertIn("completion/readiness report", contract, role)
+                self.assertIn("validation requested or evidence", contract, role)
+            order_phrase = (
+                "PR/fallback promotion and user checkpoints remain ordered"
+                if role == "planner"
+                else "PR/fallback promotion and user checkpoints are ordered"
+            )
+            self.assertIn(order_phrase, contract, role)
+            stop_phrase = (
+                "stop before an unapproved threshold breach"
+                if role == "planner"
+                else "If the implementation would cross an unapproved target, stop before the threshold breach"
+            )
+            self.assertIn(stop_phrase, contract, role)
+            exclusion_phrase = (
+                "Generated artifacts and lockfiles do not count toward the thresholds"
+                if role == "planner"
+                else "Generated artifacts and lockfiles are excluded from the human-authored thresholds"
+            )
+            self.assertIn(exclusion_phrase, contract, role)
+            delivery_phrase = (
+                "create or push anything"
+                if role == "planner"
+                else "automatically create or push branches, commits, or PRs"
+            )
+            self.assertIn(delivery_phrase, contract, role)
+            self.assertIn("claim that a remote action occurred", contract, role)
+
     def test_finding_authorization_boundary_allows_only_deterministic_in_scope_blockers(self):
         """REGRESSION CONTRACT: evidence, severity, and broad instructions never authorize new repair work."""
         policy = (ROOT / "policy" / "orchestration.md").read_text()
@@ -179,15 +293,25 @@ class ProfileControlPlaneTests(unittest.TestCase):
         policy = (ROOT / "policy" / "orchestration.md").read_text()
         for phrase in (
             "Before launching a repair worker for each non-blocker finding",
-            "one individual `Done` / `Skip` / `Snooze` question for that finding",
+            "The individual `Done` / `Skip` / `Snooze` question must be self-contained enough that the user does not need to infer context",
             "Each actionable finding has a stable ID and exactly one recorded outcome.",
             "`Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it",
             "question-count limit",
             "every finding remains a separate question and answer, never a package approval by default",
             "Record each outcome in the handoff and final synthesis",
             "do not re-propose a skipped finding in the same task unless evidence materially changes",
+            "clear, structured explanation",
+            "concrete problem or failure mode and evidence",
+            "what it affects, including user-visible behavior, systems/components/files/contracts",
+            "detailed viable solution options—not just labels",
+            "implementation direction, scope/cost, trade-offs/risks",
+            "recommendation with rationale where appropriate",
+            "self-contained enough that the user does not need to infer context",
+            "These are disposition decisions, not solution selection and not ambiguous package authorization.",
         ):
             self.assertIn(phrase, policy)
+        self.assertGreaterEqual(policy.count("self-contained enough that the user does not need to infer context"), 2)
+        self.assertGreaterEqual(policy.count("detailed viable solution options"), 2)
         self.assertNotIn("Prefer one single-choice question per actionable finding", policy)
 
     def test_role_contracts_make_finding_authorization_boundary_explicit(self):
@@ -201,6 +325,15 @@ class ProfileControlPlaneTests(unittest.TestCase):
         }
         self.assertIn("Reviewer output is evidence/findings only", contracts["reviewer"])
         self.assertIn("individual Done / Skip / Snooze decision", contracts["reviewer"])
+        for phrase in (
+            "concrete problem or failure mode and evidence",
+            "user-visible behavior, systems/components/files/contracts",
+            "detailed viable solution options, not just labels",
+            "implementation direction, scope/cost, and trade-offs/risks",
+            "recommend an option with rationale where appropriate",
+            "self-contained user question",
+        ):
+            self.assertIn(phrase, contracts["reviewer"])
         self.assertIn("Validator output is evidence/findings only and never implementation authorization", contracts["validator"])
         self.assertIn("`FAIL` alone is insufficient", contracts["validator"])
         self.assertIn("Planning output is evidence, findings, and recommendations, not implementation authorization", contracts["planner"])
