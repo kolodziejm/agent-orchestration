@@ -156,11 +156,14 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertNotIn(contradictory_wording, policy)
 
     def test_reviewable_pr_delivery_contract_defines_limits_fallback_and_checkpoint(self):
-        """This fails when delivery can bypass review-unit sizing or the ordered user checkpoint."""
+        """This fails when delivery can bypass review-unit sizing or non-blocking stack progress."""
         policy = (ROOT / "policy" / "orchestration.md").read_text()
         start = policy.index("## Reviewable-PR delivery contract")
         end = policy.index("## Implementation", start)
-        delivery = policy[start:end]
+        def normalize(text):
+            return " ".join(text.casefold().split())
+
+        delivery = normalize(policy[start:end])
 
         for phrase in (
             "suitable hosting or remote support",
@@ -174,18 +177,27 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "`<=12` human-authored changed files",
             "Generated artifacts and lockfiles are excluded from both limits",
             "changed lines and files must be counted and reported separately",
+            "reviewability heuristic/target, not a mandate",
+            "do not split a coherent concern solely to hit a number",
             "401–800",
             "13–24",
             "concrete rationale and explicit user approval before implementation or promotion",
+            "user-approved named stack/ordered-unit plan may provide that approval in advance",
+            "above-target-but-below-ceiling unit",
             "`>800` human-authored changed lines",
             "`>24` human-authored changed files",
             "absolute ceiling violation",
             "must be split into smaller review units",
             "must not be approved wholesale",
+            "adjacent units repeatedly touch the same 2–3 files",
+            "not independently understandable, mergeable, and reviewable",
+            "coherence and independent merge/review value outrank numeric optimization",
             "isolated, non-overlapping branches or worktrees",
             "promotion of PRs or fallback review units remains ordered",
-            "after every PR or fallback review unit",
-            "wait for the user's explicit approval before proceeding",
+            "user-approved named stack/ordered-unit plan authorizes uninterrupted execution",
+            "no routine approval wait is required between those units",
+            "automatically present the checkpoint below as a non-blocking progress report",
+            "checkpoint does not authorize a merge, promotion, or remediation",
             "purpose and single concern",
             "behavior before and after",
             "key decisions and approvals",
@@ -198,10 +210,24 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "next proposed PR or fallback review unit",
             "Completion reports and validation summaries must keep delivery status, diff accounting, and validation evidence distinct",
         ):
-            self.assertIn(phrase, delivery)
+            self.assertIn(normalize(phrase), delivery)
 
-        self.assertIn("This contract does not grant authority to create, push, or merge", delivery)
-        self.assertIn("This contract does not change the review-on-demand", delivery)
+        self.assertIn(normalize("Ask the user again only for a material scope or acceptance change"), delivery)
+        self.assertIn(normalize("requested hard-ceiling exception"), delivery)
+        self.assertIn(normalize("new risk or product decision"), delivery)
+        self.assertIn(normalize("failed/BLOCKED validation that requires a decision"), delivery)
+        self.assertIn(normalize("finding/remediation"), delivery)
+        self.assertIn(normalize("merge authorization"), delivery)
+        self.assertNotIn(normalize("wait for the user's explicit approval before proceeding"), delivery)
+        self.assertNotIn(normalize("Approval for the initiative, an earlier slice, or an earlier checkpoint is not approval for the next one."), delivery)
+        self.assertIn(normalize("This contract does not grant authority to create, push, or merge"), delivery)
+        self.assertIn(normalize("This contract does not change the review-on-demand"), delivery)
+
+    def test_ci_validates_pull_requests_and_main_pushes_without_duplicate_pr_pushes(self):
+        """This fails when a pull-request branch also receives a duplicate push check."""
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("on:\n  pull_request:\n  push:\n    branches:\n      - main\n", workflow)
+        self.assertNotIn("on:\n  push:\n  pull_request:", workflow)
 
     def test_planner_and_workers_define_reviewable_pr_slice_boundaries(self):
         """This fails when a plan or worker can silently widen a delivery slice."""
@@ -217,6 +243,8 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "generated-artifact changed lines/files",
             "lockfile changed lines/files",
             "`<=400` lines and `<=12` files",
+            "reviewability heuristic/target, not a mandate",
+            "do not split a coherent concern solely to hit a number",
             "`401–800` line or `13–24` file slice requires a concrete rationale",
             "explicit user approval before implementation or promotion",
             "`>800` human-authored changed lines or `>24` human-authored changed files",
@@ -225,7 +253,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "checkpoint fields",
             "next proposed unit",
             "stop before an unapproved threshold breach",
-            "PR/fallback promotion and user checkpoints remain ordered",
+            "user-approved named stack/ordered-unit plan",
+            "pre-authorizes that named unit",
+            "PR/fallback promotion remains ordered",
         ):
             self.assertIn(phrase, planner)
 
@@ -237,6 +267,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 "lockfile changed lines/files",
                 "`>800` human-authored changed lines or `>24` human-authored changed files",
                 "absolute ceiling",
+                "reviewability heuristic/target, not a mandate",
+                "user-approved named stack/ordered-unit plan",
+                "non-blocking progress report",
                 "Parallel implementation",
             ):
                 self.assertIn(phrase, contract, role)
@@ -244,9 +277,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 self.assertIn("completion/readiness report", contract, role)
                 self.assertIn("validation requested or evidence", contract, role)
             order_phrase = (
-                "PR/fallback promotion and user checkpoints remain ordered"
+                "PR/fallback promotion remains ordered"
                 if role == "planner"
-                else "PR/fallback promotion and user checkpoints are ordered"
+                else "PR/fallback promotion remains ordered"
             )
             self.assertIn(order_phrase, contract, role)
             stop_phrase = (
