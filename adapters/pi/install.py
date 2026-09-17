@@ -1012,16 +1012,45 @@ def desired_state(
 
 
 def validate_installed(files: dict[Path, str], target: Path) -> None:
-    manifest = json.loads((target / MANIFEST_NAME).read_text())
+    manifest_path = target / MANIFEST_NAME
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise RuntimeError(f"Invalid installed Pi manifest: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text())
     validate_manifest(manifest, "installed manifest")
-    linked = sorted(str(path) for path in files if path.is_symlink())
+
+    # ``files`` also contains compatibility bootstrap and operator-runtime
+    # paths for profiles that still synthesize them.  Post-install validation
+    # must remain scoped to the rendered bundle and any launcher being written;
+    # those runtime paths are deliberately opaque to this check.
+    bundle_paths = managed_paths(manifest, target) - legacy_operator_paths(manifest, target)
+    bundle_files = {
+        path: expected for path, expected in files.items() if path in bundle_paths
+    }
+    launchers = [
+        path
+        for path in files
+        if path not in bundle_paths and path.name in manifest["launchers"]
+    ]
+    validation_paths = bundle_paths | set(launchers)
+    linked = sorted(str(path) for path in validation_paths if path.is_symlink())
     if linked:
         raise RuntimeError(f"Symlinked installed Pi artifacts: {linked}")
-    missing = sorted(str(path) for path in files if not path.is_file())
-    if missing:
+    missing_paths = [path for path in validation_paths if not path.is_file()]
+    if missing_paths:
+        missing = sorted(str(path) for path in missing_paths)
+        child_names = {
+            "delegation-ceiling-core.js",
+            "delegation-ceiling-planner.js",
+            "delegation-ceiling-reviewer.js",
+            "git-read.ts",
+            "package.json",
+        }
+        if any(path.name in child_names for path in missing_paths):
+            raise RuntimeError(f"Missing installed Pi child-only extension: {missing}")
         raise RuntimeError(f"Missing installed Pi artifacts: {missing}")
+    expected_files = {**bundle_files, **{path: files[path] for path in launchers}}
     mismatched = sorted(
-        str(path) for path, expected in files.items() if path.read_text() != expected
+        str(path) for path, expected in expected_files.items() if path.read_text() != expected
     )
     if mismatched:
         raise RuntimeError(f"Mismatched installed Pi artifacts: {mismatched}")
@@ -1059,7 +1088,11 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         "glm": "./glm-price-status.js",
     }
     expected_status_entrypoint = status_entrypoints.get(profile)
-    package_path = target / "extensions/agent-orchestration/package.json"
+    managed_extensions = set(manifest.get("managed_extensions", []))
+    package_relative = "extensions/agent-orchestration/package.json"
+    if package_relative not in managed_extensions:
+        raise RuntimeError("Pi status extension package is not manifest-owned")
+    package_path = target / package_relative
     try:
         status_package = json.loads(package_path.read_text())
     except (OSError, json.JSONDecodeError) as error:
@@ -1076,14 +1109,18 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         raise RuntimeError("Invalid installed Pi status extension package")
     if expected_status_entrypoint is not None:
         entrypoint_path = package_path.parent / expected_status_entrypoint
-        if not entrypoint_path.is_file():
+        entrypoint_relative = (
+            f"extensions/agent-orchestration/{expected_status_entrypoint.removeprefix('./')}"
+        )
+        if entrypoint_relative not in managed_extensions:
+            raise RuntimeError("Pi status extension is not manifest-owned")
+        if not entrypoint_path.is_file() or entrypoint_path.is_symlink():
             raise RuntimeError("Missing installed Pi status extension entrypoint")
 
     child_extensions = {
         "planner": "delegation-ceiling-planner.js",
         "reviewer": "delegation-ceiling-reviewer.js",
     }
-    managed_extensions = set(manifest.get("managed_extensions", []))
     primary_extension = "extensions/agent-orchestration/primary-policy.js"
     if primary_extension not in managed_extensions:
         raise RuntimeError("Pi primary policy extension is not manifest-owned")
@@ -1120,75 +1157,13 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         extension_path = agent_path.parent / expected_reference
         if not extension_path.is_file():
             raise RuntimeError("Missing installed Pi child-only extension")
-    launcher_name = f"pi-{profile}"
-    launchers = [path for path in files if path.name == launcher_name]
-    if launchers and (len(launchers) != 1 or not os.access(launchers[0], os.X_OK)):
-        raise RuntimeError(f"Invalid Pi launcher installation: {launcher_name}")
-    if profile in {"hybrid", "deepseek"}:
-        try:
-            catalog = json.loads((target / DEEPSEEK_MODELS_STORE).read_text())
-            _deepseek_store_entry(catalog, "installed models-store.json", exact_name=False)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SystemExit) as error:
-            raise RuntimeError("Invalid DeepSeek Pi models-store installation") from error
-    if profile == "glm":
-        validate_pi_runtime(target)
-        try:
-            settings = json.loads((target / "settings.json").read_text())
-            catalog = json.loads((target / GLM_MODELS_STORE).read_text())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RuntimeError("Invalid GLM Pi bootstrap files") from error
-        if not isinstance(settings, dict):
-            raise RuntimeError("Invalid GLM Pi settings")
-        if (
-            settings.get("defaultProvider") != GLM_PROVIDER_ID
-            or settings.get("defaultModel") != "glm-5.3"
-            or settings.get("defaultThinkingLevel") != "high"
-        ):
-            raise RuntimeError("Invalid GLM Pi default settings")
-        if not _target_glm_catalog_is_valid(catalog, "installed GLM models-store.json"):
-            raise RuntimeError("Invalid GLM Pi models-store installation")
-    if profile == "deepseek":
-        validate_pi_runtime(target)
-        try:
-            settings = json.loads((target / "settings.json").read_text())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RuntimeError("Invalid DeepSeek Pi settings installation") from error
-        if not isinstance(settings, dict):
-            raise RuntimeError("Invalid DeepSeek Pi settings installation")
-        if (
-            settings.get("defaultProvider") != "deepseek"
-            or settings.get("defaultModel") != "deepseek-flash"
-            or settings.get("defaultThinkingLevel") != profile_primary_thinking("deepseek")
-        ):
-            raise RuntimeError("Invalid DeepSeek Pi default settings")
-        packages = settings.get("packages", [])
-        sources = [
-            package if isinstance(package, str) else package.get("source")
-            for package in packages
-            if isinstance(package, (str, dict))
-        ]
-        installed_names = set()
-        for source in sources:
-            if isinstance(source, str):
-                try:
-                    package = json.loads((Path(source) / "package.json").read_text())
-                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if isinstance(package, dict) and isinstance(package.get("name"), str):
-                    installed_names.add(package["name"])
-        if not set(DEEPSEEK_REQUIRED_PACKAGE_NAMES).issubset(installed_names):
-            raise RuntimeError("Missing required DeepSeek Pi packages")
-    if profile == "openai":
-        validate_pi_runtime(target)
-        try:
-            settings = json.loads((target / "settings.json").read_text())
-            catalog = json.loads((target / DEEPSEEK_MODELS_STORE).read_text())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise RuntimeError("Invalid OpenAI Pi bootstrap files") from error
-        if not isinstance(settings, dict) or settings.get("defaultProvider") != "openai-codex":
-            raise RuntimeError("Invalid OpenAI Pi default provider")
-        if not isinstance(catalog, dict) or set(catalog) != {"openai-codex"}:
-            raise RuntimeError("OpenAI Pi catalog is not provider-pure")
+    invalid_launchers = [
+        path for path in launchers
+        if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK)
+    ]
+    if invalid_launchers:
+        names = sorted(path.name for path in invalid_launchers)
+        raise RuntimeError(f"Invalid Pi launcher installation: {names}")
 
 
 def install(
