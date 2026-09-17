@@ -236,7 +236,10 @@ omitted, so normal Pi extensions remain available subject to each role's strict 
 allowlist. Each profile package also loads the managed `primary-policy.js` extension.
 The rendered Pi shared policy requires `max_turns` on every Agent call, defaults
 source-changing worker calls to `run_in_background: true`, and recommends caps of
-foreground ≤12 turns and background mutation ≤30 turns. On primary `before_agent_start`, it appends the installed
+foreground ≤12 turns and background mutation ≤30 turns. Potentially blocking child tool calls must use
+their native timeout or an OS/harness-enforced timeout; `max_turns` alone cannot bound one tool call.
+When timeout and termination cannot be enforced, the operation is not delegated and stays bounded in the
+primary or returns `BLOCKED`. On primary `before_agent_start`, it appends the installed
 `agent-orchestration/_shared/orchestration-core.md` exactly once; child processes marked
 `PI_SUBAGENT_CHILD=1` are left unchanged. This uses Pi's system-prompt hook without
 managing or replacing user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files.

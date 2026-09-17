@@ -102,7 +102,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             )
 
     def test_canonical_policy_requires_fanout_and_internal_language_rule(self):
-        """REGRESSION CONTRACT: bounded delegation must remain complete in canonical and rendered policies."""
+        """REGRESSION CONTRACT: bounded delegation, blocking calls, and internal language rules must remain complete in canonical and rendered policies."""
         policy = POLICY.read_text()
         for phrase in (
             "large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel",
@@ -131,6 +131,18 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "reports completion, blocker, and checkpoint events without polling",
             "serial validation or checkpoint occurs before the next dependent slice",
             "cannot be safely bounded, pause and decompose it or ask the user",
+            "Every potentially blocking tool invocation",
+            "shell, test/build, Docker, network, browser/device, or external-job monitoring",
+            "enforceable per-call deadline or timeout",
+            "Turn limits such as max_turns do not bound the duration of an individual tool call",
+            "are insufficient on their own",
+            "the agent MUST NOT own that operation",
+            "Keep it in the primary with a bounded tool, use a bounded external runner, or return `BLOCKED`",
+            "On expiry, terminate/cancel the underlying operation when supported",
+            "return `BLOCKED` with last progress/evidence/prerequisite",
+            "A steering message or request to stop is not equivalent to termination",
+            "Never report an agent or task as terminated until it reaches a terminal state",
+            "no replacement agent may duplicate the same scope while the prior task remains non-terminal",
         )
         for phrase in bounded_phrases:
             self.assertIn(phrase, bounded_block)
@@ -183,6 +195,9 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 "foreground ≤12 turns",
                 "background mutation ≤30 turns",
                 "exceeding a slice requires a new orchestrator decision rather than automatic continuation",
+                "Every potentially blocking child tool call additionally uses its native timeout or an OS/harness-enforced timeout.",
+                "`max_turns` alone is insufficient because it does not bound a single tool call.",
+                "If enforceable timeout and termination are unavailable, do not delegate that operation; keep it bounded in the primary or return `BLOCKED`.",
             )
             for name, path in pi_paths.items():
                 content = path.read_text()
