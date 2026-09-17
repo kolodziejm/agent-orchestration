@@ -129,7 +129,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "Potentially non-brief work MUST run in the background when the harness supports it",
             "Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action",
             "reports completion, blocker, and checkpoint events without polling",
-            "serial validation or checkpoint occurs before the next dependent slice",
+            "serial validation or an automatic progress checkpoint occurs before the next dependent slice",
             "cannot be safely bounded, pause and decompose it or ask the user",
             "Every potentially blocking tool invocation",
             "shell, test/build, Docker, network, browser/device, or external-job monitoring",
@@ -217,7 +217,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                     self.assertIn(phrase, content, name)
 
     def test_pilot_propagates_reviewable_delivery_boundaries_and_checkpoint_requirements(self):
-        """This fails when the pilot can start another slice without a bounded review unit or checkpoint."""
+        """This fails when the pilot can start another slice without a bounded unit or non-blocking checkpoint."""
         workflow = WORKFLOW.read_text()
         start = workflow.index("### Explicit delivery slices and ordered review units")
         end = workflow.index("For a large initiative, persist a mindmap", start)
@@ -232,19 +232,34 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "branch, commit, push, merge, or PR creation",
             "<=400` human-authored maintained changed lines",
             "<=12` human-authored maintained changed files",
+            "reviewability heuristic/target, not a mandate",
+            "do not split a coherent concern solely to hit a number",
             "generated artifacts and lockfiles",
             "count and report generated-artifact and lockfile lines/files separately",
             "401–800",
             "13–24",
             "concrete rationale and explicit user approval before implementation or promotion",
+            "user-approved named stack/ordered-unit plan pre-authorizes that named unit",
             ">800` human-authored changed lines",
             ">24` human-authored changed files",
             "absolute maximum violation",
             "must be split, not approved wholesale",
+            "adjacent units repeatedly touch the same 2–3 files",
+            "not independently understandable, mergeable, and reviewable",
+            "coherence and independent merge/review value outrank numeric optimization",
             "isolated, non-overlapping branches or worktrees",
-            "promotion and user checkpoints remain ordered",
+            "promotion remains ordered",
+            "A named stack/ordered-unit plan may group these bounded units",
+            "without inserting routine approval waits between them",
             "After every PR or fallback review unit",
-            "waits for explicit user approval before the next PR or review unit",
+            "automatically presents a bird's-eye checkpoint as a non-blocking progress report",
+            "A checkpoint does not authorize merge, promotion, or remediation",
+            "Ask again only for a material scope or acceptance change",
+            "requested hard-ceiling exception",
+            "new risk or product decision",
+            "failed/BLOCKED validation that requires a decision",
+            "existing review, finding/remediation, and merge authorization gates remain in force",
+            "Outside a named approved stack/ordered-unit plan, an earlier initiative or slice approval never implies approval for a different unit",
             "purpose/concern",
             "behavior before/after",
             "key decisions and approvals",
@@ -255,9 +270,10 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "validation evidence or `not run`/`BLOCKED` status",
             "residual work",
             "next proposed PR or fallback unit",
-            "Earlier initiative or slice approval never implies approval for the next unit",
         ):
             self.assertIn(phrase, delivery)
+
+        self.assertNotIn("waits for explicit user approval before the next PR or review unit", delivery)
 
         expected_workflow = workflow
         for path in (
