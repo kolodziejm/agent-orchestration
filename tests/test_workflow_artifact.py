@@ -1,5 +1,6 @@
 import json
 import re
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,19 @@ POLICY = ROOT / "policy" / "orchestration.md"
 
 
 class FeatureWorkflowArtifactTests(unittest.TestCase):
+    def _pi_render_commands(self):
+        pi_renderer = ROOT / "adapters" / "pi" / "render.py"
+        supported_profiles = runpy.run_path(str(pi_renderer))["SUPPORTED_PROFILES"]
+        self.assertTrue(
+            supported_profiles,
+            "No supported Pi profiles discovered in adapters/pi/render.py.",
+        )
+
+        return {
+            f"pi-{profile_name}": [pi_renderer, "--profile", profile_name]
+            for profile_name in sorted(supported_profiles)
+        }
+
     def test_feature_workflow_is_packaged_separately_without_inlining_into_base_prompts(self):
         """This test will fail when the detailed pilot remains in every base prompt."""
         self.assertTrue(WORKFLOW.is_file())
@@ -88,28 +102,92 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             )
 
     def test_canonical_policy_requires_fanout_and_internal_language_rule(self):
-        """REGRESSION CONTRACT: qualifying analysis cannot silently regress to weak two-lane preference wording."""
+        """REGRESSION CONTRACT: bounded delegation must remain complete in canonical and rendered policies."""
         policy = POLICY.read_text()
         for phrase in (
             "large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel",
             "one synthesis owner/writer",
             "implementation validation remains serial",
             "genuine data dependency, indivisible shared state, or too-small scope",
-            "### Bounded delegation and responsiveness",
-            "Unbounded or whole-initiative delegation is prohibited",
-            "at most one independently verifiable slice and one validator checkpoint",
-            "strongest supported execution cap (turn, runtime, or tool-call)",
-            "Potentially non-brief work MUST run in the background",
-            "reports completion, blocker, and checkpoint events without polling",
-            "serial validation or checkpoint occurs before the next dependent slice",
-            "cannot be safely bounded, pause and decompose it or ask the user",
             "Handoffs, task instructions, workflow labels, schemas, acceptance contracts",
             "original language when nuance matters",
             "user-facing replies and explicitly user-facing artifacts in the language requested by the user",
         ):
             self.assertIn(phrase, policy)
+
+        bounded_heading = "### Bounded delegation and responsiveness"
+        bounded_start = policy.index(bounded_heading)
+        bounded_end = policy.index("### Internal orchestration language", bounded_start)
+        bounded_block = policy[bounded_start:bounded_end]
+        bounded_phrases = (
+            "Unbounded or whole-initiative delegation is prohibited",
+            "at most one independently verifiable slice and one validator checkpoint",
+            "explicit stopping condition",
+            "strongest supported execution cap (turn, runtime, or tool-call)",
+            "returns partial progress or `BLOCKED`",
+            "never self-extends",
+            "Potentially non-brief work MUST run in the background when the harness supports it",
+            "Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action",
+            "reports completion, blocker, and checkpoint events without polling",
+            "serial validation or checkpoint occurs before the next dependent slice",
+            "cannot be safely bounded, pause and decompose it or ask the user",
+        )
+        for phrase in bounded_phrases:
+            self.assertIn(phrase, bounded_block)
+
         self.assertNotIn("two or three genuinely independent evidence scopes", policy)
         self.assertNotIn("prefer parallel explorer tasks", policy)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pi_commands = self._pi_render_commands()
+            commands = {
+                "opencode": [ROOT / "adapters" / "opencode" / "render.py"],
+                "codex": [ROOT / "adapters" / "codex" / "render.py", "--profile", "openai"],
+                "claude-code": [ROOT / "adapters" / "claude-code" / "render.py"],
+                **pi_commands,
+            }
+            outputs = {}
+            for name, parts in commands.items():
+                output = root / name
+                result = subprocess.run(
+                    [sys.executable, *map(str, parts), "--output", str(output)],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                outputs[name] = output
+
+            non_pi_paths = {
+                "opencode": outputs["opencode"] / "profiles" / "_shared" / "orchestration-core.md",
+                "codex": outputs["codex"] / "AGENTS.md",
+                "claude-code": outputs["claude-code"] / "_shared" / "orchestration-core.md",
+            }
+            pi_paths = {
+                name: outputs[name] / "_shared" / "orchestration-core.md"
+                for name in pi_commands
+            }
+            for name, path in {**non_pi_paths, **pi_paths}.items():
+                content = path.read_text()
+                start = content.index(bounded_heading)
+                end = content.index("### Internal orchestration language", start)
+                rendered_block = content[start:end]
+                for phrase in bounded_phrases:
+                    self.assertIn(phrase, rendered_block, name)
+
+            pi_phrases = (
+                "For every Pi Agent call, set `max_turns`",
+                "Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`",
+                "foreground calls require a clearly brief, bounded scope and a low turn cap",
+                "foreground ≤12 turns",
+                "background mutation ≤30 turns",
+                "exceeding a slice requires a new orchestrator decision rather than automatic continuation",
+            )
+            for name, path in pi_paths.items():
+                content = path.read_text()
+                for phrase in pi_phrases:
+                    self.assertIn(phrase, content, name)
 
     def test_pilot_keeps_finding_repairs_decision_gated_without_blanket_authorization(self):
         """REGRESSION CONTRACT: pilot gates cover named scope; later findings need individual outcomes."""
