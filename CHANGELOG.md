@@ -4,6 +4,12 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Require startup, idle, and total-runtime watchdog boundaries wherever a harness exposes
+  child progress plus targeted cancellation, with terminal `BLOCKED` only after an
+  acknowledged stop and evidence of the last meaningful progress.
+- Document the optional `harness-extensions` Pi watchdog, its 120-second startup, 5-minute
+  idle, and 30-minute total defaults, real `subagents:rpc:stop` cancellation, and the
+  upstream limitation for nested and workflow-owned children.
 - Rename the harness layer from `adapters/` to `harnesses/`, rename each harness
   renderer module to `generate.py`, and standardize the user-facing wording on generating
   harness configuration. Remove the committed `generated/` tree and move the default

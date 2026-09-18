@@ -133,6 +133,15 @@ class PiGenerateTests(unittest.TestCase):
             "framework-neutral",
             "not runtime enforcement",
             "exact child target `explorer`",
+            "Pi subagent watchdog",
+            "startup: 120 seconds",
+            "idle: 5 minutes",
+            "total runtime: 30 minutes",
+            "subagents:rpc:stop",
+            "last meaningful progress",
+            "retries cancellation every 30 seconds",
+            "watchdog-owned safety retry is not child-lane continuation",
+            "Nested agents and workflow-owned agents are not covered",
         ):
             with self.subTest(text=text):
                 self.assertIn(text, readme)

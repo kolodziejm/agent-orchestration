@@ -305,12 +305,29 @@ launcher also exports `AGENT_ORCHESTRATION_PROFILE` (`hybrid`, `openai`, `deepse
 `glm`) so optional native Pi packages can select profile-specific behavior without copying
 runtime implementation into this repository.
 
-Optional Pi status integrations live in the separate
+Optional Pi runtime integrations live in the separate
 [`kolodziejm/harness-extensions`](https://github.com/kolodziejm/harness-extensions)
 repository. Install that repository with Pi's native package manager in each profile where
-status UI is wanted; it maps `hybrid`/`deepseek` to the DeepSeek price period, `openai` to
-Codex weekly pace, and `glm` to the GLM price period. This installer deliberately does not
-mutate package settings or own that runtime package.
+the watchdog or status UI is wanted. The package maps `hybrid`/`deepseek` to the DeepSeek
+price period, `openai` to Codex weekly pace, and `glm` to the GLM price period.
+
+The Pi subagent watchdog covers top-level agents and enforces three independent defaults:
+
+- startup: 120 seconds before the first meaningful child-session state change;
+- idle: 5 minutes since the last meaningful state change;
+- total runtime: 30 minutes regardless of continued progress.
+
+On expiry it requests targeted cancellation through `subagents:rpc:stop`. It emits terminal
+`BLOCKED` only after cancellation is acknowledged and includes the last meaningful progress
+time and kind. Failed or missing acknowledgement remains non-terminal, produces one visible
+watchdog error, and retries cancellation every 30 seconds until the child becomes terminal or
+the host shuts down. This watchdog-owned safety retry is not child-lane continuation and never
+authorizes duplicate work. Nested agents and workflow-owned agents are not covered
+because `pi-subagents` 0.19.0 intentionally hides their lifecycle records and rejects external
+stop requests. The underlying native record remains `stopped`; `BLOCKED` is
+the companion package's terminal evidence contract.
+
+This installer deliberately does not mutate package settings or own that runtime package.
 
 ```bash
 PI_CODING_AGENT_DIR="$HOME/.pi/agent" pi install git:github.com/kolodziejm/harness-extensions
