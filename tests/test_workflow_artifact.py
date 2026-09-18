@@ -255,7 +255,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "automatically presents a bird's-eye checkpoint as a non-blocking progress report",
             "A checkpoint does not authorize merge, promotion, or remediation",
             "Ask again only for a material scope or acceptance change",
-            "requested hard-ceiling exception",
+            "A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized.",
             "new risk or product decision",
             "failed/BLOCKED validation that requires a decision",
             "existing review, finding/remediation, and merge authorization gates remain in force",
@@ -274,6 +274,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             self.assertIn(phrase, delivery)
 
         self.assertNotIn("waits for explicit user approval before the next PR or review unit", delivery)
+        self.assertNotIn("hard-ceiling exception", delivery)
 
         expected_workflow = workflow
         for path in (

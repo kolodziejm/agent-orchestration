@@ -213,7 +213,13 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertIn(normalize(phrase), delivery)
 
         self.assertIn(normalize("Ask the user again only for a material scope or acceptance change"), delivery)
-        self.assertIn(normalize("requested hard-ceiling exception"), delivery)
+        self.assertNotIn(normalize("hard-ceiling exception"), delivery)
+        self.assertIn(
+            normalize(
+                "A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized."
+            ),
+            delivery,
+        )
         self.assertIn(normalize("new risk or product decision"), delivery)
         self.assertIn(normalize("failed/BLOCKED validation that requires a decision"), delivery)
         self.assertIn(normalize("finding/remediation"), delivery)
