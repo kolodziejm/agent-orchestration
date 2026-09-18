@@ -14,16 +14,16 @@ POLICY = ROOT / "policy" / "orchestration.md"
 
 
 class FeatureWorkflowArtifactTests(unittest.TestCase):
-    def _pi_render_commands(self):
-        pi_renderer = ROOT / "adapters" / "pi" / "render.py"
-        supported_profiles = runpy.run_path(str(pi_renderer))["SUPPORTED_PROFILES"]
+    def _pi_generate_commands(self):
+        pi_generator = ROOT / "harnesses" / "pi" / "generate.py"
+        supported_profiles = runpy.run_path(str(pi_generator))["SUPPORTED_PROFILES"]
         self.assertTrue(
             supported_profiles,
-            "No supported Pi profiles discovered in adapters/pi/render.py.",
+            "No supported Pi profiles discovered in harnesses/pi/generate.py.",
         )
 
         return {
-            f"pi-{profile_name}": [pi_renderer, "--profile", profile_name]
+            f"pi-{profile_name}": [pi_generator, "--profile", profile_name]
             for profile_name in sorted(supported_profiles)
         }
 
@@ -41,13 +41,13 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             root = Path(directory)
             outputs = {}
             commands = {
-                "opencode": [ROOT / "adapters" / "opencode" / "render.py"],
-                "codex": [ROOT / "adapters" / "codex" / "render.py", "--profile", "openai"],
-                "claude-code": [ROOT / "adapters" / "claude-code" / "render.py"],
-                "pi-hybrid": [ROOT / "adapters" / "pi" / "render.py", "--profile", "hybrid"],
-                "pi-openai": [ROOT / "adapters" / "pi" / "render.py", "--profile", "openai"],
-                "pi-deepseek": [ROOT / "adapters" / "pi" / "render.py", "--profile", "deepseek"],
-                "pi-glm": [ROOT / "adapters" / "pi" / "render.py", "--profile", "glm"],
+                "opencode": [ROOT / "harnesses" / "opencode" / "generate.py"],
+                "codex": [ROOT / "harnesses" / "codex" / "generate.py", "--profile", "openai"],
+                "claude-code": [ROOT / "harnesses" / "claude-code" / "generate.py"],
+                "pi-hybrid": [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "hybrid"],
+                "pi-openai": [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "openai"],
+                "pi-deepseek": [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "deepseek"],
+                "pi-glm": [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "glm"],
             }
             for name, parts in commands.items():
                 output = root / name
@@ -102,7 +102,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             )
 
     def test_canonical_policy_requires_fanout_and_internal_language_rule(self):
-        """REGRESSION CONTRACT: bounded delegation, blocking calls, and internal language rules must remain complete in canonical and rendered policies."""
+        """REGRESSION CONTRACT: bounded delegation, blocking calls, and internal language rules must remain complete in canonical and generated policies."""
         policy = POLICY.read_text()
         for phrase in (
             "large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel",
@@ -164,11 +164,11 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            pi_commands = self._pi_render_commands()
+            pi_commands = self._pi_generate_commands()
             commands = {
-                "opencode": [ROOT / "adapters" / "opencode" / "render.py"],
-                "codex": [ROOT / "adapters" / "codex" / "render.py", "--profile", "openai"],
-                "claude-code": [ROOT / "adapters" / "claude-code" / "render.py"],
+                "opencode": [ROOT / "harnesses" / "opencode" / "generate.py"],
+                "codex": [ROOT / "harnesses" / "codex" / "generate.py", "--profile", "openai"],
+                "claude-code": [ROOT / "harnesses" / "claude-code" / "generate.py"],
                 **pi_commands,
             }
             outputs = {}
@@ -196,9 +196,9 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 content = path.read_text()
                 start = content.index(bounded_heading)
                 end = content.index("### Internal orchestration language", start)
-                rendered_block = content[start:end]
+                generated_block = content[start:end]
                 for phrase in bounded_phrases:
-                    self.assertIn(phrase, rendered_block, name)
+                    self.assertIn(phrase, generated_block, name)
 
             pi_phrases = (
                 "For every Pi Agent call, set `max_turns`",
@@ -277,16 +277,28 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
         self.assertNotIn("hard-ceiling exception", delivery)
 
         expected_workflow = workflow
-        for path in (
-            ROOT / "generated" / "opencode" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "codex" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "claude-code" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "pi" / "hybrid" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "pi" / "openai" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "pi" / "deepseek" / "workflows" / "feature-workflow-pilot.md",
-            ROOT / "generated" / "pi" / "glm" / "workflows" / "feature-workflow-pilot.md",
-        ):
-            self.assertEqual(path.read_text(), expected_workflow, path)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = {
+                "opencode": [ROOT / "harnesses" / "opencode" / "generate.py"],
+                "codex": [ROOT / "harnesses" / "codex" / "generate.py", "--profile", "openai"],
+                "claude-code": [ROOT / "harnesses" / "claude-code" / "generate.py"],
+                **self._pi_generate_commands(),
+            }
+            for name, parts in commands.items():
+                output = root / name
+                result = subprocess.run(
+                    [sys.executable, *map(str, parts), "--output", str(output)],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    (output / "workflows" / "feature-workflow-pilot.md").read_text(),
+                    expected_workflow,
+                    name,
+                )
 
     def test_pilot_keeps_finding_repairs_decision_gated_without_blanket_authorization(self):
         """REGRESSION CONTRACT: pilot gates cover named scope; later findings need individual outcomes."""

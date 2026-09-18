@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" && -z "${VIRTUAL_ENV:-}" && -z "${UV_RUN_RECURSION_DEPTH:-}" ]]; then
+  exec env AGENT_ORCHESTRATION_UV_RUN=1 uv run --locked --project "$ROOT" "$0" "$@"
+fi
+
+PYTHON="${PYTHON:-python3}"
+# Default to the untracked build/ tree. An explicit output root must still
+# satisfy each generator's fail-closed path policy (the repository build/
+# destination or a path below the process temporary root).
+OUTPUT_ROOT="${1:-$ROOT/build}"
+
+"$PYTHON" "$ROOT/harnesses/opencode/generate.py" --output "$OUTPUT_ROOT/opencode"
+"$PYTHON" "$ROOT/harnesses/codex/generate.py" --output "$OUTPUT_ROOT/codex" --profile openai
+"$PYTHON" "$ROOT/harnesses/claude-code/generate.py" --output "$OUTPUT_ROOT/claude-code"
+"$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile hybrid --output "$OUTPUT_ROOT/pi/hybrid"
+"$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile openai --output "$OUTPUT_ROOT/pi/openai"
+"$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile deepseek --output "$OUTPUT_ROOT/pi/deepseek"
+"$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile glm --output "$OUTPUT_ROOT/pi/glm"

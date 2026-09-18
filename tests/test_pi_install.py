@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL = ROOT / "adapters" / "pi" / "install.py"
+INSTALL = ROOT / "harnesses" / "pi" / "install.py"
 
 
 def load_install_module():
@@ -151,7 +151,7 @@ class PiInstallTests(unittest.TestCase):
                     self.assertEqual(manifest["managed_extensions"], [])
 
     def test_explorer_builtin_bash_and_no_extension_bundle_in_every_installed_profile(self):
-        """REGRESSION CONTRACT: installation renders no extension bundle and explorer uses Pi's built-in bash."""
+        """REGRESSION CONTRACT: installation generates no extension bundle and explorer uses Pi's built-in bash."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

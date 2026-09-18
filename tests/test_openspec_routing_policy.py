@@ -15,8 +15,8 @@ ROLE_CONTRACTS = {
 
 
 class OpenSpecRoutingPolicyTests(unittest.TestCase):
-    def test_supported_renderers_preserve_the_global_openspec_rule(self):
-        """This test will fail when an adapter omits policy or role-contract content."""
+    def test_supported_generators_preserve_the_global_openspec_rule(self):
+        """This test will fail when a harness generator omits policy or role-contract content."""
         policy = POLICY.read_text()
         start = policy.index("## OpenSpec orchestration")
         end = policy.index("\n## Proportional workflow", start)
@@ -25,47 +25,47 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
         finding_end = policy.index("\n## Repair budget and stopping rule", finding_start)
         finding_policy = policy[finding_start:finding_end]
 
-        renderers = (
+        generators = (
             (
                 "opencode",
-                [ROOT / "adapters" / "opencode" / "render.py"],
+                [ROOT / "harnesses" / "opencode" / "generate.py"],
                 "profiles/_shared/orchestration-core.md",
             ),
             (
                 "codex",
-                [ROOT / "adapters" / "codex" / "render.py", "--profile", "openai"],
+                [ROOT / "harnesses" / "codex" / "generate.py", "--profile", "openai"],
                 "AGENTS.md",
             ),
             (
                 "claude-code",
-                [ROOT / "adapters" / "claude-code" / "render.py"],
+                [ROOT / "harnesses" / "claude-code" / "generate.py"],
                 "_shared/orchestration-core.md",
             ),
             (
                 "pi-hybrid",
-                [ROOT / "adapters" / "pi" / "render.py", "--profile", "hybrid"],
+                [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "hybrid"],
                 "_shared/orchestration-core.md",
             ),
             (
                 "pi-openai",
-                [ROOT / "adapters" / "pi" / "render.py", "--profile", "openai"],
+                [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "openai"],
                 "_shared/orchestration-core.md",
             ),
             (
                 "pi-deepseek",
-                [ROOT / "adapters" / "pi" / "render.py", "--profile", "deepseek"],
+                [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "deepseek"],
                 "_shared/orchestration-core.md",
             ),
             (
                 "pi-glm",
-                [ROOT / "adapters" / "pi" / "render.py", "--profile", "glm"],
+                [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "glm"],
                 "_shared/orchestration-core.md",
             ),
         )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name, command, artifact in renderers:
+            for name, command, artifact in generators:
                 output = root / name
                 result = subprocess.run(
                     [sys.executable, *map(str, command), "--output", str(output)],
@@ -74,9 +74,9 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                     capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
-                rendered = (output / artifact).read_text()
-                self.assertIn(openspec_rule, rendered, name)
-                self.assertIn(finding_policy, rendered, name)
+                generated = (output / artifact).read_text()
+                self.assertIn(openspec_rule, generated, name)
+                self.assertIn(finding_policy, generated, name)
 
                 for role, contract in ROLE_CONTRACTS.items():
                     role_artifact = output / "agents" / (
@@ -84,24 +84,12 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                     )
                     self.assertTrue(role_artifact.is_file(), f"{name}: {role}")
                     if name == "codex":
-                        rendered_contract = tomllib.loads(
+                        generated_contract = tomllib.loads(
                             role_artifact.read_text()
                         )["developer_instructions"]
-                        self.assertEqual(rendered_contract, contract, f"{name}: {role}")
+                        self.assertEqual(generated_contract, contract, f"{name}: {role}")
                     else:
                         self.assertIn(contract, role_artifact.read_text(), f"{name}: {role}")
-
-        snapshots = (
-            ROOT / "generated" / "opencode" / "profiles" / "_shared" / "orchestration-core.md",
-            ROOT / "generated" / "codex" / "AGENTS.md",
-            ROOT / "generated" / "claude-code" / "_shared" / "orchestration-core.md",
-            ROOT / "generated" / "pi" / "hybrid" / "_shared" / "orchestration-core.md",
-            ROOT / "generated" / "pi" / "openai" / "_shared" / "orchestration-core.md",
-            ROOT / "generated" / "pi" / "deepseek" / "_shared" / "orchestration-core.md",
-            ROOT / "generated" / "pi" / "glm" / "_shared" / "orchestration-core.md",
-        )
-        for snapshot in snapshots:
-            self.assertIn(finding_policy, snapshot.read_text(), snapshot)
 
 
 if __name__ == "__main__":

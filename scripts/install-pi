@@ -6,4 +6,4 @@ if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" 
 fi
 
 PYTHON="${PYTHON:-python3}"
-exec "$PYTHON" "$ROOT/adapters/pi/install.py" "$@"
+exec "$PYTHON" "$ROOT/harnesses/pi/install.py" "$@"

@@ -107,8 +107,8 @@ Nested delegation is deliberately narrow:
 The delegation graph above is a logical contract. A harness with flat subagent
 execution must preserve that contract by having the orchestrator perform the
 delegation that would otherwise be nested, then include the returned evidence
-in the planner or reviewer handoff. Its adapter must omit delegation tools that
-the harness cannot expose to rendered subagents; it must not advertise a
+in the planner or reviewer handoff. Its harness generator must omit delegation tools that
+the harness cannot expose to generated subagents; it must not advertise a
 delegation permission that appears to work but cannot be invoked.
 - `planner` and `reviewer` must never invoke `worker`, `worker-complex`, `validator`, `debugger`, or another source-changing agent; the orchestrator performs that handoff after approval.
 

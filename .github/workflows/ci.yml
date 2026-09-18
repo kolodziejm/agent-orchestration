@@ -18,5 +18,5 @@ jobs:
         with:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v6
-      - name: Contract tests and exact snapshot verification
+      - name: Contract tests and generated-output determinism
         run: uv run --locked ./scripts/check

@@ -52,7 +52,7 @@
         <div class="layer">
           <strong>2. Render (intencja)</strong>
           <ul>
-            <li><code>render.py:196</code> czyta <code>primary.effort</code></li>
+            <li><code>generate.py:196</code> czyta <code>primary.effort</code></li>
             <li>zapisuje <code>_shared/control-plane.json</code></li>
             <li>dokumentuje zamiar, nie steruje sesją</li>
           </ul>
@@ -89,7 +89,7 @@ install.py:719                settings["defaultThinkingLevel"] = "high" # litera
           <td>Intencja profilu — z tego miejsca korzysta render i (po zmianie) instalator.</td>
         </tr>
         <tr>
-          <td><code>adapters/pi/install.py</code></td>
+          <td><code>harnesses/pi/install.py</code></td>
           <td>Nowy <code>profile_primary_thinking(profile)</code> czytający <code>profiles/&lt;profile&gt;.toml</code> przez <code>tomllib</code>; <code>deepseek_source_files(source, target, primary_thinking)</code>; walidacja porównuje z profilem zamiast z literałem</td>
           <td>Usuwa klasę błędu (dryf intencja↔wartość), nie tylko objaw. Jedno źródło prawdy.</td>
         </tr>
@@ -99,7 +99,7 @@ install.py:719                settings["defaultThinkingLevel"] = "high" # litera
           <td>Kontrakt instalacji musi opisywać nową, wyprowadzoną wartość.</td>
         </tr>
         <tr>
-          <td><code>tests/test_pi_render.py</code></td>
+          <td><code>tests/test_pi_generate.py</code></td>
           <td>Oczekiwanie <code>control-plane.primary</code> dla deepseek: <code>high</code> → <code>max</code></td>
           <td>Renderowany dokument intencji też musi zgadzać się z profilem.</td>
         </tr>

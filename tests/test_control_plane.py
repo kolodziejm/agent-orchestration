@@ -86,18 +86,18 @@ class ProfileControlPlaneTests(unittest.TestCase):
             expected_variant = "max" if role == "worker-complex" else "high"
             self.assertEqual((config["model"], config["variant"]), (expected_model, expected_variant), role)
 
-    def test_renderers_reject_a_profile_with_missing_control_plane_effort(self):
-        """This test will fail when a renderer silently ignores incomplete control-plane intent."""
-        renderers = (
-            ROOT / "adapters" / "opencode" / "render.py",
-            ROOT / "adapters" / "codex" / "render.py",
-            ROOT / "adapters" / "claude-code" / "render.py",
+    def test_generators_reject_a_profile_with_missing_control_plane_effort(self):
+        """This test will fail when a generator silently ignores incomplete control-plane intent."""
+        generators = (
+            ROOT / "harnesses" / "opencode" / "generate.py",
+            ROOT / "harnesses" / "codex" / "generate.py",
+            ROOT / "harnesses" / "claude-code" / "generate.py",
         )
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("adapters", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles", "roles"):
                 shutil.copytree(ROOT / name, repo / name)
             for profile_name in ("openai", "claude"):
                 profile = repo / "profiles" / f"{profile_name}.toml"
@@ -105,15 +105,15 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 lines.remove(next(line for line in lines if line.startswith("effort =")))
                 profile.write_text("\n".join(lines) + "\n")
 
-            for renderer in renderers:
-                output = root / renderer.parent.name
-                command = [sys.executable, str(repo / renderer.relative_to(ROOT)), "--output", str(output)]
-                if renderer.parent.name == "codex":
+            for generator in generators:
+                output = root / generator.parent.name
+                command = [sys.executable, str(repo / generator.relative_to(ROOT)), "--output", str(output)]
+                if generator.parent.name == "codex":
                     command.extend(["--profile", "openai"])
                 result = subprocess.run(command, cwd=repo, text=True, capture_output=True)
-                self.assertNotEqual(result.returncode, 0, renderer)
-                self.assertIn("control", result.stderr.lower(), renderer)
-                self.assertFalse(output.exists(), renderer)
+                self.assertNotEqual(result.returncode, 0, generator)
+                self.assertIn("control", result.stderr.lower(), generator)
+                self.assertFalse(output.exists(), generator)
 
     def test_core_policy_defaults_to_delegation_with_a_narrow_direct_work_exception(self):
         """This test will fail when direct primary work is broader than the approved exception."""
@@ -426,11 +426,11 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertIn("large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel", contract)
             self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", contract)
 
-    def test_renderers_reject_unsupported_effort_without_querying_provider_catalogs(self):
+    def test_generators_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("adapters", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles", "roles"):
                 shutil.copytree(ROOT / name, repo / name)
             for profile_name in ("openai", "claude"):
                 profile = repo / "profiles" / f"{profile_name}.toml"
@@ -441,12 +441,12 @@ class ProfileControlPlaneTests(unittest.TestCase):
                         break
                 profile.write_text("\n".join(lines) + "\n")
 
-            renderers = (
-                ("opencode", ["adapters/opencode/render.py"]),
-                ("codex", ["adapters/codex/render.py", "--profile", "openai"]),
-                ("claude-code", ["adapters/claude-code/render.py"]),
+            generators = (
+                ("opencode", ["harnesses/opencode/generate.py"]),
+                ("codex", ["harnesses/codex/generate.py", "--profile", "openai"]),
+                ("claude-code", ["harnesses/claude-code/generate.py"]),
             )
-            for name, args in renderers:
+            for name, args in generators:
                 output = root / name
                 result = subprocess.run(
                     [sys.executable, *args, "--output", str(output)],
@@ -458,12 +458,12 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 self.assertIn("unsupported", result.stderr.lower(), name)
                 self.assertFalse(output.exists(), name)
 
-    def test_renderers_reject_effort_not_declared_by_the_selected_profile(self):
-        """This test will fail when adapters trust an unverified profile effort declaration."""
+    def test_generators_reject_effort_not_declared_by_the_selected_profile(self):
+        """This test will fail when generators trust an unverified profile effort declaration."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("adapters", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles", "roles"):
                 shutil.copytree(ROOT / name, repo / name)
             profile = repo / "profiles" / "openai.toml"
             lines = profile.read_text().replace(
@@ -475,7 +475,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(repo / "adapters" / "opencode" / "render.py"),
+                    str(repo / "harnesses" / "opencode" / "generate.py"),
                     "--output",
                     str(output),
                 ],

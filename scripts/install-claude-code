@@ -5,4 +5,4 @@ if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" 
   exec env AGENT_ORCHESTRATION_UV_RUN=1 uv run --locked --project "$ROOT" "$0" "$@"
 fi
 
-exec python3 "$ROOT/adapters/claude-code/install.py" "$@"
+exec python3 "$ROOT/harnesses/claude-code/install.py" "$@"

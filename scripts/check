@@ -14,16 +14,29 @@ fi
 TMP="$("$PYTHON" -c 'import tempfile; print(tempfile.mkdtemp(prefix="agent-orchestration-check-"))')"
 trap 'rm -rf "$TMP"' EXIT
 
-"$PYTHON" "$ROOT/adapters/validate.py"
+FIRST="$TMP/first"
+SECOND="$TMP/second"
+OUTPUTS=(opencode codex claude-code pi/hybrid pi/openai pi/deepseek pi/glm)
+
+generate_all() {
+  local root="$1"
+  "$PYTHON" "$ROOT/harnesses/opencode/generate.py" --output "$root/opencode"
+  "$PYTHON" "$ROOT/harnesses/codex/generate.py" --output "$root/codex" --profile openai
+  "$PYTHON" "$ROOT/harnesses/claude-code/generate.py" --output "$root/claude-code"
+  "$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile hybrid --output "$root/pi/hybrid"
+  "$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile openai --output "$root/pi/openai"
+  "$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile deepseek --output "$root/pi/deepseek"
+  "$PYTHON" "$ROOT/harnesses/pi/generate.py" --profile glm --output "$root/pi/glm"
+}
+
+"$PYTHON" "$ROOT/harnesses/validate.py"
 "$PYTHON" -m unittest discover -s "$ROOT/tests" -v
-"$PYTHON" "$ROOT/adapters/opencode/render.py" --output "$TMP/opencode"
-diff -ruN "$ROOT/generated/opencode" "$TMP/opencode"
-"$PYTHON" "$ROOT/adapters/codex/render.py" --output "$TMP/codex" --profile openai
-diff -ruN "$ROOT/generated/codex" "$TMP/codex"
-"$PYTHON" "$ROOT/adapters/claude-code/render.py" --output "$TMP/claude-code"
-diff -ruN "$ROOT/generated/claude-code" "$TMP/claude-code"
-"$PYTHON" "$ROOT/adapters/pi/render.py" --profile hybrid --output "$TMP/pi/hybrid"
-"$PYTHON" "$ROOT/adapters/pi/render.py" --profile openai --output "$TMP/pi/openai"
-"$PYTHON" "$ROOT/adapters/pi/render.py" --profile deepseek --output "$TMP/pi/deepseek"
-"$PYTHON" "$ROOT/adapters/pi/render.py" --profile glm --output "$TMP/pi/glm"
-diff -ruN "$ROOT/generated/pi" "$TMP/pi"
+
+# Build every supported harness/profile output twice in independent temporary
+# roots, then require byte-identical results. No committed snapshot is used or
+# updated, so determinism is checked without repository output state.
+generate_all "$FIRST"
+generate_all "$SECOND"
+for output in "${OUTPUTS[@]}"; do
+  diff -ruN "$FIRST/$output" "$SECOND/$output"
+done

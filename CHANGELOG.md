@@ -4,7 +4,16 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
-- Remove the custom Pi `git-read.ts` runtime extension: no profile renders or manages a Pi
+- Rename the harness layer from `adapters/` to `harnesses/`, rename each harness
+  renderer module to `generate.py`, and standardize the user-facing wording on generating
+  harness configuration. Remove the committed `generated/` tree and move the default
+  generator output to the untracked `build/` tree (`build/` and `generated/` are ignored);
+  `scripts/generate` rebuilds every supported harness/profile output under `build/` by
+  default, and `scripts/check` proves full-output determinism by generating each
+  OpenCode, Codex, Claude Code, and four Pi profile output twice in separate temporary
+  roots and diffing the corresponding results instead of validating committed snapshots.
+  Codex remains generator-only with no installer.
+- Remove the custom Pi `git-read.ts` runtime extension: no profile generates or manages a Pi
   extension package, `managed_extensions` is empty, and explorer uses Pi's built-in `bash`
   instead. Canonical `bash = "ask"` for explorer is explicitly degraded to allow because Pi
   cannot forward an ask from a headless child; `acceptanceRole: read-only` remains
@@ -14,14 +23,14 @@ All notable changes to the orchestration policy are documented here.
 - Move Pi provider status implementations to the separate `harness-extensions` runtime
   repository and replace the `primary-policy` extension with Pi's native CLI boundary. Each
   profile launcher selects its primary `--model` and `--thinking`, exports
-  `AGENT_ORCHESTRATION_PROFILE` for optional native packages, and appends the rendered shared
+  `AGENT_ORCHESTRATION_PROFILE` for optional native packages, and appends the generated shared
   `orchestration-core.md` through `--append-system-prompt`. The installer removes retired
   in-repo status/primary extensions as migration-only stale artifacts without managing the
   separately installed runtime package.
 - Add bounded delegation and responsiveness rules: source-changing handoffs own one
   independently verifiable slice and validator checkpoint, capped work stops without
   self-extension, and potentially non-brief work stays in the background when supported.
-  Pi renders explicit `max_turns` and `run_in_background` guidance with conservative
+  Pi generates explicit `max_turns` and `run_in_background` guidance with conservative
   foreground and background mutation defaults, plus hard per-call deadlines for potentially
   blocking child tool calls. Operations are not delegated when timeout and termination cannot
   be enforced.
@@ -52,23 +61,23 @@ All notable changes to the orchestration policy are documented here.
   with secret-safe diagnostics and fixture-based tests.
 - Add explicit profile schema/source validation, a pinned uv/Python 3.11+ workflow, and CI
   coverage through `uv run --locked ./scripts/check`.
-- Add a simple Codex renderer for the ten role contracts using the OpenAI profile's model, reasoning, and sandbox mappings.
-- Render and check committed OpenCode and Codex snapshots; Codex artifacts are copied or symlinked manually without an installer.
+- Add a simple Codex generator for the ten role contracts using the OpenAI profile's model, reasoning, and sandbox mappings.
+- Generate and check OpenCode and Codex harness configuration; Codex artifacts are copied or symlinked manually without an installer.
 - Make reviewer participation explicitly user-directed, while retaining independent validation for code and behavior changes.
 - Require observable acceptance evidence, bounded review-fix cycles, compact handoffs, event-based orchestration updates, and lightweight pilot usage measurements.
-- Add a Claude Code adapter (`adapters/claude-code/`) mirroring the OpenCode adapter's rendering, snapshot, diff, backup, install, and rollback architecture.
+- Add a Claude Code adapter (`harnesses/claude-code/`) mirroring the OpenCode adapter's generation, diff, backup, install, and rollback architecture.
 - Add a `claude` model-routing profile (`profiles/claude.toml` + `profiles/claude.md`) with per-role Claude model aliases and effort levels.
-- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility): OpenCode and Claude Code skip Pi-only profiles, Codex rejects incompatible explicit profiles, and the Pi renderer selects its supported profile explicitly.
-- Bake model and effort directly into each rendered Claude Code subagent's frontmatter, since Claude Code has no profile-routing layer equivalent to OpenCode's `agent-routing.json`.
+- Add a `harness` field to profile files (defaulting to `opencode` for backward compatibility): OpenCode and Claude Code skip Pi-only profiles, Codex rejects incompatible explicit profiles, and the Pi generator selects its supported profile explicitly.
+- Bake model and effort directly into each generated Claude Code subagent's frontmatter, since Claude Code has no profile-routing layer equivalent to OpenCode's `agent-routing.json`.
 - Express routing delegation as `Agent(<target>)` tool entries and document that Claude Code has no per-subagent equivalent of `bash = "ask"`.
 - Merge the shared orchestration policy into a target `CLAUDE.md` using `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers, preserving unrelated content.
-- Commit the `generated/claude-code/` snapshot and extend `scripts/render` and `scripts/check` to cover it.
+- Extend `scripts/generate` and `scripts/check` to cover Claude Code output.
 - Clarify the definition of a trivial request, when validator involvement is mandatory, what counts as explicit review authorization, the one-sentence non-blocking form of the review recommendation, and the per-finding repair budget in the reviewer user-verdict gate.
 - Document Claude Code subagent history defaults, the `Agent` tool's `model` parameter restriction, and built-in harness agent usage constraints in the Claude Code adapter README and the `claude` profile addendum.
-- Render the active profile's addendum into the shared `orchestration-core.md` section, after the policy text, so installed `CLAUDE.md` files receive the Claude Code harness notes that were previously never rendered.
+- Generate the active profile's addendum into the shared `orchestration-core.md` section, after the policy text, so installed `CLAUDE.md` files receive the Claude Code harness notes that were previously never generated.
 - Align mandatory-validation scope, the reviewer repair-budget cap, and the orchestrator's trivial-work exception with their surrounding rules, removing internal contradictions in the shared policy.
-- Invoke `python3` instead of a hardcoded `python3.11` in every script and adapter shebang, relying on the caller's environment (e.g. CI's `actions/setup-python`) to provide 3.11+; each renderer fails fast with a clear message if run under an older interpreter.
-- Fix the Codex renderer's default `--output` being resolved at import time, which bypassed the symlink guard for a symlinked `generated/codex` when no `--output` flag was passed; it now matches the unresolved-default pattern already used by the Claude Code and OpenCode renderers.
+- Invoke `python3` instead of a hardcoded `python3.11` in every script and adapter shebang, relying on the caller's environment (e.g. CI's `actions/setup-python`) to provide 3.11+; each generator fails fast with a clear message if run under an older interpreter.
+- Fix the Codex generator's default `--output` being resolved at import time, which bypassed the symlink guard for a symlinked `build/codex` when no `--output` flag was passed; it now matches the unresolved-default pattern already used by the Claude Code and OpenCode generators.
 
 ## 0.1.0 — 2026-08-22
 

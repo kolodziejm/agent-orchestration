@@ -1,13 +1,13 @@
 # Agent Orchestration
 
-Harness-agnostic source of truth for agent roles, delegation boundaries, validation/review gates, model routing, and harness adapters.
+Harness-agnostic source of truth for agent roles, delegation boundaries, validation/review gates, model routing, and harness configuration generation.
 
 The repository separates stable orchestration semantics from replaceable executors:
 
 ```text
 policy + role contracts + logical model profiles
                     ↓
-             harness adapter
+            harness generator
                     ↓
        OpenCode / Codex / Claude Code / Pi / future harnesses
 ```
@@ -21,7 +21,7 @@ policy + role contracts + logical model profiles
   including the separate `[control_plane]` intent for the primary model, small model,
   and built-in `build`/`plan` mappings.
 - `profiles/*.md` — profile-specific capability addenda.
-- `adapters/validate.py` executes both Draft 2020-12 schemas before semantic
+- `harnesses/validate.py` executes both Draft 2020-12 schemas before semantic
   checks, then validates the exact delegation graph: only known canonical roles
   are accepted, cycles fail closed, and every role outside the canonical
   delegator allowlist must remain a leaf.
@@ -73,21 +73,31 @@ When a repository has suitable hosting/remote support and the harness has the ca
 
 If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees, while promotion remains ordered. A user-approved named stack/ordered-unit plan authorizes uninterrupted execution of its already bounded units in the named order without routine approval waits between them. After every PR or fallback unit, present a bird's-eye checkpoint automatically as a non-blocking progress report covering purpose/concern, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, validation evidence, residual work, and the next proposed unit. Checkpoints do not authorize merge, promotion, or remediation; existing review, finding/remediation, and merge authorization gates remain in force. Ask again only for a material scope or acceptance change, a new risk or product decision, or a failed/BLOCKED validation that requires a decision. A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
 
-## OpenCode adapter
+## OpenCode harness
 
 Requires Python 3.11 or newer (`python3` on `PATH`).
 
-Render committed snapshots:
+Generate every supported harness configuration into the untracked `build/` tree:
 
 ```bash
-./scripts/render
+./scripts/generate
 ```
 
-Run contract tests and ensure snapshots are current in the reproducible uv environment:
+`./scripts/generate` accepts an optional first positional output root (default
+`build/`). A custom root must satisfy each generator's fail-closed output-path
+policy: the repository's `build/` destination or a directory below the process
+temporary root.
+
+Run contract tests and verify every generated harness/profile output is
+deterministic in the reproducible uv environment:
 
 ```bash
 uv run --locked ./scripts/check
 ```
+
+`./scripts/check` rebuilds each OpenCode, Codex, Claude Code, and four Pi
+profile output twice in separate temporary roots and diffs the corresponding
+results. It never reads or updates a committed snapshot.
 
 The project requires Python 3.11 or newer and pins PyYAML 6.0.2 and jsonschema 4.25.1
 in `pyproject.toml` and `uv.lock`. The scripts also work when invoked directly with a
@@ -140,36 +150,62 @@ It reads only known fields and never prints credentials or the complete runtime 
 
 The local `.agent-orchestration.manifest.json` records exactly which roles and profiles are managed. This allows later policy versions to remove obsolete generated agents without deleting unrelated user-defined agents or instructions.
 
-Backups are written under unique, namespaced directories per adapter:
+Backups are written under unique, namespaced directories per harness:
 
 ```text
 ~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/opencode/
 ~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/claude-code/
 ```
 
-## Codex adapter
+## Codex harness
 
-The Codex adapter consumes the same canonical policy and the `openai` profile. It renders the nine role contracts as standalone Codex agent TOML files, the selected control-plane intent as `control-plane.toml`, and the policy and profile addendum into `AGENTS.md`:
+Codex is generator-only: there is no Codex installer, no `scripts/install-codex`, and
+no write to `~/.codex`. The Codex generator consumes the same canonical policy and
+the `openai` profile, and generates the nine role contracts as standalone Codex
+agent TOML files, the selected control-plane intent as `control-plane.toml`, and the
+policy and profile addendum into `AGENTS.md`:
 
 ```bash
-./scripts/render
-./scripts/check
+./scripts/generate
 ```
 
-The adapter removes the `openai/` provider prefix from model identifiers, maps the profile `variant` to Codex `model_reasoning_effort` (`max` becomes Codex's `xhigh`), and maps canonical `edit = deny` to `read-only` while writable roles use `workspace-write`. Codex cannot represent canonical `bash = deny`; the renderer fails before writing if that capability is configured, so it never silently grants shell access. The optional feature workflow is copied separately under `generated/codex/workflows/`. It does not write to `~/.codex`; it only generates repository snapshots. Copy or symlink `generated/codex/AGENTS.md`, `generated/codex/control-plane.toml`, and `generated/codex/agents/*.toml` into the Codex locations you choose. There is no installer, deployment manager, backup, adoption, or rollback logic.
-
-## Claude Code adapter
-
-Render committed snapshots (also renders the OpenCode and Codex snapshots):
+That writes every harness output, including the Codex output at the default
+untracked `build/codex/`. To generate only Codex output, invoke its generator
+directly:
 
 ```bash
-./scripts/render
+python3 harnesses/codex/generate.py --output build/codex --profile openai
 ```
 
-Run contract tests and ensure snapshots are current:
+To inspect the output outside the repository, generate into a safe temporary
+output root and copy the files you want:
 
 ```bash
-./scripts/check
+tmp_root="$(mktemp -d)"
+python3 harnesses/codex/generate.py --output "$tmp_root/codex" --profile openai
+mkdir -p /desired/codex/location/agents
+cp "$tmp_root/codex/AGENTS.md" "$tmp_root/codex/control-plane.toml" /desired/codex/location/
+cp "$tmp_root/codex/agents/"*.toml /desired/codex/location/agents/
+```
+
+A custom output path is accepted only when it stays below the process temporary
+root, so an accidental repository or user-configuration destination fails closed
+before any file is written.
+
+The generator removes the `openai/` provider prefix from model identifiers, maps the profile `variant` to Codex `model_reasoning_effort` (`max` becomes Codex's `xhigh`), and maps canonical `edit = deny` to `read-only` while writable roles use `workspace-write`. Codex cannot represent canonical `bash = deny`; the generator fails before writing if that capability is configured, so it never silently grants shell access. The optional feature workflow is copied separately under `build/codex/workflows/`. Copy `build/codex/AGENTS.md`, `build/codex/control-plane.toml`, and `build/codex/agents/*.toml` into the Codex locations you choose. There is no installer, deployment manager, backup, adoption, or rollback logic.
+
+## Claude Code harness
+
+Generate the Claude Code harness configuration (this also generates the OpenCode and Codex output) into `build/`:
+
+```bash
+./scripts/generate
+```
+
+Run contract tests and verify generated-output determinism:
+
+```bash
+uv run --locked ./scripts/check
 ```
 
 Preview installation against the active Claude Code configuration:
@@ -188,42 +224,44 @@ Claude Code also reports existing unmanaged managed-name files or sections on
 first install. Use `--adopt` to explicitly take ownership after reviewing the
 collision list; subsequent installations use the manifest as before.
 
-The installer copies each rendered `agents/<role>.md` subagent file into `<target>/agents/`,
+The installer copies each generated `agents/<role>.md` subagent file into `<target>/agents/`,
 copies the optional workflow under `<target>/workflows/`, and merges the shared
 orchestration policy into `<target>/CLAUDE.md` by replacing only the section between the
 `<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers (or
 appending it if absent). Content outside the markers is preserved untouched. The default
 target is `~/.claude`, overridable with `--target`.
 
-Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at render time. The renderer also emits `_shared/control-plane.md`, which records the profile intent and truthfully states that Claude Code cannot install the primary model, small model, or built-in `build`/`plan` mappings; those require manual session configuration. The `harness` field controls which renderer picks up a profile: OpenCode selects `harness = "opencode"` (the backward-compatible default), Claude Code selects the single `harness = "claude-code"` profile, and Pi-only profiles declare `harness = "pi"`. Codex accepts only explicitly selected OpenCode/Codex-compatible profiles. Every scanning adapter recognizes and intentionally skips known profiles for other harnesses while still rejecting unknown harness values.
+Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at generation time. The generator also emits `_shared/control-plane.md`, which records the profile intent and truthfully states that Claude Code cannot install the primary model, small model, or built-in `build`/`plan` mappings; those require manual session configuration. The `harness` field controls which harness generator picks up a profile: OpenCode selects `harness = "opencode"` (the backward-compatible default), Claude Code selects the single `harness = "claude-code"` profile, and Pi-only profiles declare `harness = "pi"`. Codex accepts only explicitly selected OpenCode/Codex-compatible profiles. Every profile-scanning generator recognizes and intentionally skips known profiles for other harnesses while still rejecting unknown harness values.
 
 ### Claude Code permission degradation
 
-Claude Code has no per-subagent equivalent of OpenCode's `bash = "ask"` permission; prompts are configured at the session level, not per agent file. `Bash` is therefore granted to every rendered agent, including read-only roles, since they still need it for investigation. If a role declares `bash = "deny"`, the renderer fails before writing because Claude Code cannot preserve that prohibition. Claude Code uses a flat subagent topology: the orchestrator performs the logical policy's nested delegation, invokes `explorer` directly when planner or reviewer evidence is needed, and includes that evidence in the handoff. Rendered subagent files contain no `Agent(explorer)` entries; all delegated targets are omitted from their frontmatter. The native-vision Claude profile inspects images directly.
+Claude Code has no per-subagent equivalent of OpenCode's `bash = "ask"` permission; prompts are configured at the session level, not per agent file. `Bash` is therefore granted to every generated agent, including read-only roles, since they still need it for investigation. If a role declares `bash = "deny"`, the generator fails before writing because Claude Code cannot preserve that prohibition. Claude Code uses a flat subagent topology: the orchestrator performs the logical policy's nested delegation, invokes `explorer` directly when planner or reviewer evidence is needed, and includes that evidence in the handoff. Generated subagent files contain no `Agent(explorer)` entries; all delegated targets are omitted from their frontmatter. The native-vision Claude profile inspects images directly.
 
-Subagents rendered from role files start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff. The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile. Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.
+Generated subagents start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff. The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile. Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.
 
 The local `.agent-orchestration.manifest.json` under the target directory tracks managed roles,
 the optional workflow, and the non-installable control-plane note the same way as the
-OpenCode adapter, so obsolete generated agents and artifacts are removed without deleting
+OpenCode harness, so obsolete generated agents and artifacts are removed without deleting
 unrelated agents or CLAUDE.md content.
 
-## Generated snapshots
+## Generated output
 
-`generated/opencode/`, `generated/codex/`, `generated/claude-code/`, and the isolated
-`generated/pi/hybrid/`, `generated/pi/openai/`, `generated/pi/deepseek/`, and `generated/pi/glm/` bundles are committed snapshots,
-intentionally. They include the separately
+`build/opencode/`, `build/codex/`, `build/claude-code/`, and the isolated
+`build/pi/hybrid/`, `build/pi/openai/`, `build/pi/deepseek/`, and `build/pi/glm/` bundles are
+untracked generator output; `build/` and `generated/` are ignored so no generated
+harness configuration is committed. They include the separately
 packaged optional workflow and the harness-specific control-plane artifact. A policy or
-profile change must show both:
+profile change shows the harness-agnostic semantic change in review, while CI proves
+that every harness output is reproducible from it.
 
-1. the harness-agnostic semantic change;
-2. its exact per-harness output.
+`./scripts/generate` writes every supported harness/profile output under the default
+untracked `build/` tree. `./scripts/check` generates each output twice into separate
+temporary roots and diffs the corresponding results, so CI fails on nondeterministic
+generation without relying on committed snapshots.
 
-CI rerenders snapshots and fails on drift.
+## Pi harness
 
-## Pi adapter
-
-The Pi adapter renders a default hybrid bundle plus OpenAI, DeepSeek, and Z.AI GLM
+The Pi generator produces a default hybrid bundle plus OpenAI, DeepSeek, and Z.AI GLM
 routing profiles. The manifest's `format_version: 1` is the internal orchestration bundle schema, not a Pi host or runtime version.
 The installer manages only manifest-owned policy, agent, workflow, extension, and launcher artifacts; it does not install, select, migrate, or validate framework packages.
 Active Tintinweb and other runtime packages remain operator-owned. The installer never modifies settings, catalogs, auth, MCP, themes, and provider state.
@@ -240,11 +278,11 @@ exactly nine `agents/*.md` definitions. Every role explicitly uses
 `defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
 inherited project context or skill catalog. The `extensions` field is intentionally
 omitted, so normal Pi extensions remain available subject to each role's strict tool
-allowlist, and every profile bundle renders no managed extension package. The
+allowlist, and every profile bundle generates no managed extension package. The
 `git-read.ts` explorer runtime extension and its `extensions/agent-orchestration/package.json`,
 the provider status extensions, and the former `primary-policy` extension are retired; files
 left by a previous install are migration-only stale artifacts that the installer removes
-rather than loads, and the manifest's `managed_extensions` is empty. The rendered Pi shared
+rather than loads, and the manifest's `managed_extensions` is empty. The generated Pi shared
 policy requires `max_turns` on every Agent call, defaults source-changing worker calls to
 `run_in_background: true`, and recommends caps of foreground ≤12 turns and background
 mutation ≤30 turns. Potentially
@@ -278,10 +316,10 @@ PI_CODING_AGENT_DIR="$HOME/.pi/profiles/deepseek" pi install git:github.com/kolo
 PI_CODING_AGENT_DIR="$HOME/.pi/profiles/glm" pi install git:github.com/kolodziejm/harness-extensions
 ```
 
-Render and check the snapshot through the standard entrypoints:
+Generate and check the output through the standard entrypoints:
 
 ```bash
-./scripts/render
+./scripts/generate
 uv run --locked ./scripts/check
 ```
 
@@ -354,7 +392,7 @@ ordinary stale cleanup and rollback transaction.
 
 ### Pi explorer shell degradation
 
-Every rendered hybrid, OpenAI, DeepSeek, and GLM Pi profile manages no extension package:
+Every generated hybrid, OpenAI, DeepSeek, and GLM Pi profile manages no extension package:
 there is no `extensions/agent-orchestration` directory, no extension `package.json`, and the
 manifest's `managed_extensions` is empty. The former manifest-owned
 `extensions/agent-orchestration/git-read.ts` explorer runtime extension is retired; any file
@@ -363,7 +401,7 @@ receives Pi's built-in `bash` tool for repository evidence instead of the remove
 and every other role excludes `git_read`.
 
 Canonical policy sets `bash = "ask"` for explorer. Pi cannot forward an `ask` decision from a
-headless child to the parent UI, so the adapter explicitly degrades that ask to an allowed
+headless child to the parent UI, so the Pi integration explicitly degrades that ask to an allowed
 shell. This is a documented weakening, not a read-only guarantee: `bash` is unrestricted for
 explorer and there is no hard read-only sandbox. Explorer frontmatter declares
 `acceptanceRole: read-only`, which is prompt/acceptance metadata for acceptance inference only;
@@ -373,7 +411,7 @@ idempotent updates, stale managed-file cleanup, backup, and rollback; it does no
 shell commands a child runs.
 
 Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
-an agent's tool list, the Pi host passes it through. The adapter degrades canonical
+an agent's tool list, the Pi host passes it through. The Pi integration degrades canonical
 shell-`ask` roles explicitly: validator, debugger, and explorer receive `bash`, while reviewer
 omits it and keeps a stricter no-shell ceiling. Command-level
 permission configuration remains operator-owned and is not copied or claimed by this project.
@@ -382,7 +420,7 @@ Planner and reviewer retain the `subagent` tool, while canonical policy restrict
 exact child target `explorer`; all other canonical roles lack `subagent`, so they are leaves at
 the Pi tool boundary. Under runtimes without a public framework-neutral child-target
 enforcement API, that exact restriction is a policy-level boundary represented in role
-contracts and rendered tool lists, not runtime enforcement. This bundle does not claim
+contracts and generated tool lists, not runtime enforcement. This bundle does not claim
 fail-closed package integration, and the policy guidance is not an OS sandbox or general
 command classifier. Pi cannot install the small model or built-in build/plan mappings, so
 each bundle's `_shared/control-plane.json` records those values as non-installed intent.
@@ -415,16 +453,16 @@ AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK=I_ACCEPT_OPENAI_USAGE \
 2. Add `roles/<role>.md` without provider/model identifiers.
 3. Map the role in every versioned `profiles/*.toml` file.
 4. Keep each profile's `[control_plane]` and `capabilities.supported_variants` valid.
-5. Run `uv run --locked ./scripts/render` and `uv run --locked ./scripts/check`.
-6. Review the generated model-routing and control-plane diff; operator-owned permission,
+5. Run `uv run --locked ./scripts/generate` and `uv run --locked ./scripts/check`.
+6. Review the generated model-routing and control-plane output; operator-owned permission,
    auth, MCP, and theme files are never generated or claimed.
 
 ## Adding another harness
 
-Create an adapter under `adapters/<harness>/` that consumes only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the adapter, not in role contracts.
+Create a harness generator and optional installer under `harnesses/<harness>/` that consume only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the harness generator and installer, not in role contracts.
 
-Currently supported: OpenCode (`adapters/opencode/`), Codex (`adapters/codex/`),
-Claude Code (`adapters/claude-code/`), and Pi (`adapters/pi/`).
+Currently supported: OpenCode (`harnesses/opencode/`), Codex (`harnesses/codex/`),
+Claude Code (`harnesses/claude-code/`), and Pi (`harnesses/pi/`).
 
 ## Security
 
@@ -451,5 +489,5 @@ package manager or harness-specific destination.
 The skill is model-rendered from its prompt and needs no additional repository runtime or
 skill-specific tests. A harness without Agent Skills support must report that this skill is
 unsupported rather than mutating unrelated configuration. This repository does not provide a
-custom skill installer or manage harness settings. Policy adapters remain a separate concern:
-existing adapter installers are not replaced or reclassified by the portable-skill rule.
+custom skill installer or manage harness settings. Harness generators and installers remain a
+separate concern and are not replaced or reclassified by the portable-skill rule.

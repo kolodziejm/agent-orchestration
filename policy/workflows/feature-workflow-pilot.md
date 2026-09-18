@@ -45,17 +45,17 @@ subagent({
       {
         key: "adapter-lane",
         agent: "explorer",
-        phase: "Adapter evidence",
-        label: "Inspect Pi rendering and installation boundaries",
-        task: "Read only adapters/pi/render.py and adapters/pi/install.py. Return concise evidence about rendering and lifecycle boundaries.",
+        phase: "Harness generation evidence",
+        label: "Inspect Pi generation and installation boundaries",
+        task: "Read only harnesses/pi/generate.py and harnesses/pi/install.py. Return concise evidence about generation and lifecycle boundaries.",
         output: false
       },
       {
         key: "test-lane",
         agent: "explorer",
         phase: "Regression evidence",
-        label: "Inspect focused tests and generated snapshot contracts",
-        task: "Read only tests/test_pi_*.py and generated/pi/*/manifest.json. Return concise evidence about regression and snapshot contracts.",
+        label: "Inspect focused tests and harness generation contracts",
+        task: "Read only tests/test_pi_*.py and scripts/generate. Return concise evidence about regression and generation contracts.",
         output: false
       }
     ]);

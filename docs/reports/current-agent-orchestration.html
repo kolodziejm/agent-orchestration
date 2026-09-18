@@ -155,11 +155,11 @@
         <div class="arrow" aria-hidden="true">→</div>
         <div class="arch-box">adaptery /<br>renderery</div>
         <div class="arrow" aria-hidden="true">→</div>
-        <div class="arch-box strong"><div class="arch-path"><code><span>generated/</span><span>opencode/</span></code><code><span>generated/</span><span>codex/</span></code></div></div>
+        <div class="arch-box strong"><div class="arch-path"><code><span>build/</span><span>opencode/</span></code><code><span>build/</span><span>codex/</span></code></div></div>
         <div class="arrow" aria-hidden="true">→</div>
         <div class="arch-box">aktywna<br>konfiguracja</div>
       </div>
-      <p class="small">Kolejność operatorska: edycja źródeł semantycznych → <code>./scripts/render</code> → <code>./scripts/check</code> → przegląd diffu → instalacja.</p>
+      <p class="small">Kolejność operatorska: edycja źródeł semantycznych → <code>./scripts/generate</code> → <code>./scripts/check</code> → inspekcja konfiguracji w <code>build/</code> → instalacja.</p>
       <div class="grid">
         <div class="callout"><strong>OpenCode.</strong> Instalator scala konfigurację i zachowuje niezwiązane ustawienia. Tworzy kopie zapasowe w <code>~/.local/state/agent-orchestration/backups/</code>, a po nieudanej walidacji przywraca stan. Walidacja używa <code>opencode debug config</code>.</div>
         <div class="callout"><strong>Codex.</strong> Repozytorium nie ma instalatora ani menedżera rollbacku. Zaobserwowane aktywne pliki agentów są bajtowo zgodne z wygenerowanym snapshotem; aktywny <code>AGENTS.md</code> różni się tylko dwiema lokalnymi regułami użytkownika: conventional commits oraz Playwright na desktopie i mobile, bez headless, z ponownym użyciem sesji przeglądarki.</div>
@@ -301,7 +301,7 @@
         <table>
           <thead><tr><th>Sytuacja</th><th>Playbook</th></tr></thead>
           <tbody>
-            <tr><td>Zmiana semantyczna</td><td>Edytuj źródła → <code>./scripts/render</code> → <code>./scripts/check</code> → przejrzyj diff → wykonaj dry run/instalację OpenCode.</td></tr>
+            <tr><td>Zmiana semantyczna</td><td>Edytuj źródła → <code>./scripts/generate</code> → <code>./scripts/check</code> → sprawdź konfigurację w <code>build/</code> → wykonaj dry run/instalację OpenCode.</td></tr>
             <tr><td>Codex</td><td>Wykonaj ręczne kopiowanie lub symlink do wybranej lokalizacji. Przywróć poprzedni commit wygenerowanych plików albo własną kopię zapasową; brak wbudowanego menedżera rollbacku.</td></tr>
             <tr><td>OpenCode — błąd instalacji</td><td>Instalator sam przywraca stan po nieudanej walidacji. Kopie z <code>~/.local/state/agent-orchestration/backups/</code> pozostają dostępne do ręcznego odzyskania. Nie ma deklarowanej komendy CLI rollback.</td></tr>
             <tr><td>Git</td><td>Wersjonowanie repo pozwala operatorowi odwrócić commit, ponownie wyrenderować i zainstalować konfigurację. Jest to workflow operatorski, a nie wbudowany rollback.</td></tr>
@@ -320,9 +320,9 @@
         <a href="../../profiles/openai.toml">profiles/openai.toml</a>
         <a href="../../profiles/glm.toml">profiles/glm.toml</a>
         <a href="../../README.md">README.md</a>
-        <a href="../../adapters/opencode/install.py">adapters/opencode/install.py</a>
-        <a href="../../adapters/opencode/render.py">adapters/opencode/render.py</a>
-        <a href="../../adapters/codex/render.py">adapters/codex/render.py</a>
+        <a href="../../harnesses/opencode/install.py">harnesses/opencode/install.py</a>
+        <a href="../../harnesses/opencode/generate.py">harnesses/opencode/generate.py</a>
+        <a href="../../harnesses/codex/generate.py">harnesses/codex/generate.py</a>
         <a href="../../tests/">tests/</a>
       </div>
       <p class="small" style="margin-top:18px"><strong>Ograniczenie dowodowe:</strong> porównanie aktywnej konfiguracji obejmowało metadane i zarządzane pliki. Wybrany aktywny profil OpenCode nie został ustalony. Raport nie zawiera sekretów ani pełnej konfiguracji runtime.</p>

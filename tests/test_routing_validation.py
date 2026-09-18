@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VALIDATE = ROOT / "adapters" / "validate.py"
+VALIDATE = ROOT / "harnesses" / "validate.py"
 ROUTING_SCHEMA = ROOT / "schema" / "policy.schema.json"
 PROFILE_SCHEMA = ROOT / "schema" / "profile.schema.json"
 FIXTURES = ROOT / "tests" / "fixtures" / "routing"

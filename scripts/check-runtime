@@ -12,4 +12,4 @@ if ! "$PYTHON" -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; th
   exit 2
 fi
 
-exec "$PYTHON" "$ROOT/adapters/opencode/check_runtime.py" "$@"
+exec "$PYTHON" "$ROOT/harnesses/opencode/check_runtime.py" "$@"

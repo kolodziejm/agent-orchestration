@@ -10,8 +10,8 @@ from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT / "adapters" / "claude-code" / "render.py"
-INSTALL = ROOT / "adapters" / "claude-code" / "install.py"
+GENERATE = ROOT / "harnesses" / "claude-code" / "generate.py"
+INSTALL = ROOT / "harnesses" / "claude-code" / "install.py"
 
 
 def load_install_module():
@@ -29,18 +29,18 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rendered = root / "rendered"
+            generated = root / "generated"
             target = root / "target"
             subprocess.run(
-                [sys.executable, str(RENDER), "--output", str(rendered)],
+                [sys.executable, str(GENERATE), "--output", str(generated)],
                 cwd=ROOT,
                 check=True,
             )
 
-            files, _ = install.desired_state(rendered, target, adopt=True)
+            files, _ = install.desired_state(generated, target, adopt=True)
             workflow = target / "workflows" / "feature-workflow-pilot.md"
             self.assertIn(workflow, files)
-            self.assertEqual(files[workflow], (rendered / "workflows" / workflow.name).read_text())
+            self.assertEqual(files[workflow], (generated / "workflows" / workflow.name).read_text())
 
             control_note = target / "_shared" / "control-plane.md"
             self.assertIn(control_note, files)
@@ -99,10 +99,10 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rendered = root / "rendered"
+            generated = root / "generated"
             target = root / "target"
             subprocess.run(
-                [sys.executable, str(RENDER), "--output", str(rendered)],
+                [sys.executable, str(GENERATE), "--output", str(generated)],
                 cwd=ROOT,
                 check=True,
             )
@@ -119,10 +119,10 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
             (target / "agents" / "custom-agent.md").write_text("keep me")
 
             unrelated = "# My notes\n\nSome unrelated content.\n"
-            managed = (rendered / "_shared" / "orchestration-core.md").read_text()
+            managed = (generated / "_shared" / "orchestration-core.md").read_text()
             (target / "CLAUDE.md").write_text(unrelated + "\n" + managed)
 
-            files, deletions = install.desired_state(rendered, target)
+            files, deletions = install.desired_state(generated, target)
             claude_md = files[target / "CLAUDE.md"]
             self.assertIn(unrelated.strip(), claude_md)
             self.assertIn("<!-- agent-orchestration:start -->", claude_md)
@@ -135,17 +135,17 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rendered = root / "rendered"
+            generated = root / "generated"
             target = root / "target"
             subprocess.run(
-                [sys.executable, str(RENDER), "--output", str(rendered)],
+                [sys.executable, str(GENERATE), "--output", str(generated)],
                 cwd=ROOT,
                 check=True,
             )
             target.mkdir()
             (target / "CLAUDE.md").write_text("# Project notes\n\nExisting content.\n")
 
-            files, _ = install.desired_state(rendered, target, adopt=True)
+            files, _ = install.desired_state(generated, target, adopt=True)
             claude_md = files[target / "CLAUDE.md"]
             self.assertIn("Existing content.", claude_md)
             self.assertIn("<!-- agent-orchestration:start -->", claude_md)
@@ -179,10 +179,10 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            rendered = root / "rendered"
+            generated = root / "generated"
             target = root / "target"
             subprocess.run(
-                [sys.executable, str(RENDER), "--output", str(rendered)],
+                [sys.executable, str(GENERATE), "--output", str(generated)],
                 cwd=ROOT,
                 check=True,
             )
@@ -192,7 +192,7 @@ class ClaudeCodeInstallPlanTests(unittest.TestCase):
             (target / install.MANIFEST_NAME).write_bytes(manifest_bytes)
 
             with self.assertRaises(SystemExit):
-                install.desired_state(rendered, target)
+                install.desired_state(generated, target)
 
             self.assertEqual(
                 (target / install.MANIFEST_NAME).read_bytes(),
