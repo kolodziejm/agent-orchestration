@@ -42,6 +42,20 @@ LEGACY_RETIRED_DELEGATION_EXTENSIONS = frozenset({
     "extensions/agent-orchestration/delegation-ceiling-planner.js",
     "extensions/agent-orchestration/delegation-ceiling-reviewer.js",
 })
+LEGACY_RETIRED_RUNTIME_EXTENSIONS = frozenset({
+    "extensions/agent-orchestration/deepseek-price-status.js",
+    "extensions/agent-orchestration/glm-price-status.js",
+    "extensions/agent-orchestration/codex-pace-status.js",
+    "extensions/agent-orchestration/codex-pace-core.mjs",
+    "extensions/agent-orchestration/codex-pace-loader.ts",
+    "extensions/agent-orchestration/primary-policy.js",
+    # The former explorer Git-reader runtime extension and its extension package are
+    # retired. They are migration-only installed-manifest claims: current rendering
+    # never creates or claims them, so an upgrade deletes them through ordinary stale
+    # managed-file cleanup.
+    "extensions/agent-orchestration/git-read.ts",
+    "extensions/agent-orchestration/package.json",
+})
 
 
 def text_diff(current: Path, desired: str, label: str) -> str:
@@ -101,7 +115,11 @@ def validate_manifest(manifest: dict, label: str) -> None:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
     extensions = manifest.get("managed_extensions", [])
     legacy_extensions = (
-        {LEGACY_RETIRED_PLANNING_GUARD, *LEGACY_RETIRED_DELEGATION_EXTENSIONS}
+        {
+            LEGACY_RETIRED_PLANNING_GUARD,
+            *LEGACY_RETIRED_DELEGATION_EXTENSIONS,
+            *LEGACY_RETIRED_RUNTIME_EXTENSIONS,
+        }
         if label == "installed manifest"
         else set()
     )
@@ -124,8 +142,16 @@ def validate_manifest(manifest: dict, label: str) -> None:
     if any(value in {"themes/dark.json", "themes/light.json"} for value in managed_files):
         raise SystemExit(f"Built-in Pi themes cannot be managed in {label}")
     if label == "generated manifest":
-        if any(value in LEGACY_OPERATOR_MANAGED_EXTENSIONS or value == LEGACY_RETIRED_PLANNING_GUARD for value in extensions):
+        if any(
+            value in LEGACY_OPERATOR_MANAGED_EXTENSIONS
+            or value == LEGACY_RETIRED_PLANNING_GUARD
+            or value in LEGACY_RETIRED_DELEGATION_EXTENSIONS
+            or value in LEGACY_RETIRED_RUNTIME_EXTENSIONS
+            for value in extensions
+        ):
             raise SystemExit("Generated manifest contains retired or operator-owned Pi paths")
+        if extensions:
+            raise SystemExit("Generated manifest must not claim managed Pi extensions")
         if managed_files:
             raise SystemExit("Generated manifest cannot claim operator-owned Pi files")
 
@@ -256,6 +282,8 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         raise RuntimeError(f"Invalid installed Pi manifest: {manifest_path}")
     manifest = json.loads(manifest_path.read_text())
     validate_manifest(manifest, "installed manifest")
+    if manifest.get("managed_extensions"):
+        raise RuntimeError("Installed Pi manifest must not claim managed extensions")
 
     # Post-install validation is scoped to the rendered bundle and any
     # launcher being written; operator runtime state is deliberately opaque.
@@ -275,9 +303,6 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
     missing_paths = [path for path in validation_paths if not path.is_file()]
     if missing_paths:
         missing = sorted(str(path) for path in missing_paths)
-        child_names = {"git-read.ts", "package.json"}
-        if any(path.name in child_names for path in missing_paths):
-            raise RuntimeError(f"Missing installed Pi child-only extension: {missing}")
         raise RuntimeError(f"Missing installed Pi artifacts: {missing}")
     expected_files = {**bundle_files, **{path: files[path] for path in launchers}}
     mismatched = sorted(
@@ -304,64 +329,13 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         if role == "explorer":
             if acceptance_role_lines != ["acceptanceRole: read-only"]:
                 raise RuntimeError("Invalid Pi explorer acceptanceRole")
-            if "git_read" not in tool_names or "bash" in tool_names:
-                raise RuntimeError("Invalid Pi explorer Git reader allowlist")
+            if "bash" not in tool_names or "git_read" in tool_names:
+                raise RuntimeError("Invalid Pi explorer shell allowlist")
         else:
             if acceptance_role_lines:
                 raise RuntimeError(f"Pi acceptanceRole leaked to role: {role}")
             if "git_read" in tool_names:
                 raise RuntimeError(f"Pi Git reader leaked to role: {role}")
-    profile = manifest["profiles"][0]
-    status_entrypoints = {
-        "hybrid": "./deepseek-price-status.js",
-        "openai": "./codex-pace-loader.ts",
-        "deepseek": "./deepseek-price-status.js",
-        "glm": "./glm-price-status.js",
-    }
-    expected_status_entrypoint = status_entrypoints.get(profile)
-    managed_extensions = set(manifest.get("managed_extensions", []))
-    package_relative = "extensions/agent-orchestration/package.json"
-    if package_relative not in managed_extensions:
-        raise RuntimeError("Pi status extension package is not manifest-owned")
-    package_path = target / package_relative
-    try:
-        status_package = json.loads(package_path.read_text())
-    except (OSError, json.JSONDecodeError) as error:
-        raise RuntimeError("Invalid installed Pi status extension package") from error
-    expected_status_package = {
-        "type": "module",
-        "pi": {
-            "extensions": ["./primary-policy.js"]
-            + ([expected_status_entrypoint] if expected_status_entrypoint else [])
-            + ["./git-read.ts"],
-        },
-    }
-    if status_package != expected_status_package:
-        raise RuntimeError("Invalid installed Pi status extension package")
-    if expected_status_entrypoint is not None:
-        entrypoint_path = package_path.parent / expected_status_entrypoint
-        entrypoint_relative = (
-            f"extensions/agent-orchestration/{expected_status_entrypoint.removeprefix('./')}"
-        )
-        if entrypoint_relative not in managed_extensions:
-            raise RuntimeError("Pi status extension is not manifest-owned")
-        if not entrypoint_path.is_file() or entrypoint_path.is_symlink():
-            raise RuntimeError("Missing installed Pi status extension entrypoint")
-
-    primary_extension = "extensions/agent-orchestration/primary-policy.js"
-    if primary_extension not in managed_extensions:
-        raise RuntimeError("Pi primary policy extension is not manifest-owned")
-    primary_path = target / primary_extension
-    if primary_path.is_symlink() or not primary_path.is_file():
-        raise RuntimeError("Missing installed Pi primary policy extension")
-
-    for extension_name in ("git-read.ts", "package.json"):
-        managed_reference = f"extensions/agent-orchestration/{extension_name}"
-        if managed_reference not in managed_extensions:
-            raise RuntimeError("Pi child-only extension is not manifest-owned")
-        managed_path = target / managed_reference
-        if managed_path.is_symlink() or not managed_path.is_file():
-            raise RuntimeError("Missing installed Pi child-only extension")
     invalid_launchers = [
         path for path in launchers
         if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK)

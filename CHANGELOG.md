@@ -4,6 +4,20 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Remove the custom Pi `git-read.ts` runtime extension: no profile renders or manages a Pi
+  extension package, `managed_extensions` is empty, and explorer uses Pi's built-in `bash`
+  instead. Canonical `bash = "ask"` for explorer is explicitly degraded to allow because Pi
+  cannot forward an ask from a headless child; `acceptanceRole: read-only` remains
+  prompt/acceptance metadata rather than a hard read-only sandbox. The installer treats
+  `git-read.ts` and `extensions/agent-orchestration/package.json` as retired migration-only
+  managed paths and deletes them on upgrade.
+- Move Pi provider status implementations to the separate `harness-extensions` runtime
+  repository and replace the `primary-policy` extension with Pi's native CLI boundary. Each
+  profile launcher selects its primary `--model` and `--thinking`, exports
+  `AGENT_ORCHESTRATION_PROFILE` for optional native packages, and appends the rendered shared
+  `orchestration-core.md` through `--append-system-prompt`. The installer removes retired
+  in-repo status/primary extensions as migration-only stale artifacts without managing the
+  separately installed runtime package.
 - Add bounded delegation and responsiveness rules: source-changing handoffs own one
   independently verifiable slice and validator checkpoint, capped work stops without
   self-extension, and potentially non-brief work stays in the background when supported.

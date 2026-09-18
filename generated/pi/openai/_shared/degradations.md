@@ -1,17 +1,20 @@
 # Pi adapter degradations
 
 - Pi's native child permission model rejects `permissions.bash` and always allows shell calls
-  when the `bash` tool is present. For canonical `bash = "ask"` roles other than validator
-  and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
-  permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
-  permission configuration or bridges. Headless children still cannot forward an `ask` decision to the parent UI.
+  when the `bash` tool is present. Pi cannot forward an `ask` decision from a headless child
+  to the parent UI, so the adapter resolves every canonical `bash = "ask"` role to a concrete
+  grant or denial. Validator, debugger, and explorer receive `bash`; reviewer omits `bash` and
+  keeps a stricter no-shell ceiling. Command-level permissions are operator-owned runtime state;
+  this bundle and its installer do not copy or claim permission configuration or bridges.
 - The profile launcher selects the primary session and Pi user agent files configure
   subagents. Pi cannot install the small model or built-in build/plan mappings; their
   mapped values are recorded in `control-plane.json` as profile intent and are not installed.
-- Validator and debugger receive `bash` despite canonical `bash = "ask"` because their
-  contracts require mechanical checks or repository commands. Planner and design-partner
-  are structurally read-only and omit `bash`, `edit`, and `write`; reviewer remains
-  read-only and explorer remains read-only. Debugger remains source-edit read-only.
+- Validator, debugger, and explorer receive `bash` despite canonical `bash = "ask"` because
+  their contracts require mechanical checks, repository commands, or repository evidence.
+  This is an explicit, documented weakening: `bash` is unrestricted for these children and
+  there is no hard read-only sandbox. Planner and design-partner are structurally read-only
+  and omit `bash`, `edit`, and `write`; reviewer remains read-only and also omits `bash`.
+  Debugger remains source-edit read-only.
 - Validator has a separate deterministic browser/Appium MCP allowlist. Direct MCP tools
   require an available background/async child and a prepared URL/session; when that
   provider or session is unavailable, acceptance is reported as `BLOCKED`, never shifted
@@ -34,16 +37,13 @@
 - Every other canonical role is a leaf and receives no `subagent` tool. When
   the primary cannot inspect images natively, it routes visual work directly
   to an existing image-capable role according to the shared policy.
-- `explorer` receives the manifest-owned `git_read` child tool and still has no
-  `bash` capability. Its frontmatter declares `acceptanceRole: read-only` for
-  acceptance inference only; this metadata does not grant or revoke tools or
-  command execution. The `git_read` capability remains read-only, worktree-bound,
-  and exposes only status plus bounded worktree/staged/range diffs with patch,
-  stat, or name-status views. It derives the boundary from the nearest
-  non-symlinked `.git` directory or linked-worktree marker file and requires
-  Git's reported top level to match it exactly; validated paths are passed
-  directly after `--` under fixed literal-pathspec mode. Every Git process uses
-  fixed argv/environment hardening, no network/hooks/pagers/external diff/textconv,
-  a shared 10-second deadline, and aggregate 64 KiB/2,000-line caps across stdout
-  and stderr. The extension deliberately uses a private bounded `spawn` helper
-  instead of the host's unbounded `pi.exec` buffering; it never persists full output.
+- Every rendered profile manages no Pi extension package: there is no
+  `extensions/agent-orchestration` directory, no extension `package.json`, and
+  `managed_extensions` is empty. `explorer` receives Pi's built-in `bash` tool instead of
+  the removed `git_read` extension.
+- `explorer` frontmatter declares `acceptanceRole: read-only`, which is prompt/acceptance
+  metadata for acceptance inference only. It does not grant or revoke tools, does not create a
+  hard read-only sandbox, and does not constrain `bash`; `explorer` is expected to gather
+  repository evidence through read-only commands and the non-mutating read tools. The
+  installer validates only this tool allowlist and acceptance metadata, not the shell
+  commands a child runs.

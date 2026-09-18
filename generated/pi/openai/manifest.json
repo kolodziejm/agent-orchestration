@@ -17,13 +17,7 @@
   "launchers": [
     "pi-openai"
   ],
-  "managed_extensions": [
-    "extensions/agent-orchestration/git-read.ts",
-    "extensions/agent-orchestration/primary-policy.js",
-    "extensions/agent-orchestration/codex-pace-core.mjs",
-    "extensions/agent-orchestration/codex-pace-loader.ts",
-    "extensions/agent-orchestration/package.json"
-  ],
+  "managed_extensions": [],
   "workflows": [
     "feature-workflow-pilot"
   ],

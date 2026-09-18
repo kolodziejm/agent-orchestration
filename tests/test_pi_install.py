@@ -50,9 +50,27 @@ class PiInstallTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("unrecognized arguments", result.stderr)
 
-    def test_installed_status_package_rejects_the_opposite_profile_entrypoint(self):
-        """Installed validation must reject a package that selects another profile's status."""
+    def test_manifest_validation_rejects_any_managed_extension_claim(self):
+        """No profile manages an extension package: generated and installed manifests must reject extension claims."""
         install = load_install_module()
+        retired = (
+            "extensions/agent-orchestration/git-read.ts",
+            "extensions/agent-orchestration/package.json",
+            "extensions/agent-orchestration/primary-policy.js",
+        )
+        for extensions in ([*retired], ["extensions/foo/config.json"]):
+            with self.subTest(generated=extensions):
+                generated = {
+                    "format_version": 1,
+                    "roles": [],
+                    "profiles": ["hybrid"],
+                    "workflows": [],
+                    "shared": [],
+                    "launchers": [],
+                    "managed_extensions": list(extensions),
+                }
+                with self.assertRaisesRegex(SystemExit, "managed Pi extensions|retired"):
+                    install.validate_manifest(generated, "generated manifest")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
@@ -60,19 +78,14 @@ class PiInstallTests(unittest.TestCase):
             target = root / "hybrid"
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, profile="hybrid")
-            package_path = target / "extensions/agent-orchestration/package.json"
-            package_path.write_text(json.dumps({
-                "type": "module",
-                "pi": {"extensions": ["./codex-pace-loader.ts"]},
-            }) + "\n")
-            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
-            files = {
-                path: path.read_text()
-                for path in install.managed_paths(manifest, target)
-                if path.is_file()
-            }
-            with self.assertRaisesRegex(RuntimeError, "status extension package"):
-                install.validate_installed(files, target)
+            manifest_path = target / install.MANIFEST_NAME
+            for extensions in ([*retired],):
+                with self.subTest(installed=extensions):
+                    manifest = json.loads(manifest_path.read_text())
+                    manifest["managed_extensions"] = list(extensions)
+                    manifest_path.write_text(json.dumps(manifest) + "\n")
+                    with self.assertRaisesRegex(RuntimeError, "managed extensions"):
+                        install.validate_installed({}, target)
 
     def test_installed_validation_ignores_operator_runtime_state(self):
         """This test will fail when post-install validation treats runtime state as bundle-owned."""
@@ -106,62 +119,39 @@ class PiInstallTests(unittest.TestCase):
 
             install.validate_installed(files, target)
 
-    def test_normal_launchers_autoload_only_their_profile_status_extension(self):
-        """A normal generated launcher must discover its installed status package without -e."""
-        pi = Path.home() / ".nvm/versions/node/v24.15.0/bin/pi"
-        node = pi.with_name("node")
-        if not pi.is_file() or not node.is_file():
-            self.skipTest("Pi launcher runtime is unavailable")
+    def test_normal_launchers_select_primary_model_and_append_shared_policy_without_managed_extensions(self):
+        """An installed launcher must select the primary model/thinking and append the shared policy while managing no extensions."""
         install = load_install_module()
+        cases = {
+            "hybrid": ("openai-codex/gpt-5.6-sol", "medium"),
+            "deepseek": ("deepseek/deepseek-flash", "max"),
+            "glm": ("zai/glm-5.3", "high"),
+        }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
             fake_home.mkdir()
             bin_dir = root / "bin"
-            cases = (
-                ("hybrid", root / "hybrid",
-                 "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
-                ("deepseek", root / "deepseek",
-                 "agent-orchestration-deepseek-price", "agent-orchestration-codex-pace"),
-            )
-            for profile, target, expected, rejected in cases:
-                with self.subTest(profile=profile), mock.patch.object(
-                    Path, "home", return_value=fake_home
-                ):
-                    install.install(
-                        target, dry_run=False, profile=profile, bin_dir=bin_dir,
+            for profile, (model, thinking) in cases.items():
+                with self.subTest(profile=profile):
+                    target = root / profile
+                    with mock.patch.object(Path, "home", return_value=fake_home):
+                        install.install(target, dry_run=False, profile=profile, bin_dir=bin_dir)
+                    launcher = (bin_dir / f"pi-{profile}").read_text()
+                    self.assertIn(f'--model "{model}"', launcher)
+                    self.assertIn(f'--thinking "{thinking}"', launcher)
+                    self.assertIn('--append-system-prompt "$policy"', launcher)
+                    self.assertIn(
+                        "agent-orchestration/_shared/orchestration-core.md",
+                        launcher,
                     )
-                env = os.environ.copy()
-                env.update({
-                    "AGENT_ORCHESTRATION_PI_EXECUTABLE": str(pi),
-                    "AGENT_ORCHESTRATION_NODE_EXECUTABLE": str(node),
-                    "PI_OFFLINE": "1",
-                })
-                result = subprocess.run(
-                    [
-                        str(bin_dir / f"pi-{profile}"), "--mode", "rpc", "--no-session",
-                        "--offline", "--no-skills", "--no-prompt-templates", "--no-themes",
-                        "--no-context-files",
-                    ],
-                    cwd=ROOT,
-                    env=env,
-                    input='{"type":"get_state"}\n',
-                    text=True,
-                    capture_output=True,
-                    timeout=15,
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                events = [json.loads(line) for line in result.stdout.splitlines()]
-                status_keys = {
-                    event.get("statusKey")
-                    for event in events
-                    if event.get("method") == "setStatus"
-                }
-                self.assertIn(expected, status_keys, result.stdout)
-                self.assertNotIn(rejected, status_keys, result.stdout)
+                    extension_dir = target / "extensions"
+                    self.assertFalse(extension_dir.exists())
+                    manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+                    self.assertEqual(manifest["managed_extensions"], [])
 
-    def test_git_reader_is_manifest_owned_and_explorer_only_in_every_installed_profile(self):
-        """REGRESSION CONTRACT: installation must load only the explorer Git reader and reject lifecycle tampering."""
+    def test_explorer_builtin_bash_and_no_extension_bundle_in_every_installed_profile(self):
+        """REGRESSION CONTRACT: installation renders no extension bundle and explorer uses Pi's built-in bash."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -175,25 +165,17 @@ class PiInstallTests(unittest.TestCase):
             for profile, target in cases.items():
                 with self.subTest(profile=profile), mock.patch.object(Path, "home", return_value=fake_home):
                     install.install(target, dry_run=False, profile=profile)
-                reader = target / "extensions/agent-orchestration/git-read.ts"
-                primary = target / "extensions/agent-orchestration/primary-policy.js"
-                package = json.loads((target / "extensions/agent-orchestration/package.json").read_text())
+                self.assertFalse((target / "extensions").exists())
                 manifest = json.loads((target / install.MANIFEST_NAME).read_text())
-                self.assertTrue(reader.is_file())
-                self.assertTrue(primary.is_file())
-                self.assertIn("extensions/agent-orchestration/git-read.ts", manifest["managed_extensions"])
-                self.assertIn("extensions/agent-orchestration/primary-policy.js", manifest["managed_extensions"])
-                self.assertIn("./git-read.ts", package["pi"]["extensions"])
-                self.assertIn("./primary-policy.js", package["pi"]["extensions"])
-                self.assertEqual(package["pi"]["extensions"][0], "./primary-policy.js")
+                self.assertEqual(manifest["managed_extensions"], [])
                 explorer = (target / "agents/explorer.md").read_text()
                 self.assertIn("acceptanceRole: read-only", explorer)
                 self.assertEqual(
                     [line for line in explorer.splitlines() if line.startswith("acceptanceRole:")],
                     ["acceptanceRole: read-only"],
                 )
-                self.assertIn("tools: read, grep, find, ls, git_read", explorer)
-                self.assertNotIn("tools: read, grep, find, ls, git_read, bash", explorer)
+                self.assertIn("tools: read, grep, find, ls, bash", explorer)
+                self.assertNotIn("git_read", explorer)
                 for role in manifest["roles"]:
                     role_content = (target / "agents" / f"{role}.md").read_text()
                     if role != "explorer":
@@ -203,12 +185,17 @@ class PiInstallTests(unittest.TestCase):
             target = cases["hybrid"]
             manifest_path = target / install.MANIFEST_NAME
             manifest = json.loads(manifest_path.read_text())
-            manifest_path.write_text(json.dumps(manifest) + "\n")
             explorer_path = target / "agents/explorer.md"
             explorer_original = explorer_path.read_text()
             for tampered in (
                 explorer_original.replace("acceptanceRole: read-only\n", ""),
                 explorer_original.replace("acceptanceRole: read-only", "acceptanceRole: writer"),
+                explorer_original.replace(
+                    "tools: read, grep, find, ls, bash", "tools: read, grep, find, ls"
+                ),
+                explorer_original.replace(
+                    "tools: read, grep, find, ls, bash", "tools: read, grep, find, ls, git_read"
+                ),
             ):
                 explorer_path.write_text(tampered)
                 tampered_files = {
@@ -216,29 +203,21 @@ class PiInstallTests(unittest.TestCase):
                     for path in install.managed_paths(manifest, target)
                     if path.is_file()
                 }
-                with self.assertRaisesRegex(RuntimeError, "acceptanceRole"):
+                with self.assertRaisesRegex(RuntimeError, "acceptanceRole|shell allowlist"):
                     install.validate_installed(tampered_files, target)
             explorer_path.write_text(explorer_original)
-            (target / "extensions/agent-orchestration/git-read.ts").unlink()
-            files = {
-                path: path.read_text()
-                for path in install.managed_paths(manifest, target)
-                if path.is_file()
-            }
-            with self.assertRaisesRegex(RuntimeError, "Git reader|child-only extension"):
-                install.validate_installed(files, target)
 
-    def test_deepseek_managed_extensions_require_adoption_reject_symlinks_and_clean_only_stale_managed_files(self):
-        """This test will fail when manifest-owned extension lifecycle can overwrite links or delete unrelated files."""
+    def test_managed_lifecycle_requires_adoption_rejects_symlinks_and_cleans_retired_extensions(self):
+        """This test will fail when manifest-owned lifecycle can overwrite links or leave retired extension files behind."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
             fake_home.mkdir()
             target = root / "target"
-            collision = target / "extensions/agent-orchestration/git-read.ts"
+            collision = target / "agents/explorer.md"
             collision.parent.mkdir(parents=True)
-            collision.write_text("{}\n")
+            collision.write_text("user explorer\n")
             with self.assertRaisesRegex(SystemExit, "adoption required"):
                 install.install(target, dry_run=True, profile="deepseek")
             secret = root / "secret"
@@ -252,17 +231,30 @@ class PiInstallTests(unittest.TestCase):
             unrelated = target / "extensions/custom/config.json"
             unrelated.parent.mkdir(parents=True)
             unrelated.write_text("keep\n")
+            retired = {
+                target / "extensions/agent-orchestration/git-read.ts": "legacy reader\n",
+                target / "extensions/agent-orchestration/package.json": "{}\n",
+                target / "extensions/retired/config.json": "stale\n",
+            }
             with mock.patch.object(Path, "home", return_value=fake_home):
                 install.install(target, dry_run=False, adopt=True, profile="deepseek")
                 manifest_path = target / install.MANIFEST_NAME
+                # Simulate a prior install that claimed the retired extension bundle.
                 manifest = json.loads(manifest_path.read_text())
-                manifest["managed_extensions"].append("extensions/retired/config.json")
+                manifest["managed_extensions"] = [
+                    "extensions/agent-orchestration/git-read.ts",
+                    "extensions/agent-orchestration/package.json",
+                    "extensions/retired/config.json",
+                ]
                 manifest_path.write_text(json.dumps(manifest) + "\n")
-                stale = target / "extensions/retired/config.json"
-                stale.parent.mkdir(parents=True)
-                stale.write_text("stale\n")
+                for path, content in retired.items():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content)
                 install.install(target, dry_run=False, profile="deepseek")
-            self.assertFalse(stale.exists())
+                current = json.loads(manifest_path.read_text())
+                self.assertEqual(current["managed_extensions"], [])
+            for path in retired:
+                self.assertFalse(path.exists())
             self.assertEqual(unrelated.read_text(), "keep\n")
 
     def test_managed_replacement_does_not_mutate_an_external_hardlink(self):
@@ -540,6 +532,10 @@ class PiInstallTests(unittest.TestCase):
                     manifest["managed_extensions"].extend([
                         "extensions/pi-permission-system/config.json",
                         "extensions/pi-permission-system/package.json",
+                        "extensions/agent-orchestration/primary-policy.js",
+                        "extensions/agent-orchestration/deepseek-price-status.js",
+                        "extensions/agent-orchestration/git-read.ts",
+                        "extensions/agent-orchestration/package.json",
                     ])
                     manifest["managed_files"] = ["themes/custom-theme.json"]
                     manifest_path.write_text(json.dumps(manifest) + "\n")
@@ -547,7 +543,16 @@ class PiInstallTests(unittest.TestCase):
                     retired_agent = target / "agents/spec-writer.md"
                     retired_agent.write_text("legacy project artifact\n")
                     retired_guard = target / "extensions/agent-orchestration/planning-artifact-guard.js"
+                    retired_guard.parent.mkdir(parents=True, exist_ok=True)
                     retired_guard.write_text("legacy guard\n")
+                    retired_extensions = [
+                        target / "extensions/agent-orchestration/primary-policy.js",
+                        target / "extensions/agent-orchestration/deepseek-price-status.js",
+                        target / "extensions/agent-orchestration/git-read.ts",
+                        target / "extensions/agent-orchestration/package.json",
+                    ]
+                    for retired in retired_extensions:
+                        retired.write_text("legacy provider extension\n")
                     operator_files = {
                         target / "extensions/pi-permission-system/config.json": b"opaque permission config\n",
                         target / "extensions/pi-permission-system/package.json": b"opaque permission bridge\n",
@@ -575,9 +580,16 @@ class PiInstallTests(unittest.TestCase):
                     self.assertNotIn("extensions/agent-orchestration/planning-artifact-guard.js", current["managed_extensions"])
                     self.assertNotIn("extensions/pi-permission-system/config.json", current["managed_extensions"])
                     self.assertNotIn("extensions/pi-permission-system/package.json", current["managed_extensions"])
+                    self.assertNotIn("extensions/agent-orchestration/primary-policy.js", current["managed_extensions"])
+                    self.assertNotIn("extensions/agent-orchestration/deepseek-price-status.js", current["managed_extensions"])
+                    self.assertNotIn("extensions/agent-orchestration/git-read.ts", current["managed_extensions"])
+                    self.assertNotIn("extensions/agent-orchestration/package.json", current["managed_extensions"])
+                    self.assertEqual(current["managed_extensions"], [])
                     self.assertNotIn("managed_files", current)
                     self.assertFalse(retired_agent.exists())
                     self.assertFalse(retired_guard.exists())
+                    for retired in retired_extensions:
+                        self.assertFalse(retired.exists())
                     for path, snapshot in snapshots.items():
                         self.assertEqual(
                             (path.read_bytes(), path.stat().st_mode & 0o777,
@@ -610,6 +622,7 @@ class PiInstallTests(unittest.TestCase):
             retired_agent = target / "agents/spec-writer.md"
             retired_agent.write_text("legacy agent\n")
             retired_guard = target / "extensions/agent-orchestration/planning-artifact-guard.js"
+            retired_guard.parent.mkdir(parents=True, exist_ok=True)
             retired_guard.write_text("legacy guard\n")
             operator_files = {
                 target / "extensions/pi-permission-system/config.json": b"operator config\n",

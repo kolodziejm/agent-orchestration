@@ -14,4 +14,15 @@ fi
 
 export PI_CODING_AGENT_DIR="$HOME/.pi/profiles/openai"
 export PI_CODING_AGENT_SESSION_DIR="$HOME/.pi/agent/sessions"
-exec "$node_executable" "$pi_executable" "$@"
+export AGENT_ORCHESTRATION_PROFILE="openai"
+policy_path="$PI_CODING_AGENT_DIR/agent-orchestration/_shared/orchestration-core.md"
+if [ ! -r "$policy_path" ]; then
+  printf '%s\n' "Pi orchestration policy is missing or unreadable: $policy_path" >&2
+  exit 1
+fi
+policy=$(cat "$policy_path")
+exec "$node_executable" "$pi_executable" \
+  --model "__AGENT_ORCHESTRATION_PRIMARY_MODEL__" \
+  --thinking "__AGENT_ORCHESTRATION_PRIMARY_THINKING__" \
+  --append-system-prompt "$policy" \
+  "$@"

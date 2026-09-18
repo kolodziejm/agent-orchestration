@@ -107,8 +107,8 @@ EXPECTED = {
 
 
 class PiRenderTests(unittest.TestCase):
-    def test_readme_documents_profile_switching_and_status_semantics(self):
-        """Operators must know the exact process switch and how to interpret both indicators."""
+    def test_readme_documents_profile_switching_and_native_cli_boundary(self):
+        """Operators must know the exact process switch and the native CLI policy boundary."""
         readme = (ROOT / "README.md").read_text()
         for text in (
             "exit the current Pi process",
@@ -116,20 +116,19 @@ class PiRenderTests(unittest.TestCase):
             "pi-openai",
             "pi-deepseek",
             "pi-glm",
-            "01:00–04:00 and 06:00–10:00 UTC Monday–Friday",
-            "DS peak ×1",
-            "DS off-peak ×0.5",
-            "Hybrid and standalone DeepSeek",
-            "GLM peak ×3",
-            "GLM off-peak ×1",
-            "06:00–10:00 UTC Monday–Friday",
-            "×1.2",
-            "×0.4",
-            "consumed% − elapsed%",
-            "projected end utilization",
-            "pace unavailable",
+            "--model",
+            "--thinking",
+            "--append-system-prompt",
+            "agent-orchestration/_shared/orchestration-core.md",
+            "fails closed",
+            "before_agent_start",
+            "git-read.ts",
+            "migration-only stale",
             "acceptanceRole: read-only",
             "acceptance inference only",
+            "no hard read-only sandbox",
+            "cannot forward an `ask` decision",
+            "built-in `bash`",
             "policy-level",
             "framework-neutral",
             "not runtime enforcement",
@@ -137,6 +136,17 @@ class PiRenderTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertIn(text, readme)
+        for removed in (
+            "Pi profile status indicators",
+            "DS peak ×1",
+            "DS off-peak ×0.5",
+            "GLM peak ×3",
+            "GLM off-peak ×1",
+            "pace unavailable",
+            "loads the managed `primary-policy.js`",
+        ):
+            with self.subTest(text=removed):
+                self.assertNotIn(removed, readme)
 
     def test_manifest_uses_internal_bundle_schema_without_runtime_identity(self):
         """The manifest version names the internal bundle schema, never a runtime package."""
@@ -162,259 +172,18 @@ class PiRenderTests(unittest.TestCase):
                     self.assertNotIn("pi-subagents", content)
                     self.assertNotIn("0.67.0", content)
 
-    def test_hybrid_deepseek_price_refresh_aligns_to_utc_minute_boundaries(self):
-        """A session started mid-minute must update exactly when a pricing boundary begins."""
-        source = ROOT / "adapters/pi/extensions/deepseek-price-status.js"
-        script = """
-import { millisecondsToNextUtcMinute } from %s;
-console.log(JSON.stringify([
-  millisecondsToNextUtcMinute(Date.parse("2026-09-07T00:59:00.000Z")),
-  millisecondsToNextUtcMinute(Date.parse("2026-09-07T00:59:00.500Z")),
-  millisecondsToNextUtcMinute(Date.parse("2026-09-07T00:59:59.999Z")),
-]));
-""" % json.dumps(source.as_uri())
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=ROOT, text=True, capture_output=True,
+    def test_every_profile_renders_no_managed_extension_bundle(self):
+        """REGRESSION CONTRACT: no bundle renders an extension directory/package and managed_extensions is empty."""
+        retired = (
+            "deepseek-price-status.js",
+            "glm-price-status.js",
+            "codex-pace-status.js",
+            "codex-pace-core.mjs",
+            "codex-pace-loader.ts",
+            "primary-policy.js",
+            "git-read.ts",
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [60_000, 59_500, 1])
-
-    def test_hybrid_deepseek_price_status_has_exact_utc_boundaries_and_weekends(self):
-        """Hybrid pricing must follow the official weekday UTC periods without network data."""
-        source = ROOT / "adapters/pi/extensions/deepseek-price-status.js"
-        script = """
-import { deepseekPricePeriod } from %s;
-const cases = %s;
-console.log(JSON.stringify(cases.map(([value]) => deepseekPricePeriod(new Date(value)))));
-""" % (json.dumps(source.as_uri()), json.dumps([
-            ["2026-09-07T00:59:59.999Z"],
-            ["2026-09-07T01:00:00.000Z"],
-            ["2026-09-07T03:59:59.999Z"],
-            ["2026-09-07T04:00:00.000Z"],
-            ["2026-09-07T05:59:59.999Z"],
-            ["2026-09-07T06:00:00.000Z"],
-            ["2026-09-07T09:59:59.999Z"],
-            ["2026-09-07T10:00:00.000Z"],
-            ["2026-09-12T02:00:00.000Z"],
-            ["2026-09-13T07:00:00.000Z"],
-        ]))
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=ROOT, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [
-            "DS off-peak ×0.5", "DS peak ×1", "DS peak ×1", "DS off-peak ×0.5",
-            "DS off-peak ×0.5", "DS peak ×1", "DS peak ×1", "DS off-peak ×0.5",
-            "DS off-peak ×0.5", "DS off-peak ×0.5",
-        ])
-
-    def test_glm_price_status_has_exact_utc_boundaries_and_weekends(self):
-        """GLM-5.3 peak pricing is the weekday half-open UTC window only."""
-        source = ROOT / "adapters/pi/extensions/glm-price-status.js"
-        cases = [
-            "2026-09-11T05:59:00.000Z",
-            "2026-09-11T06:00:00.000Z",
-            "2026-09-11T09:59:00.000Z",
-            "2026-09-11T10:00:00.000Z",
-            "2026-09-12T07:00:00.000Z",
-            "2026-09-13T07:00:00.000Z",
-        ]
-        script = """
-import { glmPricePeriod, millisecondsToNextUtcMinute } from %s;
-const cases = %s;
-console.log(JSON.stringify({
-  labels: cases.map((value) => glmPricePeriod(new Date(value))),
-  refresh: [
-    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:00.000Z")),
-    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:00.500Z")),
-    millisecondsToNextUtcMinute(Date.parse("2026-09-11T06:00:59.999Z")),
-  ],
-}));
-""" % (json.dumps(source.as_uri()), json.dumps(cases))
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=ROOT, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {
-            "labels": [
-                "GLM off-peak ×1", "GLM peak ×3", "GLM peak ×3",
-                "GLM off-peak ×1", "GLM off-peak ×1", "GLM off-peak ×1",
-            ],
-            "refresh": [60_000, 59_500, 1],
-        })
-
-    def test_codex_weekly_pace_formats_schedule_and_rejects_unusable_reports(self):
-        """Weekly pace uses the seven-day bucket and degrades silently for unsafe data."""
-        source = ROOT / "adapters/pi/extensions/codex-pace-status.js"
-        now = 1_800_000_000_000
-        # The weekly window is halfway elapsed when it has 3.5 days remaining.
-        valid = {
-            "providerId": "openai-codex",
-            "capturedAt": now - 60_000,
-            "buckets": [{
-                "id": "codex:secondary", "used": 60, "unit": "percent",
-                "windowMinutes": 7 * 24 * 60,
-                "resetsAt": (now + 3.5 * 24 * 60 * 60 * 1000) / 1000,
-            }],
-        }
-        cases = [
-            valid,
-            {**valid, "buckets": [{**valid["buckets"][0], "used": 40}]},
-            {**valid, "capturedAt": now - 16 * 60_000},
-            {**valid, "buckets": []},
-            {**valid, "buckets": [{**valid["buckets"][0], "used": "secret"}]},
-            {**valid, "buckets": [{
-                **valid["buckets"][0], "used": 0,
-                "resetsAt": (now + (7 * 24 * 60 - 1) * 60 * 1000) / 1000,
-            }]},
-        ]
-        script = """
-import { codexWeeklyPace } from %s;
-const cases = %s;
-console.log(JSON.stringify(cases.map((report) => codexWeeklyPace(report, %d))));
-""" % (json.dumps(source.as_uri()), json.dumps(cases), now)
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=ROOT, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), [
-            "pace +10pp · proj 120%",
-            "pace -10pp · proj 80%",
-            None,
-            None,
-            None,
-            "pace +0pp · proj —",
-        ])
-
-    def test_codex_pace_resolves_pi_usage_from_profile_settings(self):
-        """The isolated root may share validated package code without an ambient node_modules lookup."""
-        source = ROOT / "adapters/pi/extensions/codex-pace-status.js"
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            package = root / "shared/npm/node_modules/@narumitw/pi-usage"
-            (package / "dist").mkdir(parents=True)
-            (package / "package.json").write_text(json.dumps({"name": "@narumitw/pi-usage"}))
-            (package / "dist/index.ts").write_text("export {};\n")
-            profile = root / "profile"
-            profile.mkdir()
-            (profile / "settings.json").write_text(json.dumps({
-                "packages": [{"source": str(package), "autoload": True}],
-            }))
-            script = """
-import { resolvePiUsageEntrypoint } from %s;
-console.log(resolvePiUsageEntrypoint(%s));
-""" % (json.dumps(source.as_uri()), json.dumps(str(profile)))
-            result = subprocess.run(
-                ["node", "--input-type=module", "--eval", script],
-                cwd=ROOT, text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                result.stdout.strip(), (package / "dist/index.ts").as_uri().replace("%40", "@")
-            )
-
-    def test_codex_pace_status_refreshes_safely_with_pi_usage_public_api(self):
-        """The OpenAI adapter refreshes on lifecycle events and never publishes query errors."""
-        source = ROOT / "adapters/pi/extensions/codex-pace-status.js"
-        script = """
-import extension from %s;
-const handlers = {};
-const statuses = [];
-let timerCallback;
-let queries = 0;
-const now = 1800000000000;
-const report = {
-  providerId: "openai-codex", capturedAt: now,
-  buckets: [{ unit: "percent", used: 60, windowMinutes: 10080,
-    resetsAt: (now + 3.5 * 86400000) / 1000 }],
-};
-const usageApi = {
-  adapterForProvider(id) { return id === "openai-codex" ? { id } : undefined; },
-  async resolveUsageAuth(ctx, adapter) { return { marker: "resolved", model: ctx.model }; },
-  async queryProviderUsage(adapter, auth, signal, timeout) {
-    queries += 1;
-    if (queries === 2) throw new Error("secret-response-body");
-    return report;
-  },
-};
-const pi = { on(name, callback) { handlers[name] = callback; } };
-const ctx = {
-  model: { provider: "openai-codex", id: "gpt-5.6-sol" },
-  ui: { setStatus(key, value) { statuses.push([key, value]); } },
-};
-extension(pi, {
-  usageApi,
-  now: () => now,
-  setInterval(callback, ms) { timerCallback = callback; return { unref() {} }; },
-  clearInterval() {},
-});
-await handlers.session_start({}, ctx);
-await handlers.model_select({ model: ctx.model }, ctx);
-await timerCallback();
-handlers.session_shutdown({}, ctx);
-console.log(JSON.stringify({ queries, statuses }));
-""" % json.dumps(source.as_uri())
-        result = subprocess.run(
-            ["node", "--input-type=module", "--eval", script],
-            cwd=ROOT, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        payload = json.loads(result.stdout)
-        self.assertEqual(payload["queries"], 3)
-        self.assertEqual(payload["statuses"], [
-            ["agent-orchestration-codex-pace", "pace +10pp · proj 120%"],
-            ["agent-orchestration-codex-pace", "pace unavailable"],
-            ["agent-orchestration-codex-pace", "pace +10pp · proj 120%"],
-            ["agent-orchestration-codex-pace", None],
-        ])
-        self.assertNotIn("secret-response-body", result.stdout + result.stderr)
-
-    def test_deepseek_regression_contract_renders_only_its_canonical_status_adapter(self):
-        """REGRESSION CONTRACT: standalone DeepSeek loads canonical pricing and no other provider status."""
-        expected = {
-            "hybrid": (
-                [
-                    "deepseek-price-status.js",
-                    "git-read.ts",
-                    "package.json",
-                    "primary-policy.js",
-                ],
-                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./deepseek-price-status.js", "./git-read.ts"]}},
-            ),
-            "openai": (
-                [
-                    "codex-pace-core.mjs",
-                    "codex-pace-loader.ts",
-                    "git-read.ts",
-                    "package.json",
-                    "primary-policy.js",
-                ],
-                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./codex-pace-loader.ts", "./git-read.ts"]}},
-            ),
-            "deepseek": (
-                [
-                    "deepseek-price-status.js",
-                    "git-read.ts",
-                    "package.json",
-                    "primary-policy.js",
-                ],
-                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./deepseek-price-status.js", "./git-read.ts"]}},
-            ),
-            "glm": (
-                [
-                    "git-read.ts",
-                    "glm-price-status.js",
-                    "package.json",
-                    "primary-policy.js",
-                ],
-                {"type": "module", "pi": {"extensions": ["./primary-policy.js", "./glm-price-status.js", "./git-read.ts"]}},
-            ),
-        }
-        for profile_name, (expected_names, expected_package) in expected.items():
+        for profile_name in EXPECTED:
             with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / profile_name
                 result = subprocess.run(
@@ -422,20 +191,17 @@ console.log(JSON.stringify({ queries, statuses }));
                     cwd=ROOT, text=True, capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                extension_dir = output / "extensions/agent-orchestration"
-                files = sorted(path.name for path in extension_dir.glob("*"))
-                self.assertEqual(files, sorted(expected_names))
+                self.assertFalse((output / "extensions").exists())
                 manifest = json.loads((output / "manifest.json").read_text())
-                managed = manifest.get("managed_extensions", [])
-                expected_managed = [
-                    f"extensions/agent-orchestration/{name}" for name in expected_names
-                ]
-                self.assertEqual(sorted(managed), sorted(expected_managed))
-                if expected_package is not None:
-                    self.assertEqual(
-                        json.loads((extension_dir / "package.json").read_text()),
-                        expected_package,
-                    )
+                self.assertEqual(manifest["managed_extensions"], [])
+                bundle = "\n".join(path.read_text() for path in output.rglob("*") if path.is_file())
+                for name in retired:
+                    self.assertNotIn(name, bundle)
+                self.assertNotIn("before_agent_start", bundle)
+
+        self.assertFalse((ROOT / "adapters/pi/extensions").exists())
+        self.assertFalse((ROOT / "tests/test_pi_primary_policy.py").exists())
+        self.assertFalse((ROOT / "tests/test_pi_git_read.py").exists())
 
     def test_renderer_bootstraps_no_pi_sandbox_for_either_profile(self):
         """This test will fail when either Pi profile bundle loads the removed sandbox integration."""
@@ -531,31 +297,42 @@ console.log(JSON.stringify({ queries, statuses }));
             fake_home = root / "home"
             fake_pi = fake_home / ".nvm/versions/node/v24.15.0/bin/pi"
             fake_pi.parent.mkdir(parents=True)
-            fake_pi.write_text("#!/bin/sh\nprintf '%s\\n' \"$PI_CODING_AGENT_DIR\" \"$PI_CODING_AGENT_SESSION_DIR\" \"$@\"\n")
+            fake_pi.write_text("#!/bin/sh\nprintf '%s\\n' \"$PI_CODING_AGENT_DIR\" \"$PI_CODING_AGENT_SESSION_DIR\" \"$AGENT_ORCHESTRATION_PROFILE\" \"$@\"\n")
             fake_pi.chmod(0o755)
             fake_node = fake_pi.with_name("node")
             fake_node.write_text("#!/bin/sh\nexec \"$@\"\n")
             fake_node.chmod(0o755)
             env = os.environ.copy()
             env["HOME"] = str(fake_home)
-            for profile_name, expected_root in (
-                ("hybrid", fake_home / ".pi/agent"),
-                ("openai", fake_home / ".pi/profiles/openai"),
-                ("deepseek", fake_home / ".pi/profiles/deepseek"),
-                ("glm", fake_home / ".pi/profiles/glm"),
-            ):
-                output = root / profile_name
-                subprocess.run([sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)], check=True)
-                launcher = output / f"pi-{profile_name}"
-                self.assertTrue(os.access(launcher, os.X_OK))
-                content = launcher.read_text().lower()
-                for secret in ("api_key", "token=", "authorization:", "auth.json"):
-                    self.assertNotIn(secret, content)
-                result = subprocess.run([str(launcher), "--prompt", "two words", "--", "literal"], env=env, text=True, capture_output=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                lines = result.stdout.splitlines()
-                self.assertEqual(lines[:2], [str(expected_root), str(fake_home / ".pi/agent/sessions")])
-                self.assertEqual(lines[2:], ["--prompt", "two words", "--", "literal"])
+            cases = (
+                ("hybrid", fake_home / ".pi/agent", "openai-codex/gpt-5.6-sol", "medium"),
+                ("openai", fake_home / ".pi/profiles/openai", "openai-codex/gpt-5.6-sol", "medium"),
+                ("deepseek", fake_home / ".pi/profiles/deepseek", "deepseek/deepseek-flash", "max"),
+                ("glm", fake_home / ".pi/profiles/glm", "zai/glm-5.3", "high"),
+            )
+            for profile_name, expected_root, expected_model, expected_thinking in cases:
+                with self.subTest(profile=profile_name):
+                    output = root / profile_name
+                    subprocess.run([sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)], check=True)
+                    launcher = output / f"pi-{profile_name}"
+                    self.assertTrue(os.access(launcher, os.X_OK))
+                    content = launcher.read_text().lower()
+                    for secret in ("api_key", "token=", "authorization:", "auth.json"):
+                        self.assertNotIn(secret, content)
+                    policy = expected_root / "agent-orchestration" / "_shared" / "orchestration-core.md"
+                    policy.parent.mkdir(parents=True, exist_ok=True)
+                    policy.write_text("SHARED ORCHESTRATION POLICY\n")
+                    result = subprocess.run([str(launcher), "--prompt", "two words", "--", "literal"], env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    lines = result.stdout.splitlines()
+                    self.assertEqual(
+                        lines[:3],
+                        [str(expected_root), str(fake_home / ".pi/agent/sessions"), profile_name],
+                    )
+                    self.assertEqual(lines[3:7], ["--model", expected_model, "--thinking", expected_thinking])
+                    self.assertEqual(lines[7], "--append-system-prompt")
+                    self.assertEqual(lines[8], "SHARED ORCHESTRATION POLICY")
+                    self.assertEqual(lines[9:], ["--prompt", "two words", "--", "literal"])
             fake_pi.unlink()
             missing = subprocess.run(
                 [str(root / "openai" / "pi-openai")],
@@ -596,6 +373,9 @@ console.log(JSON.stringify({ queries, statuses }));
                 [sys.executable, str(RENDER), "--profile", "hybrid", "--output", str(output)],
                 cwd=ROOT, check=True,
             )
+            policy = fake_home / ".pi/agent/agent-orchestration/_shared/orchestration-core.md"
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            policy.write_text("SHARED ORCHESTRATION POLICY\n")
             result = subprocess.run(
                 [str(output / "pi-hybrid"), "--version"],
                 env=env, text=True, capture_output=True,
@@ -606,6 +386,70 @@ console.log(JSON.stringify({ queries, statuses }));
             self.assertEqual(result.stdout.splitlines()[0], "colocated-node")
             self.assertIn(str(fake_pi), result.stdout.splitlines())
 
+    def test_profile_launchers_bake_primary_model_thinking_and_append_shared_policy(self):
+        """REGRESSION CONTRACT: a launcher selects its primary model/thinking and passes the shared policy natively."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            pi_bin = fake_home / ".nvm/versions/node/v24.15.0/bin"
+            pi_bin.mkdir(parents=True)
+            fake_pi = pi_bin / "pi"
+            fake_node = pi_bin / "node"
+            fake_node.write_text("#!/bin/sh\nexec \"$@\"\n")
+            fake_node.chmod(0o755)
+            env = os.environ.copy()
+            env["HOME"] = str(fake_home)
+            expected_primary = {
+                "hybrid": ("openai-codex/gpt-5.6-sol", "medium"),
+                "openai": ("openai-codex/gpt-5.6-sol", "medium"),
+                "deepseek": ("deepseek/deepseek-flash", "max"),
+                "glm": ("zai/glm-5.3", "high"),
+            }
+            for profile_name, (model, thinking) in expected_primary.items():
+                with self.subTest(profile=profile_name):
+                    output = root / profile_name
+                    subprocess.run(
+                        [sys.executable, str(RENDER), "--profile", profile_name, "--output", str(output)],
+                        cwd=ROOT, check=True,
+                    )
+                    launcher = output / f"pi-{profile_name}"
+                    text = launcher.read_text()
+                    self.assertNotIn("__AGENT_ORCHESTRATION_PRIMARY", text)
+                    self.assertIn(f'--model "{model}"', text)
+                    self.assertIn(f'--thinking "{thinking}"', text)
+                    self.assertIn(f'export AGENT_ORCHESTRATION_PROFILE="{profile_name}"', text)
+                    self.assertIn('--append-system-prompt "$policy"', text)
+                    self.assertIn(
+                        'policy_path="$PI_CODING_AGENT_DIR/agent-orchestration/_shared/orchestration-core.md"',
+                        text,
+                    )
+                    control = json.loads((output / "_shared" / "control-plane.json").read_text())
+                    self.assertEqual(control["primary"], {"model": model, "thinking": thinking})
+                    self.assertEqual(control["installed"]["primary"], "launcher")
+
+            # An installed-style launcher must pass the byte-exact rendered policy and forward user args.
+            policy_text = (root / "hybrid" / "_shared" / "orchestration-core.md").read_text()
+            installed_policy = fake_home / ".pi/agent" / "agent-orchestration" / "_shared" / "orchestration-core.md"
+            installed_policy.parent.mkdir(parents=True, exist_ok=True)
+            installed_policy.write_text(policy_text)
+            argv_path = root / "argv.bin"
+            fake_pi.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\0' \"$@\" > {argv_path}\n"
+            )
+            fake_pi.chmod(0o755)
+            result = subprocess.run(
+                [str(root / "hybrid" / "pi-hybrid"), "--prompt", "keep both words"],
+                env=env, text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            argv = [part.decode() for part in argv_path.read_bytes().split(b"\0") if part]
+            self.assertEqual(argv[:2], ["--model", "openai-codex/gpt-5.6-sol"])
+            self.assertEqual(argv[2:4], ["--thinking", "medium"])
+            self.assertEqual(argv[4], "--append-system-prompt")
+            self.assertEqual(argv[5], policy_text.rstrip("\n"))
+            self.assertEqual(argv[6:], ["--prompt", "keep both words"])
+
     def test_pi_tool_allowlists_preserve_shell_and_delegation_boundaries(self):
         """This test will fail when Pi drops required tools or widens a role boundary."""
         expected_tools = {
@@ -613,7 +457,7 @@ console.log(JSON.stringify({ queries, statuses }));
             "worker-complex": "read, grep, find, ls, edit, write, bash",
             "validator": ", ".join(["read", "grep", "find", "ls", "bash", *VALIDATOR_MCP_TOOLS]),
             "debugger": "read, grep, find, ls, bash",
-            "explorer": "read, grep, find, ls, git_read",
+            "explorer": "read, grep, find, ls, bash",
             "planner": "read, grep, find, ls, subagent",
             "design-partner": "read, grep, find, ls",
             "reviewer": "read, grep, find, ls, subagent",
@@ -645,7 +489,7 @@ console.log(JSON.stringify({ queries, statuses }));
                     ]
                     if role == "explorer":
                         self.assertEqual(acceptance_role_lines, ["acceptanceRole: read-only"])
-                        self.assertNotIn("bash", tools_line)
+                        self.assertNotIn("git_read", tools_line)
                     else:
                         self.assertEqual(acceptance_role_lines, [])
 
@@ -672,8 +516,8 @@ console.log(JSON.stringify({ queries, statuses }));
                 self.assertEqual(tools_line, f"tools: {', '.join(UX_CRITIC_TOOLS)}")
                 self.assertTrue(set(UX_CRITIC_TOOLS).isdisjoint(forbidden))
 
-    def test_git_read_degradation_is_explicit_and_explorer_only(self):
-        """REGRESSION CONTRACT: generated Pi bundles document the bounded Git exception without granting shell access."""
+    def test_explorer_bash_degradation_is_explicit_and_git_reader_is_gone(self):
+        """REGRESSION CONTRACT: explorer uses built-in bash instead of the removed git reader and the ask degradation is documented."""
         for profile_name in EXPECTED:
             with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / profile_name
@@ -683,22 +527,23 @@ console.log(JSON.stringify({ queries, statuses }));
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 degradation = (output / "_shared/degradations.md").read_text()
-                self.assertIn("64 KiB/2,000-line caps", degradation)
-                self.assertIn("bounded `spawn` helper", degradation)
-                self.assertIn("unbounded `pi.exec` buffering", degradation)
+                self.assertIn("no hard read-only sandbox", degradation)
+                self.assertIn("cannot forward an `ask` decision", degradation)
                 self.assertIn("acceptanceRole: read-only", degradation)
                 self.assertIn("does not grant or revoke tools", degradation)
                 self.assertIn("policy-level boundary", degradation)
                 self.assertIn("framework-neutral", degradation)
                 self.assertIn("not runtime enforcement", degradation)
                 self.assertIn("exact child target `explorer`", degradation)
-                explorer = (output / "agents/explorer.md").read_text()
+                explorer = (output / "agents" / "explorer.md").read_text()
                 self.assertIn("acceptanceRole: read-only", explorer)
-                self.assertIn("tools: read, grep, find, ls, git_read", explorer)
-                self.assertNotIn("tools: read, grep, find, ls, git_read, bash", explorer)
+                self.assertIn("tools: read, grep, find, ls, bash", explorer)
+                self.assertNotIn("git_read", explorer)
                 for role in EXPECTED[profile_name]["models"]:
                     if role != "explorer":
-                        self.assertNotIn("git_read", (output / "agents" / f"{role}.md").read_text())
+                        content = (output / "agents" / f"{role}.md").read_text()
+                        self.assertNotIn("git_read", content)
+                        self.assertNotIn("acceptanceRole:", content)
 
     def test_renderer_emits_complete_default_hybrid_pi_bundle(self):
         """This test will fail when the Pi bundle omits a canonical artifact or role."""
@@ -735,7 +580,7 @@ console.log(JSON.stringify({ queries, statuses }));
                 else:
                     expected_tools = ["read", "grep", "find", "ls"]
                     if role == "explorer":
-                        expected_tools.append("git_read")
+                        expected_tools.append("bash")
                     if config["edit"] == "allow":
                         expected_tools += ["edit", "write"]
                     if config["bash"] == "allow" or role in {"validator", "debugger"}:

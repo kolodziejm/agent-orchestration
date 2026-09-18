@@ -240,17 +240,43 @@ exactly nine `agents/*.md` definitions. Every role explicitly uses
 `defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
 inherited project context or skill catalog. The `extensions` field is intentionally
 omitted, so normal Pi extensions remain available subject to each role's strict tool
-allowlist. Each profile bundle also loads the managed `primary-policy.js` extension.
-The rendered Pi shared policy requires `max_turns` on every Agent call, defaults
-source-changing worker calls to `run_in_background: true`, and recommends caps of
-foreground ≤12 turns and background mutation ≤30 turns. Potentially blocking child tool
-calls must use their native timeout or an OS/harness-enforced timeout; `max_turns` alone
-cannot bound one tool call. When timeout and termination cannot be enforced, the operation
-is not delegated and stays bounded in the primary or returns `BLOCKED`. On primary
-`before_agent_start`, it appends the installed
-`agent-orchestration/_shared/orchestration-core.md` exactly once; child processes marked
-`PI_SUBAGENT_CHILD=1` are left unchanged. This uses Pi's system-prompt hook without
-managing or replacing user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files.
+allowlist, and every profile bundle renders no managed extension package. The
+`git-read.ts` explorer runtime extension and its `extensions/agent-orchestration/package.json`,
+the provider status extensions, and the former `primary-policy` extension are retired; files
+left by a previous install are migration-only stale artifacts that the installer removes
+rather than loads, and the manifest's `managed_extensions` is empty. The rendered Pi shared
+policy requires `max_turns` on every Agent call, defaults source-changing worker calls to
+`run_in_background: true`, and recommends caps of foreground ≤12 turns and background
+mutation ≤30 turns. Potentially
+blocking child tool calls must use their native timeout or an OS/harness-enforced timeout;
+`max_turns` alone cannot bound one tool call. When timeout and termination cannot be
+enforced, the operation is not delegated and stays bounded in the primary or returns
+`BLOCKED`.
+
+The native CLI boundary replaces the former extension hook. Each profile launcher starts Pi
+with its profile's primary `--model` and `--thinking`, then appends the installed
+`agent-orchestration/_shared/orchestration-core.md` through Pi's public
+`--append-system-prompt` flag. The launcher fails closed before `exec` when that policy file
+is missing or unreadable. Because the policy is supplied on the command line, the bundle
+does not hook `before_agent_start`, does not load a managed policy extension, and does not
+manage or replace user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files. Each
+launcher also exports `AGENT_ORCHESTRATION_PROFILE` (`hybrid`, `openai`, `deepseek`, or
+`glm`) so optional native Pi packages can select profile-specific behavior without copying
+runtime implementation into this repository.
+
+Optional Pi status integrations live in the separate
+[`kolodziejm/harness-extensions`](https://github.com/kolodziejm/harness-extensions)
+repository. Install that repository with Pi's native package manager in each profile where
+status UI is wanted; it maps `hybrid`/`deepseek` to the DeepSeek price period, `openai` to
+Codex weekly pace, and `glm` to the GLM price period. This installer deliberately does not
+mutate package settings or own that runtime package.
+
+```bash
+PI_CODING_AGENT_DIR="$HOME/.pi/agent" pi install git:github.com/kolodziejm/harness-extensions
+PI_CODING_AGENT_DIR="$HOME/.pi/profiles/openai" pi install git:github.com/kolodziejm/harness-extensions
+PI_CODING_AGENT_DIR="$HOME/.pi/profiles/deepseek" pi install git:github.com/kolodziejm/harness-extensions
+PI_CODING_AGENT_DIR="$HOME/.pi/profiles/glm" pi install git:github.com/kolodziejm/harness-extensions
+```
 
 Render and check the snapshot through the standard entrypoints:
 
@@ -326,62 +352,30 @@ roots contain none of them. The one-time manifest migration drops legacy permiss
 claims without deleting those files, while retired project artifacts continue through the
 ordinary stale cleanup and rollback transaction.
 
-### Pi `git_read` explorer capability
+### Pi explorer shell degradation
 
-Every rendered hybrid, OpenAI, DeepSeek, and GLM Pi profile copies the manifest-owned
-`extensions/agent-orchestration/git-read.ts` extension and loads it from the extension
-package alongside the profile's existing status entrypoint. Only the `explorer` child
-allowlist contains `git_read`; explorer still has no `bash`, and every other role excludes
-it. Explorer frontmatter declares `acceptanceRole: read-only` for acceptance inference only;
-that metadata does not grant or revoke tools or command execution. The installer validates
-this ownership, allowlist, and role metadata during adoption, idempotent updates, stale
-managed-file cleanup, backup, and rollback.
+Every rendered hybrid, OpenAI, DeepSeek, and GLM Pi profile manages no extension package:
+there is no `extensions/agent-orchestration` directory, no extension `package.json`, and the
+manifest's `managed_extensions` is empty. The former manifest-owned
+`extensions/agent-orchestration/git-read.ts` explorer runtime extension is retired; any file
+left by a previous install is migration-only stale that the installer deletes. Explorer now
+receives Pi's built-in `bash` tool for repository evidence instead of the removed extension,
+and every other role excludes `git_read`.
 
-`git_read` supports exactly `status`, or `diff` against `worktree`, `staged`, or a
-conservatively resolved `range`. Diff views are `patch`, `stat`, and `name-status`, with
-at most 32 unique repository-relative literal paths. It accepts no repository or cwd
-parameter: the extension canonicalizes Pi's current cwd, finds the nearest non-symlinked `.git`
-directory or linked-worktree marker file independently of Git configuration, requires Git's
-reported top level to exactly equal that trusted marker boundary, rejects configured worktrees
-that widen it, and runs all later commands at the canonical worktree root. Range endpoints are
-validated and resolved independently to full commit OIDs before the final diff; authored
-revision expressions never reach Git's diff command.
-
-The dedicated reader uses literal `git` with argv arrays, `shell: false`, a fixed system
-PATH (`/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/local/bin`) and allowlisted
-deterministic environment; unusual Git installations fail closed rather than accepting a
-request-controlled executable. Every invocation disables network/lazy
-fetching, hooks, pagers, external diff, textconv, color, rename detection, and submodule
-recursion. One execution-wide 10-second deadline and aggregate 64 KiB/2,000-line
-stdout+stderr caps cover probing, ref resolution, and the final command; cancellation and
-timeout use bounded termination. No full output is persisted. This extension deliberately
-uses a private bounded `child_process.spawn` helper because the host's `pi.exec` buffers
-output without a hard transient cap.
-
-### Pi profile status indicators
-
-The indicators are versioned adapter sources, rendered into snapshots, and installed as
-profile-owned extensions rather than patches to the operator's installed package tree:
-
-- Hybrid and standalone DeepSeek show `DS peak ×1` for 01:00–04:00 and 06:00–10:00 UTC Monday–Friday. Every boundary outside those half-open periods, plus all weekend hours,
-  shows `DS off-peak ×0.5`. This deterministic clock-only indicator makes the official
-  half-price off-peak schedule visible without an API request and refreshes every minute.
-- OpenAI keeps the configured usage integration's remaining/reset status and adds weekly Codex pace.
-  `pace` is `consumed% − elapsed%` in percentage points, so a positive value means usage
-  is ahead of schedule. `proj` is projected end utilization (`consumed / elapsed × 100`)
-  once at least 1% of the weekly window has elapsed. It refreshes at session start, model
-  change, and every five minutes. Missing, stale, invalid, or failed weekly data renders
-  `pace unavailable`; immediately after reset, projection is shown as `—`. Error bodies
-  and OAuth values are never displayed or persisted.
-- GLM shows `GLM peak ×3` for GLM-5.3 during 06:00–10:00 UTC Monday–Friday and
-  `GLM off-peak ×1` at all other times, including weekends. GLM-5.3-Flash is billed at
-  ×1.2 during peak and ×0.4 off-peak; those Flash multipliers are documented here but
-  are not shown in the compact footer. The clock-only indicator refreshes at each UTC
-  minute boundary and makes no network or API calls.
+Canonical policy sets `bash = "ask"` for explorer. Pi cannot forward an `ask` decision from a
+headless child to the parent UI, so the adapter explicitly degrades that ask to an allowed
+shell. This is a documented weakening, not a read-only guarantee: `bash` is unrestricted for
+explorer and there is no hard read-only sandbox. Explorer frontmatter declares
+`acceptanceRole: read-only`, which is prompt/acceptance metadata for acceptance inference only;
+it does not grant or revoke tools, does not constrain `bash`, and is not runtime enforcement.
+The installer validates the explorer tool allowlist and acceptance metadata during adoption,
+idempotent updates, stale managed-file cleanup, backup, and rollback; it does not validate the
+shell commands a child runs.
 
 Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
-an agent's tool list, the Pi host passes it through. The adapter therefore omits
-`bash` from canonical shell-`ask` roles, enforcing a stricter no-shell ceiling. Command-level
+an agent's tool list, the Pi host passes it through. The adapter degrades canonical
+shell-`ask` roles explicitly: validator, debugger, and explorer receive `bash`, while reviewer
+omits it and keeps a stricter no-shell ceiling. Command-level
 permission configuration remains operator-owned and is not copied or claimed by this project.
 Pi agent files configure child roles and each profile launcher selects the primary model.
 Planner and reviewer retain the `subagent` tool, while canonical policy restricts each to the

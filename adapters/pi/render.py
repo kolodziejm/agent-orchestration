@@ -50,22 +50,8 @@ PROFILE_SOURCE_NAMES = {
     "deepseek": "deepseek",
     "glm": "pi-glm",
 }
-PROFILE_STATUS_EXTENSIONS = {
-    "hybrid": (("deepseek-price-status.js", "deepseek-price-status.js"),),
-    "deepseek": (("deepseek-price-status.js", "deepseek-price-status.js"),),
-    "openai": (
-        ("codex-pace-status.js", "codex-pace-core.mjs"),
-        ("codex-pace-loader.ts", "codex-pace-loader.ts"),
-    ),
-    "glm": (("glm-price-status.js", "glm-price-status.js"),),
-}
-PROFILE_STATUS_ENTRYPOINTS = {
-    "hybrid": "./deepseek-price-status.js",
-    "openai": "./codex-pace-loader.ts",
-    "deepseek": "./deepseek-price-status.js",
-    "glm": "./glm-price-status.js",
-}
-PROFILE_EXTENSION_FILES = ("git-read.ts", "primary-policy.js")
+LAUNCHER_MODEL_PLACEHOLDER = "__AGENT_ORCHESTRATION_PRIMARY_MODEL__"
+LAUNCHER_THINKING_PLACEHOLDER = "__AGENT_ORCHESTRATION_PRIMARY_THINKING__"
 PI_OPERATIONAL_NOTE = """## Pi operational note
 
 For every Pi Agent call, set `max_turns`. Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`; foreground calls require a clearly brief, bounded scope and a low turn cap. Use conservative defaults of foreground ≤12 turns and background mutation ≤30 turns. Apply the canonical cap behavior: exceeding a slice requires a new orchestrator decision rather than automatic continuation. Every potentially blocking child tool call additionally uses its native timeout or an OS/harness-enforced timeout. `max_turns` alone is insufficient because it does not bound a single tool call. If enforceable timeout and termination are unavailable, do not delegate that operation; keep it bounded in the primary or return `BLOCKED`.
@@ -173,14 +159,18 @@ def tools_for(role: str, config: dict) -> list[str]:
         return list(UX_CRITIC_TOOLS)
 
     tools = list(READ_TOOLS)
+    # Pi cannot forward a canonical `bash = "ask"` decision from a headless child
+    # to the parent UI, so every ask role is resolved to a concrete grant or
+    # denial. Explorer's ask is explicitly degraded to an allowed built-in shell:
+    # it receives `bash` instead of the removed `git_read` extension.
     if role == "explorer":
-        tools.append("git_read")
+        tools.append("bash")
     if config["edit"] == "allow":
         tools.extend(["edit", "write"])
-    # Pi cannot represent the canonical `ask` capability. These narrowly scoped
-    # exceptions need commands for their contracts while preserving role-specific
-    # source-editing boundaries. Planner and design-partner deliberately have
-    # no bash/edit/write capabilities under the canonical read-only contract.
+    # These narrowly scoped exceptions need commands for their contracts while
+    # preserving role-specific source-editing boundaries. Planner and
+    # design-partner deliberately have no bash/edit/write capabilities under the
+    # canonical read-only contract.
     if config["bash"] == "allow" or role in {"validator", "debugger"}:
         tools.append("bash")
     if role == "validator":
@@ -303,17 +293,20 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
         """# Pi adapter degradations
 
 - Pi's native child permission model rejects `permissions.bash` and always allows shell calls
-  when the `bash` tool is present. For canonical `bash = \"ask\"` roles other than validator
-  and debugger this adapter omits `bash`, enforcing a stricter no-shell ceiling. Command-level
-  permissions remain operator-owned runtime state; this bundle and its installer do not copy or claim
-  permission configuration or bridges. Headless children still cannot forward an `ask` decision to the parent UI.
+  when the `bash` tool is present. Pi cannot forward an `ask` decision from a headless child
+  to the parent UI, so the adapter resolves every canonical `bash = \"ask\"` role to a concrete
+  grant or denial. Validator, debugger, and explorer receive `bash`; reviewer omits `bash` and
+  keeps a stricter no-shell ceiling. Command-level permissions are operator-owned runtime state;
+  this bundle and its installer do not copy or claim permission configuration or bridges.
 - The profile launcher selects the primary session and Pi user agent files configure
   subagents. Pi cannot install the small model or built-in build/plan mappings; their
   mapped values are recorded in `control-plane.json` as profile intent and are not installed.
-- Validator and debugger receive `bash` despite canonical `bash = "ask"` because their
-  contracts require mechanical checks or repository commands. Planner and design-partner
-  are structurally read-only and omit `bash`, `edit`, and `write`; reviewer remains
-  read-only and explorer remains read-only. Debugger remains source-edit read-only.
+- Validator, debugger, and explorer receive `bash` despite canonical `bash = "ask"` because
+  their contracts require mechanical checks, repository commands, or repository evidence.
+  This is an explicit, documented weakening: `bash` is unrestricted for these children and
+  there is no hard read-only sandbox. Planner and design-partner are structurally read-only
+  and omit `bash`, `edit`, and `write`; reviewer remains read-only and also omits `bash`.
+  Debugger remains source-edit read-only.
 - Validator has a separate deterministic browser/Appium MCP allowlist. Direct MCP tools
   require an available background/async child and a prepared URL/session; when that
   provider or session is unavailable, acceptance is reported as `BLOCKED`, never shifted
@@ -336,19 +329,16 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
 - Every other canonical role is a leaf and receives no `subagent` tool. When
   the primary cannot inspect images natively, it routes visual work directly
   to an existing image-capable role according to the shared policy.
-- `explorer` receives the manifest-owned `git_read` child tool and still has no
-  `bash` capability. Its frontmatter declares `acceptanceRole: read-only` for
-  acceptance inference only; this metadata does not grant or revoke tools or
-  command execution. The `git_read` capability remains read-only, worktree-bound,
-  and exposes only status plus bounded worktree/staged/range diffs with patch,
-  stat, or name-status views. It derives the boundary from the nearest
-  non-symlinked `.git` directory or linked-worktree marker file and requires
-  Git's reported top level to match it exactly; validated paths are passed
-  directly after `--` under fixed literal-pathspec mode. Every Git process uses
-  fixed argv/environment hardening, no network/hooks/pagers/external diff/textconv,
-  a shared 10-second deadline, and aggregate 64 KiB/2,000-line caps across stdout
-  and stderr. The extension deliberately uses a private bounded `spawn` helper
-  instead of the host's unbounded `pi.exec` buffering; it never persists full output.
+- Every rendered profile manages no Pi extension package: there is no
+  `extensions/agent-orchestration` directory, no extension `package.json`, and
+  `managed_extensions` is empty. `explorer` receives Pi's built-in `bash` tool instead of
+  the removed `git_read` extension.
+- `explorer` frontmatter declares `acceptanceRole: read-only`, which is prompt/acceptance
+  metadata for acceptance inference only. It does not grant or revoke tools, does not create a
+  hard read-only sandbox, and does not constrain `bash`; `explorer` is expected to gather
+  repository evidence through read-only commands and the non-mutating read tools. The
+  installer validates only this tool allowlist and acceptance metadata, not the shell
+  commands a child runs.
 """
     )
 
@@ -369,36 +359,23 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
     if not launcher.is_file():
         raise SystemExit(f"Missing Pi launcher template: {launcher}")
     launcher_output = output / launcher.name
-    shutil.copy2(launcher, launcher_output)
+    launcher_text = launcher.read_text()
+    primary = profile["control_plane"]["primary"]
+    replacements = {
+        LAUNCHER_MODEL_PLACEHOLDER: pi_model(primary["model"], allowed_providers),
+        LAUNCHER_THINKING_PLACEHOLDER: primary["effort"],
+    }
+    for placeholder, value in replacements.items():
+        if launcher_text.count(placeholder) != 1:
+            raise SystemExit(
+                f"Pi launcher template {launcher} must contain exactly one {placeholder}"
+            )
+        launcher_text = launcher_text.replace(placeholder, value)
+    launcher_output.write_text(launcher_text)
     launcher_output.chmod(0o755)
 
-    managed_extensions: list[str] = []
-    extension_output = output / "extensions" / "agent-orchestration"
-    extension_output.mkdir(parents=True)
-    extension_source = ROOT / "adapters" / "pi" / "extensions"
-    for source_name in PROFILE_EXTENSION_FILES:
-        source = extension_source / source_name
-        if not source.is_file():
-            raise SystemExit(f"Missing Pi extension source: {source}")
-        shutil.copy2(source, extension_output / source_name)
-        managed_extensions.append(f"extensions/agent-orchestration/{source_name}")
-
-    status_extensions = PROFILE_STATUS_EXTENSIONS.get(profile_name, ())
-    for source_name, output_name in status_extensions:
-        source = extension_source / source_name
-        if not source.is_file():
-            raise SystemExit(f"Missing Pi status extension source: {source}")
-        shutil.copy2(source, extension_output / output_name)
-        managed_extensions.append(f"extensions/agent-orchestration/{output_name}")
-    package_output = extension_output / "package.json"
-    status_entrypoint = PROFILE_STATUS_ENTRYPOINTS.get(profile_name)
-    package_extensions = ["./primary-policy.js"] + ([status_entrypoint] if status_entrypoint else []) + ["./git-read.ts"]
-    package_output.write_text(json.dumps({
-        "type": "module",
-        "pi": {"extensions": package_extensions},
-    }, indent=2) + "\n")
-    managed_extensions.append("extensions/agent-orchestration/package.json")
-
+    # No Pi extension package is rendered: the former `git-read.ts` runtime extension
+    # is retired and built-in Pi tools now cover repository evidence gathering.
     (output / "manifest.json").write_text(
         json.dumps(
             {
@@ -406,7 +383,7 @@ def render_into(output: Path, profile_name: str = "hybrid") -> None:
                 "roles": sorted(roles),
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
-                "managed_extensions": managed_extensions,
+                "managed_extensions": [],
                 "workflows": [WORKFLOW_NAME],
                 "shared": [
                     "orchestration-core.md",

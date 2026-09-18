@@ -17,12 +17,7 @@
   "launchers": [
     "pi-hybrid"
   ],
-  "managed_extensions": [
-    "extensions/agent-orchestration/git-read.ts",
-    "extensions/agent-orchestration/primary-policy.js",
-    "extensions/agent-orchestration/deepseek-price-status.js",
-    "extensions/agent-orchestration/package.json"
-  ],
+  "managed_extensions": [],
   "workflows": [
     "feature-workflow-pilot"
   ],
