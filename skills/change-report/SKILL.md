@@ -93,6 +93,15 @@ was requested, the second means it was requested but not executed, and the third
 means its state cannot be established. Do not call agent observations human review,
 and do not call readiness merge authorization.
 
+## Report language
+
+Write headings, explanations, decisions, risks, and summaries in the language of
+the user's current conversation unless the user explicitly requests another
+language. If the conversation is multilingual, follow the language of the latest
+explicit report request; ask only when that is genuinely unclear. Preserve code,
+commands, paths, identifiers, API names, quoted evidence, and canonical status
+values exactly rather than translating them.
+
 ## HTML deliverable
 
 Create one standalone HTML file for the initiative. It must:
@@ -120,15 +129,20 @@ must remain readable, semantic, and provenance-aware rather than decorative.
 
 When the user explicitly requests a mode, gather read-only evidence with the
 available harness tools, write the report content, and render the standalone HTML
-according to these instructions. The default output is outside the repository in
-the harness/user state directory; tell the user the exact report path. If the user
-explicitly supplies an output path, honor it after confirming it is writable and
-safe. Do not silently place the report in the project, and do not create any
-supporting state, cache, schema, script, or test file. If the harness cannot
-write the requested path, report the blocker instead of changing project files.
+according to these instructions. By default, place it in the active project's
+`change-reports/<change-id>.html`, using the current working directory or nearest
+repository root as the project root and a short filesystem-safe change ID. This
+keeps the report visible in editors such as VS Code. If the user explicitly
+supplies another output path, honor it after confirming it is writable and safe.
 
-For POST, use the existing requested report when available so the PRE tab remains
-intact; otherwise create a document that states the PRE baseline is unavailable.
-Do not treat a report as a source of authority for implementation, review, release,
-or merge. Stop after producing or updating the requested HTML and show its path,
-mode, evidence limitations, and any `NOT RUN` or `UNVERIFIED` status.
+Creating the requested HTML and its `change-reports/` parent is allowed, but do not
+modify project source, add or edit `.gitignore`, stage or commit the report, or
+create supporting state, cache, schema, script, or test files. Before overwriting
+an unrelated existing file, stop and ask. For POST, update the same initiative
+report when available so the PRE tab remains intact; otherwise create a document
+that states the PRE baseline is unavailable.
+
+Stop after producing or updating the requested HTML. Show its project-relative
+and absolute paths, note that it may appear as an untracked or modified file, and
+report its mode, evidence limitations, and any `NOT RUN` or `UNVERIFIED` status.
+Do not treat a report as authority for implementation, review, release, or merge.

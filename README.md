@@ -484,7 +484,11 @@ harness's native Agent Skills mechanism. For this skill, tell the harness:
 > Install the `change-report` skill globally from the `kolodziejm/agent-orchestration` repository.
 
 The harness chooses its native installation mechanism; this repository does not prescribe a
-package manager or harness-specific destination.
+package manager or harness-specific destination. When invoked, the skill writes by default to
+`change-reports/<change-id>.html` under the active project so the report is visible in editors
+such as VS Code. Report prose follows the language of the user's current conversation while
+preserving code, paths, commands, API names, and identifiers. The skill never edits `.gitignore`,
+stages, or commits the report automatically.
 
 The skill is model-rendered from its prompt and needs no additional repository runtime or
 skill-specific tests. A harness without Agent Skills support must report that this skill is
