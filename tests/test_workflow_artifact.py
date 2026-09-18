@@ -90,13 +90,19 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 self.assertIn("Mandatory analysis fanout", content, name)
                 if name.startswith("pi-"):
                     self.assertIn(
+                        "Set a task-specific `max_turns` unless an equivalent enforceable whole-lane runtime deadline bounds the lane's total execution and cancels it at expiry; only then may `max_turns` be omitted.",
+                        content,
+                        name,
+                    )
+                    self.assertNotIn(
                         "`max_turns` is optional and should be set only when a task-specific cost/loop bound is useful; otherwise leave it unset.",
                         content,
                         name,
                     )
-                    self.assertNotIn("For every Pi Agent call, set `max_turns`", content, name)
                     self.assertNotIn("foreground ≤12 turns", content, name)
                     self.assertNotIn("background mutation ≤30 turns", content, name)
+                    self.assertNotIn("`max_turns: 12`", content, name)
+                    self.assertNotIn("`max_turns: 30`", content, name)
                 else:
                     self.assertNotIn("For every Pi Agent call", content, name)
             self.assertNotIn("# Feature Workflow Pilot", (outputs["opencode"] / "profiles" / "_shared" / "orchestration-core.md").read_text())
@@ -129,8 +135,11 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
         bounded_phrases = (
             "Unbounded or whole-initiative delegation is prohibited",
             "at most one independently verifiable slice and one validator checkpoint",
-            "explicit stopping condition",
-            "strongest supported execution cap (turn, runtime, or tool-call)",
+            "logical stopping condition",
+            "terminal completion, blocker, or checkpoint condition",
+            "enforceable whole-lane execution cap",
+            "bounds the lane's total execution and forces a terminal return",
+            "task-calibrated turn limit or a cancellable whole-lane runtime deadline",
             "returns partial progress or `BLOCKED`",
             "never self-extends",
             "Potentially non-brief work MUST run in the background when the harness supports it",
@@ -151,11 +160,12 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "Neither delegated one-shot status nor primary waiting MAY start unless hard cancellation",
             "terminate both the execution lane and the in-flight process/tool call",
             "the operation is forbidden and returns `BLOCKED`",
-            "Every potentially blocking tool invocation",
+            "every potentially blocking tool invocation",
             "shell, test/build, Docker, network, browser/device, or external-job monitoring",
             "enforceable per-call deadline or timeout",
             "Turn limits such as max_turns do not bound the duration of an individual tool call",
             "are insufficient on their own",
+            "a per-call timeout likewise does not bound the whole lane",
             "the agent MUST NOT own that operation",
             "Keep it in the primary with a bounded tool, use a bounded external runner, or return `BLOCKED`",
             "On expiry, terminate/cancel the underlying operation when supported",
@@ -228,21 +238,30 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                     self.assertIn(phrase, generated_block, name)
 
             pi_phrases = (
-                "`max_turns` is optional and should be set only when a task-specific cost/loop bound is useful; otherwise leave it unset.",
+                "Every Pi Agent call must state its logical stopping condition and use an enforceable whole-lane execution cap.",
+                "Set a task-specific `max_turns` unless an equivalent enforceable whole-lane runtime deadline bounds the lane's total execution and cancels it at expiry; only then may `max_turns` be omitted.",
+                "A prompt deadline is not an execution cap.",
                 "Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`",
                 "foreground calls require a clearly brief, bounded scope",
                 "exceeding a slice requires a new orchestrator decision rather than automatic continuation",
-                "Every potentially blocking child tool call additionally uses its native timeout or an OS/harness-enforced timeout.",
-                "`max_turns` alone is insufficient because it does not bound a single tool call.",
+                "every potentially blocking child tool call uses its native timeout or an OS/harness-enforced per-call timeout.",
+                "`max_turns` does not bound a single tool call, and a per-call timeout does not bound the whole lane.",
                 "If enforceable timeout and termination are unavailable, do not delegate that operation; keep it bounded in the primary or return `BLOCKED`.",
+                "This manual UI stop is recovery only, not a pre-launch safety guarantee.",
             )
             for name, path in pi_paths.items():
                 content = path.read_text()
                 for phrase in pi_phrases:
                     self.assertIn(phrase, content, name)
-                self.assertNotIn("For every Pi Agent call, set `max_turns`", content, name)
+                self.assertNotIn(
+                    "`max_turns` is optional and should be set only when a task-specific cost/loop bound is useful; otherwise leave it unset.",
+                    content,
+                    name,
+                )
                 self.assertNotIn("foreground ≤12 turns", content, name)
                 self.assertNotIn("background mutation ≤30 turns", content, name)
+                self.assertNotIn("`max_turns: 12`", content, name)
+                self.assertNotIn("`max_turns: 30`", content, name)
 
     def test_pilot_propagates_reviewable_delivery_boundaries_and_checkpoint_requirements(self):
         """This fails when the pilot can start another slice without a bounded unit or non-blocking checkpoint."""
