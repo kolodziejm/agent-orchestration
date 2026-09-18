@@ -435,3 +435,27 @@ Claude Code (`adapters/claude-code/`), and Pi (`adapters/pi/`).
 ## Security
 
 Do not commit credentials, environment files, session data, provider tokens, or complete runtime configurations. Profile files contain model IDs only. Installers must merge into local configs rather than copying secrets into this repository. `scripts/check-runtime` is read-only and reports only the known model, effort, instruction, and managed-agent fields.
+
+## Change reports
+
+`change-report` is an optional, prompt-only, harness-agnostic Agent Skills package for one
+standalone HTML evidence document per initiative. It has exactly two requested modes: `PRE`
+before implementation and `POST` after implementation and validation, before human review or
+merge. The model may suggest either mode, but a report file is created or updated only after an
+explicit current-user request. The document distinguishes repository evidence, proposals,
+estimates, actuals, agent review, human review, and unverified or not-run status. It never creates
+a PR or authorizes a merge. If POST has no genuine PRE, it says so rather than fabricating one.
+
+Portable skills live once in the repository at `skills/<name>/` and are installed by the current
+harness's native Agent Skills mechanism. For this skill, tell the harness:
+
+> Install the `change-report` skill globally from the `kolodziejm/agent-orchestration` repository.
+
+The harness chooses its native installation mechanism; this repository does not prescribe a
+package manager or harness-specific destination.
+
+The skill is model-rendered from its prompt and needs no additional repository runtime or
+skill-specific tests. A harness without Agent Skills support must report that this skill is
+unsupported rather than mutating unrelated configuration. This repository does not provide a
+custom skill installer or manage harness settings. Policy adapters remain a separate concern:
+existing adapter installers are not replaced or reclassified by the portable-skill rule.
