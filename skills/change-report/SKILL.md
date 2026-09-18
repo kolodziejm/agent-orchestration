@@ -93,6 +93,15 @@ was requested, the second means it was requested but not executed, and the third
 means its state cannot be established. Do not call agent observations human review,
 and do not call readiness merge authorization.
 
+## Report language
+
+Write headings, explanations, decisions, risks, and summaries in the language of
+the user's current conversation unless the user explicitly requests another
+language. If the conversation is multilingual, follow the language of the latest
+explicit report request; ask only when that is genuinely unclear. Preserve code,
+commands, paths, identifiers, API names, quoted evidence, and canonical status
+values exactly rather than translating them.
+
 ## HTML deliverable
 
 Create one standalone HTML file for the initiative. It must:
