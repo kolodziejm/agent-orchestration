@@ -572,6 +572,21 @@ class PiGenerateTests(unittest.TestCase):
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual(manifest["roles"], sorted(roles))
             self.assertEqual(manifest["profiles"], ["hybrid"])
+            shared_policy = (output / "_shared" / "orchestration-core.md").read_text()
+            for phrase in (
+                "Delegated agents MUST NOT watch, poll, retry, sleep, or otherwise wait",
+                "at most one one-shot status query",
+                "terminal success maps to `PASS`",
+                "pending, queued, running, unknown, or otherwise non-terminal maps immediately to `BLOCKED`",
+                "Waiting or retry loops remain owned by the primary",
+                "hard cancellation can terminate both the execution lane and the in-flight process/tool call",
+                "the operation is forbidden and returns `BLOCKED`",
+                "/agents` → `Running agents` → select the agent → press `x`, then `x` again to confirm",
+                "Stopped output is partial/incomplete",
+                "Global Esc does not unambiguously target a background agent",
+                "`steer_subagent` is not cancellation",
+            ):
+                self.assertIn(phrase, shared_policy)
             for role, config in routing_roles.items():
                 content = (output / "agents" / f"{role}.md").read_text()
                 frontmatter = content.split("---", 2)[1]
