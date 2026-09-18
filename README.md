@@ -283,13 +283,12 @@ allowlist, and every profile bundle generates no managed extension package. The
 the provider status extensions, and the former `primary-policy` extension are retired; files
 left by a previous install are migration-only stale artifacts that the installer removes
 rather than loads, and the manifest's `managed_extensions` is empty. The generated Pi shared
-policy requires `max_turns` on every Agent call, defaults source-changing worker calls to
-`run_in_background: true`, and recommends caps of foreground ≤12 turns and background
-mutation ≤30 turns. Potentially
-blocking child tool calls must use their native timeout or an OS/harness-enforced timeout;
-`max_turns` alone cannot bound one tool call. When timeout and termination cannot be
-enforced, the operation is not delegated and stays bounded in the primary or returns
-`BLOCKED`.
+policy treats `max_turns` as optional: set it only when a task-specific cost/loop bound is
+useful; otherwise leave it unset. Source-changing worker calls default to
+`run_in_background: true`. Potentially blocking child tool calls must use their native
+timeout or an OS/harness-enforced timeout; `max_turns` alone cannot bound one tool call.
+When timeout and termination cannot be enforced, the operation is not delegated and stays
+bounded in the primary or returns `BLOCKED`.
 
 The native CLI boundary replaces the former extension hook. Each profile launcher starts Pi
 with its profile's primary `--model` and `--thinking`, then appends the installed

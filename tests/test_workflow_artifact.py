@@ -89,7 +89,14 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 content = core_path.read_text()
                 self.assertIn("Mandatory analysis fanout", content, name)
                 if name.startswith("pi-"):
-                    self.assertIn("For every Pi Agent call, set `max_turns`", content, name)
+                    self.assertIn(
+                        "`max_turns` is optional and should be set only when a task-specific cost/loop bound is useful; otherwise leave it unset.",
+                        content,
+                        name,
+                    )
+                    self.assertNotIn("For every Pi Agent call, set `max_turns`", content, name)
+                    self.assertNotIn("foreground ≤12 turns", content, name)
+                    self.assertNotIn("background mutation ≤30 turns", content, name)
                 else:
                     self.assertNotIn("For every Pi Agent call", content, name)
             self.assertNotIn("# Feature Workflow Pilot", (outputs["opencode"] / "profiles" / "_shared" / "orchestration-core.md").read_text())
@@ -221,11 +228,9 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                     self.assertIn(phrase, generated_block, name)
 
             pi_phrases = (
-                "For every Pi Agent call, set `max_turns`",
+                "`max_turns` is optional and should be set only when a task-specific cost/loop bound is useful; otherwise leave it unset.",
                 "Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`",
-                "foreground calls require a clearly brief, bounded scope and a low turn cap",
-                "foreground ≤12 turns",
-                "background mutation ≤30 turns",
+                "foreground calls require a clearly brief, bounded scope",
                 "exceeding a slice requires a new orchestrator decision rather than automatic continuation",
                 "Every potentially blocking child tool call additionally uses its native timeout or an OS/harness-enforced timeout.",
                 "`max_turns` alone is insufficient because it does not bound a single tool call.",
@@ -235,6 +240,9 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 content = path.read_text()
                 for phrase in pi_phrases:
                     self.assertIn(phrase, content, name)
+                self.assertNotIn("For every Pi Agent call, set `max_turns`", content, name)
+                self.assertNotIn("foreground ≤12 turns", content, name)
+                self.assertNotIn("background mutation ≤30 turns", content, name)
 
     def test_pilot_propagates_reviewable_delivery_boundaries_and_checkpoint_requirements(self):
         """This fails when the pilot can start another slice without a bounded unit or non-blocking checkpoint."""
