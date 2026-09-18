@@ -54,6 +54,39 @@ def _has_entry(path: Path) -> bool:
     return path.exists() or path.is_symlink()
 
 
+def _fsync_parent(path: Path) -> None:
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    except BaseException:
+        try:
+            os.close(directory)
+        except BaseException:
+            pass
+        raise
+    os.close(directory)
+
+
+def _atomic_write(path: Path, content: str | bytes, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        _fsync_parent(path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def validate_manifest(manifest: dict, label: str) -> None:
     if manifest.get("format_version") != 1:
         raise SystemExit(f"Unsupported {label} format_version")
@@ -484,10 +517,7 @@ def install(
 
         try:
             for path, content in changed.items():
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content, encoding="utf-8")
-                if path in launcher_paths:
-                    path.chmod(0o755)
+                _atomic_write(path, content, 0o755 if path in launcher_paths else None)
             for path in deleted:
                 path.unlink()
             if validate:
@@ -497,9 +527,7 @@ def install(
                 if original is None:
                     path.unlink(missing_ok=True)
                 else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(original[0])
-                    path.chmod(original[1])
+                    _atomic_write(path, original[0], original[1])
             for directory in sorted(
                 created_directories, key=lambda path: len(path.parts), reverse=True
             ):

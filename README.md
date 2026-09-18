@@ -290,8 +290,13 @@ On first installation, existing files at manifest-owned names require explicit `
 The installer backs up every changed or removed manifest-owned file under a unique
 `~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
 validates only the installed bundle artifacts and launchers, removes stale claims recorded
-in its own manifest, and rolls back validation failures and interruptions. Dry-run prints
-the planned writes and deletions without changing the target. Existing runtime files are
+in its own manifest, and rolls back validation failures and interruptions. Each managed-file
+write is atomic: existing destination modes are preserved unless a mode is specified, new
+ordinary bundle files use `0644`, and launchers are explicitly executable. Caught failures
+restore the snapshotted bytes and modes. Abrupt process or host termination cannot produce
+a partially written individual managed file, but it may leave a mix of complete old and new
+bundle files; rerun the installer to repair that mix. Dry-run prints the planned writes and
+deletions without changing the target. Existing runtime files are
 left byte-for-byte untouched, including settings, catalogs, auth, MCP, themes, provider
 state, sessions, caches, logs, analytics, and runtime history. Credential values are never
 printed or written to repository artifacts. A prior manifest's legacy operator-owned

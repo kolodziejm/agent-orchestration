@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -263,6 +264,70 @@ class PiInstallTests(unittest.TestCase):
                 install.install(target, dry_run=False, profile="deepseek")
             self.assertFalse(stale.exists())
             self.assertEqual(unrelated.read_text(), "keep\n")
+
+    def test_managed_replacement_does_not_mutate_an_external_hardlink(self):
+        """This test will fail when replacing a managed file mutates its hardlink inode."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "deepseek"
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="deepseek")
+                managed = target / "agents/worker.md"
+                managed.chmod(0o640)
+                managed.write_bytes(b"locally changed\n")
+                hardlink = root / "worker-copy.md"
+                os.link(managed, hardlink)
+                original = (hardlink.read_bytes(), hardlink.stat().st_mode & 0o777)
+                install.install(target, dry_run=False, profile="deepseek")
+
+            self.assertNotEqual(managed.read_bytes(), original[0])
+            self.assertEqual(hardlink.read_bytes(), original[0])
+            self.assertEqual(hardlink.stat().st_mode & 0o777, original[1])
+            self.assertEqual(managed.stat().st_mode & 0o777, original[1])
+
+    def test_parent_directory_fsync_failure_rolls_back_exact_bytes_and_modes(self):
+        """This test will fail when a parent fsync failure is ignored or breaks rollback."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "deepseek"
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="deepseek")
+                managed = target / "agents/worker.md"
+                managed.write_bytes(b"pre-install bytes\n")
+                managed.chmod(0o640)
+                before = {
+                    path.relative_to(target): (path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
+                    for path in target.rglob("*")
+                    if path.is_file()
+                }
+                real_fsync = install.os.fsync
+                failed = False
+
+                def fail_parent_fsync_once(fd):
+                    nonlocal failed
+                    if not failed and stat.S_ISDIR(os.fstat(fd).st_mode):
+                        failed = True
+                        raise OSError("parent directory fsync failed")
+                    return real_fsync(fd)
+
+                with mock.patch.object(install.os, "fsync", side_effect=fail_parent_fsync_once):
+                    with self.assertRaisesRegex(OSError, "parent directory fsync failed"):
+                        install.install(target, dry_run=False, profile="deepseek")
+
+                after = {
+                    path.relative_to(target): (path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
+                    for path in target.rglob("*")
+                    if path.is_file()
+                }
+                self.assertTrue(failed)
+                self.assertEqual(after, before)
+
     def test_launcher_install_requires_adoption_is_executable_idempotent_and_rolls_back(self):
         """This test will fail when launcher collisions bypass adoption or a failed install leaves changes."""
         install = load_install_module()
