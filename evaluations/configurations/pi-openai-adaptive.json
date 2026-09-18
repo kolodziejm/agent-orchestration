@@ -1,0 +1,56 @@
+{
+  "kind": "evaluation-configuration-catalog",
+  "version": 1,
+  "catalog_id": "pi-openai-adaptive",
+  "activation": "EXPERIMENT_ONLY",
+  "opt_in": true,
+  "harness": "pi",
+  "profile_ref": "openai",
+  "configurations": [
+    {
+      "configuration_id": "pi-openai-task-calibrated-baseline",
+      "summary": "Current task-calibrated policy with the existing Pi planning, tools, and context behavior.",
+      "activation": "EXPERIMENT_ONLY",
+      "turn_budget": {"value": "TASK_CALIBRATED", "enforcement": "PROMPT_ONLY"},
+      "plan_scaffold": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"},
+      "action_space": {"value": "FULL", "enforcement": "ADAPTER_ENFORCED"},
+      "context_policy": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"}
+    },
+    {
+      "configuration_id": "pi-openai-historical-fixed-caps",
+      "summary": "Historical control changing only the turn budget to the retired fixed 12/30 guidance.",
+      "activation": "EXPERIMENT_ONLY",
+      "turn_budget": {"value": "HISTORICAL_FIXED", "enforcement": "PROMPT_ONLY", "historical_control": {"foreground_turns": 12, "background_mutation_turns": 30}},
+      "plan_scaffold": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"},
+      "action_space": {"value": "FULL", "enforcement": "ADAPTER_ENFORCED"},
+      "context_policy": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"}
+    },
+    {
+      "configuration_id": "pi-openai-persistent-plan",
+      "summary": "Candidate changing only the planning dimension; runtime support is not implemented.",
+      "activation": "EXPERIMENT_ONLY",
+      "turn_budget": {"value": "TASK_CALIBRATED", "enforcement": "PROMPT_ONLY"},
+      "plan_scaffold": {"value": "PERSISTENT", "enforcement": "UNSUPPORTED"},
+      "action_space": {"value": "FULL", "enforcement": "ADAPTER_ENFORCED"},
+      "context_policy": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"}
+    },
+    {
+      "configuration_id": "pi-openai-shell-first",
+      "summary": "Candidate changing only the action space; runtime support is not implemented.",
+      "activation": "EXPERIMENT_ONLY",
+      "turn_budget": {"value": "TASK_CALIBRATED", "enforcement": "PROMPT_ONLY"},
+      "plan_scaffold": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"},
+      "action_space": {"value": "SHELL_FIRST", "enforcement": "UNSUPPORTED"},
+      "context_policy": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"}
+    },
+    {
+      "configuration_id": "pi-openai-staged-context",
+      "summary": "Candidate changing only the context policy; runtime support is not implemented.",
+      "activation": "EXPERIMENT_ONLY",
+      "turn_budget": {"value": "TASK_CALIBRATED", "enforcement": "PROMPT_ONLY"},
+      "plan_scaffold": {"value": "NATIVE", "enforcement": "OPERATOR_OWNED"},
+      "action_space": {"value": "FULL", "enforcement": "ADAPTER_ENFORCED"},
+      "context_policy": {"value": "STAGED", "enforcement": "UNSUPPORTED"}
+    }
+  ]
+}

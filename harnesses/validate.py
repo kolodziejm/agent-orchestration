@@ -212,11 +212,12 @@ def validate_routing(
     return roles
 
 
-def validate_evaluations(root: Path) -> int:
+def validate_evaluations(root: Path, profile_names: set[str]) -> int:
     schema = load_json_schema(ROOT / "schema" / "evaluation.schema.json")
     documents: dict[str, list[tuple[Path, dict]]] = {}
     for directory, kind in (
         ("corpora", "evaluation-corpus"),
+        ("configurations", "evaluation-configuration-catalog"),
         ("plans", "evaluation-plan"),
         ("results", "evaluation-result"),
     ):
@@ -239,8 +240,18 @@ def validate_evaluations(root: Path) -> int:
         return result
 
     corpora = indexed("corpora", "corpus_id")
+    indexed("configurations", "catalog_id")
     plans = indexed("plans", "plan_id")
     indexed("results", "result_id")
+    configurations: dict[str, Path] = {}
+    for path, catalog in documents["configurations"]:
+        if catalog["profile_ref"] not in profile_names:
+            raise SystemExit(f"Invalid profile_ref {catalog['profile_ref']!r} in {path}")
+        for configuration in catalog["configurations"]:
+            identifier = configuration["configuration_id"]
+            if identifier in configurations:
+                raise SystemExit(f"Duplicate configuration_id {identifier!r}: {path}")
+            configurations[identifier] = path
     tasks: dict[tuple[str, str], dict] = {}
     for corpus_id, (path, corpus) in corpora.items():
         for task in corpus["tasks"]:
@@ -259,6 +270,11 @@ def validate_evaluations(root: Path) -> int:
         variant_ids = [item["variant_id"] for item in plan["variants"]]
         if len(variant_ids) != len(set(variant_ids)):
             raise SystemExit(f"Duplicate variant_id in plan {plan_id!r}: {path}")
+        for variant in plan["variants"]:
+            if variant["configuration_ref"] not in configurations:
+                raise SystemExit(
+                    f"Invalid configuration_ref {variant['configuration_ref']!r} in {path}"
+                )
         for task_id in plan["task_refs"]:
             if (corpus_id, task_id) not in tasks:
                 raise SystemExit(f"Invalid task_ref {task_id!r} in {path}")
@@ -323,7 +339,9 @@ def validate_sources(evaluations_root: Path | None = None) -> int:
     workflow = ROOT / "policy" / "workflows" / "feature-workflow-pilot.md"
     if not workflow.is_file():
         raise SystemExit(f"Missing optional workflow artifact: {workflow}")
-    evaluation_count = validate_evaluations(evaluations_root or ROOT / "evaluations")
+    evaluation_count = validate_evaluations(
+        evaluations_root or ROOT / "evaluations", set(profiles)
+    )
     print(
         f"Validated routing, {len(profiles)} versioned profiles, and "
         f"{evaluation_count} evaluation documents."

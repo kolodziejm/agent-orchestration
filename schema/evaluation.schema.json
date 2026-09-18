@@ -1,14 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kolodziejm/agent-orchestration/evaluations/evaluation.schema.json",
+  "$id": "https://github.com/kolodziejm/agent-orchestration/schema/evaluation.schema.json",
   "title": "Agent orchestration evaluation contract v1",
   "oneOf": [
     {"$ref": "#/$defs/corpus"},
+    {"$ref": "#/$defs/configurationCatalog"},
     {"$ref": "#/$defs/plan"},
     {"$ref": "#/$defs/result"}
   ],
   "$defs": {
     "identifier": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "enforcement": {"enum": ["ADAPTER_ENFORCED", "PROMPT_ONLY", "OPERATOR_OWNED", "UNSUPPORTED"]},
+    "dimension": {
+      "type": "object",
+      "required": ["value", "enforcement"],
+      "properties": {"value": {"type": "string"}, "enforcement": {"$ref": "#/$defs/enforcement"}},
+      "additionalProperties": false
+    },
     "unavailable": {
       "type": "object",
       "required": ["status", "reason"],
@@ -90,6 +98,59 @@
       },
       "additionalProperties": false
     },
+    "configurationCatalog": {
+      "type": "object",
+      "required": ["kind", "version", "catalog_id", "activation", "opt_in", "harness", "profile_ref", "configurations"],
+      "properties": {
+        "kind": {"const": "evaluation-configuration-catalog"},
+        "version": {"const": 1},
+        "catalog_id": {"$ref": "#/$defs/identifier"},
+        "activation": {"const": "EXPERIMENT_ONLY"},
+        "opt_in": {"const": true},
+        "harness": {"const": "pi"},
+        "profile_ref": {"$ref": "#/$defs/identifier"},
+        "configurations": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["configuration_id", "summary", "activation", "turn_budget", "plan_scaffold", "action_space", "context_policy"],
+            "properties": {
+              "configuration_id": {"$ref": "#/$defs/identifier"},
+              "summary": {"type": "string", "minLength": 1},
+              "activation": {"const": "EXPERIMENT_ONLY"},
+              "turn_budget": {
+                "oneOf": [
+                  {
+                    "allOf": [{"$ref": "#/$defs/dimension"}],
+                    "properties": {"value": {"const": "TASK_CALIBRATED"}}
+                  },
+                  {
+                    "type": "object",
+                    "required": ["value", "enforcement", "historical_control"],
+                    "properties": {
+                      "value": {"const": "HISTORICAL_FIXED"},
+                      "enforcement": {"$ref": "#/$defs/enforcement"},
+                      "historical_control": {
+                        "type": "object",
+                        "required": ["foreground_turns", "background_mutation_turns"],
+                        "properties": {"foreground_turns": {"const": 12}, "background_mutation_turns": {"const": 30}},
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "plan_scaffold": {"allOf": [{"$ref": "#/$defs/dimension"}, {"properties": {"value": {"enum": ["NATIVE", "PERSISTENT"]}}}]},
+              "action_space": {"allOf": [{"$ref": "#/$defs/dimension"}, {"properties": {"value": {"enum": ["FULL", "SHELL_FIRST"]}}}]},
+              "context_policy": {"allOf": [{"$ref": "#/$defs/dimension"}, {"properties": {"value": {"enum": ["NATIVE", "STAGED"]}}}]}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "plan": {
       "type": "object",
       "required": ["kind", "version", "plan_id", "corpus_ref", "variants", "task_refs"],
@@ -103,7 +164,7 @@
           "items": {
             "type": "object",
             "required": ["variant_id", "configuration_ref"],
-            "properties": {"variant_id": {"$ref": "#/$defs/identifier"}, "configuration_ref": {"type": "string", "minLength": 1}},
+            "properties": {"variant_id": {"$ref": "#/$defs/identifier"}, "configuration_ref": {"$ref": "#/$defs/identifier"}},
             "additionalProperties": false
           }
         },
