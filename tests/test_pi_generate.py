@@ -57,7 +57,7 @@ EXPECTED = {
         "models": {
             role: (
                 "openai-codex/gpt-5.6-sol"
-                if role in {"debugger", "planner", "reviewer"}
+                if role in {"planner", "reviewer"}
                 else "deepseek/deepseek-flash"
             )
             for role in (
