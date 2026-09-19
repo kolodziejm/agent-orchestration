@@ -138,9 +138,10 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "logical stopping condition",
             "terminal completion, blocker, or checkpoint condition",
             "enforceable whole-lane execution cap",
-            "bounds the lane's total execution and forces a terminal return",
+            "bounds the lane's total execution and forces control back to orchestration",
             "task-calibrated turn limit or a cancellable whole-lane runtime deadline",
-            "returns partial progress or `BLOCKED`",
+            "After acknowledged cancellation, return partial progress or `BLOCKED`",
+            "report that actual terminal result rather than relabeling it `BLOCKED`",
             "never self-extends",
             "Potentially non-brief work MUST run in the background when the harness supports it",
             "Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action",
@@ -169,8 +170,8 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "the agent MUST NOT own that operation",
             "Keep it in the primary with a bounded tool, use a bounded external runner, or return `BLOCKED`",
             "On expiry, terminate/cancel the underlying operation when supported",
-            "return `BLOCKED` with last progress/evidence/prerequisite",
-            "A steering message or request to stop is not equivalent to termination",
+            "Return `BLOCKED` with last progress/evidence/prerequisite only after cancellation acknowledgement",
+            "A steering message or unacknowledged request to stop is not equivalent to termination",
             "deadline breach leaves an agent non-terminal",
             "only a human UI stop/abort control",
             "primary MUST immediately report the breach",
@@ -180,6 +181,16 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "does not satisfy the hard-cancellation guarantee required before launch",
             "Never report an agent or task as terminated until it reaches a terminal state",
             "no replacement agent may duplicate the same scope while the prior task remains non-terminal",
+            "Reaching the cap initiates hard cancellation rather than fabricating terminal completion",
+            "an unacknowledged cancellation remains non-terminal",
+            "startup deadline before first meaningful progress",
+            "idle deadline since the last meaningful state change",
+            "total-runtime deadline regardless of continued progress",
+            "Only an acknowledged hard cancellation may produce terminal `BLOCKED`",
+            "last meaningful progress time and kind",
+            "failed or missing cancellation acknowledgement leaves the lane non-terminal and under monitoring",
+            "watchdog-owned cancellation retry after expiry is a safety control, not an extension of the child lane",
+            "bounded cadence until the child becomes terminal or the watchdog/host shuts down",
             "#### Debugger and validator handoff contract",
             "Every primary handoff to `debugger` or `validator` MUST name",
             "bounded scope and exact checks",
@@ -195,6 +206,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
         )
         for phrase in bounded_phrases:
             self.assertIn(phrase, bounded_block)
+        self.assertNotIn("or another confirmed terminal transition", bounded_block)
 
         self.assertNotIn("two or three genuinely independent evidence scopes", policy)
         self.assertNotIn("prefer parallel explorer tasks", policy)
@@ -248,6 +260,17 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 "`max_turns` does not bound a single tool call, and a per-call timeout does not bound the whole lane.",
                 "If enforceable timeout and termination are unavailable, do not delegate that operation; keep it bounded in the primary or return `BLOCKED`.",
                 "This manual UI stop is recovery only, not a pre-launch safety guarantee.",
+                "optional `harness-extensions` watchdog",
+                "120-second startup deadline",
+                "5-minute idle deadline",
+                "30-minute total-runtime deadline",
+                "`subagents:rpc:stop`",
+                "top-level Pi agents only",
+                "Nested and workflow-owned children remain unsupported",
+                "zero-progress startup stalls",
+                "failed or missing acknowledgement emits a visible watchdog error",
+                "retries cancellation every 30 seconds",
+                "watchdog-owned safety retry is not child-lane continuation",
             )
             for name, path in pi_paths.items():
                 content = path.read_text()
