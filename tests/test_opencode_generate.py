@@ -147,8 +147,10 @@ class OpenCodeGenerateTests(unittest.TestCase):
             self.assertNotIn('"vision-*": allow', complex_worker)
             self.assertNotIn("Agent(", worker)
             self.assertNotIn("Agent(", complex_worker)
-            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", worker)
-            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", complex_worker)
+            self.assertIn("focused development tests and checks as `SELF-CHECKS`", worker)
+            self.assertIn("focused development tests and checks as `SELF-CHECKS`", complex_worker)
+            self.assertIn("never present self-checks as validator evidence", worker)
+            self.assertIn("never present self-checks as validator evidence", complex_worker)
 
             openai = json.loads((output / "profiles" / "openai" / "agent-routing.json").read_text())
             self.assertEqual(openai["agent"]["worker"]["variant"], "high")

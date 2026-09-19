@@ -20,11 +20,11 @@ Every delegation uses a short authoritative handoff containing only the user int
 
 Do not duplicate delegated work. Reuse the existing task for a focused follow-up on the same investigation; start a new task when the role, independent scope, or governing hypothesis changes.
 
-Independent ready mutation lanes are parallel-by-default when the harness can provide safe isolation. Dependent or overlapping lanes must be serialized. When safe isolation is unavailable, serialize otherwise-independent lanes and record a concise reason; keep this decision harness-neutral.
+Independent ready mutation lanes may run in parallel when the harness can provide safe isolation and parallelism offers concrete leverage. Dependent or overlapping lanes must be serialized. Prefer one focused lane when fanout would duplicate context, produce competing hypotheses, or add synthesis cost without reducing risk or latency; keep this decision harness-neutral.
 
-### Mandatory analysis fanout
+### Proportional analysis fanout
 
-After scope is known, a large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel, non-overlapping `explorer` evidence lanes concurrently. In Pi, launch one `workflowScript` wave with `runs.all`; other harnesses use their equivalent concurrent batch. After the fanout barrier, exactly one synthesis owner/writer follows, and implementation validation remains serial after that writer. Serialization is permitted only for a genuine data dependency, indivisible shared state, or too-small scope; the delegation or handoff must record the applicable reason. Do not turn this rule into runtime parsing, a workflow engine, or harness-specific enforcement.
+After scope is known, use multiple non-overlapping `explorer` evidence lanes only when independent evidence lanes provide concrete leverage through parallel latency reduction, specialist separation, or context isolation. Otherwise use one focused explorer or direct targeted reads. When fanout is justified, keep it to the smallest useful count, normally two and never more than four, then use exactly one synthesis owner/writer; implementation validation remains serial after that writer. Do not turn this guidance into runtime parsing, a workflow engine, or harness-specific enforcement.
 
 ### Bounded delegation and responsiveness
 
@@ -57,6 +57,20 @@ This is a declarative handoff contract, not a runtime supplied by this repositor
 ### Internal orchestration language
 
 Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and non-user-facing child reports default to concise technical English. Preserve quoted user requirements in their original language when nuance matters and add a concise English normalization. Keep user-facing replies and explicitly user-facing artifacts in the language requested by the user; never force internal reports into Polish merely because the user-facing conversation is Polish.
+
+## Simplicity and evidence-gated complexity
+
+Implement the smallest end-to-end slice that proves the core behavior before building generalized support around it. Keep the happy path legible and working, explain the core process in the handoff, and use what the executable slice teaches to choose later hardening.
+
+Do not add an abstraction, fallback, error taxonomy, compatibility layer, generalized validation, speculative branch, or defensive state machine unless it is justified by at least one of:
+
+- an explicit requirement or acceptance criterion;
+- an observed failure with repository or runtime evidence; or
+- a security, data-loss, destructive-operation, or external trust boundary.
+
+Controlled internal misuse may fail naturally. A fallback requires explicit degraded behavior and a caller or user who benefits from it; otherwise preserve the original failure. Generalization requires at least two current consumers or an approved shared contract. Safety checks at destructive and trust boundaries remain mandatory, but use the smallest sufficient invariant set rather than modeling every imaginable failure.
+
+Tests and review findings follow the same evidence rule. Do not turn a hypothetical edge case into production behavior merely because it can be imagined. Prefer deletion, direct code, and existing framework behavior over new machinery when they satisfy the approved outcome.
 
 ## Routing
 
@@ -129,9 +143,9 @@ If technical evidence is missing, the planner should commission focused explorat
 
 ## OpenSpec orchestration
 
-For new or materially expanded OpenSpec work spanning multiple planning or specification artifacts, the orchestrator must obtain the planner's managed implementation-ready result before artifact writing. After authorization, one selected `worker` or `worker-complex` owns the planning-artifact write scope; the orchestrator then runs mechanical OpenSpec validation and a fresh-context semantic `reviewer`, in that order, without separate per-run review authorization. The reviewer must receive the validation results.
+For new or materially expanded OpenSpec work spanning multiple planning or specification artifacts, the orchestrator must obtain the planner's managed implementation-ready result before artifact writing. After authorization, one selected `worker` or `worker-complex` owns the planning-artifact write scope; the orchestrator then runs the smallest applicable mechanical OpenSpec validation. Semantic review still requires explicit user authorization under the ordinary review-on-demand policy.
 
-This is a narrow standing exception to review-on-demand and documentation-only validator rules. It does not apply to other work, and the reviewer user-verdict gate still applies: actionable findings do not authorize remediation. Reviewer-approved planning-artifact corrections return through planner reasoning when needed and then to a selected worker. Trivial corrections may remain direct only when delegation offers no concrete leverage; the parent remains the orchestrator and must state why delegation was skipped. This rule requires no particular Pi or other executor API sequence.
+OpenSpec does not create a standing review exception, require multiple artifacts, or justify speculative contracts. Prefer one authoritative planning artifact by default and add proposal, design, task, evidence, or report artifacts only when each has a distinct approved consumer. Reviewer-approved planning-artifact corrections return through planner reasoning when needed and then to a selected worker. Trivial corrections may remain direct only when delegation offers no concrete leverage; the parent remains the orchestrator and must state why delegation was skipped. This rule requires no particular Pi or other executor API sequence.
 
 ## Proportional workflow
 
@@ -139,30 +153,31 @@ For a large or uncertain initiative, apply the optional Feature Workflow Pilot i
 
 ## Reviewable-PR delivery contract
 
-When a repository has suitable hosting or remote support and the harness has the required capability and authorization, pull requests are the default delivery and review unit. Otherwise, use an equivalently reviewable local branch, commit, or patch and say explicitly which fallback was prepared. This contract does not grant authority to create, push, or merge branches, commits, or pull requests, does not assume a particular hosting provider, and must never claim that a remote action occurred when it did not. Use one coherent concern per PR (and per fallback review unit); unrelated concerns must be split even when the size limits would allow them together.
+When a repository has suitable hosting or remote support and the harness has the required capability and authorization, pull requests are the default delivery and review unit. Otherwise, use an equivalently reviewable local branch, commit, or patch and say explicitly which fallback was prepared. This contract does not grant authority to create, push, or merge branches, commits, or pull requests, does not assume a particular hosting provider, and must never claim that a remote action occurred when it did not. Use one coherent reviewer question per PR (and per fallback review unit), and prefer a unit that delivers observable behavior or directly removes complexity.
 
-### Slice accounting and approval
+### Slice coherence and accounting
 
-Plans and implementation handoffs must account for the proposed review unit before work starts and again at completion. Count only human-authored maintained changes for the limits: human-authored changed lines and human-authored changed files. Generated artifacts and lockfiles are excluded from both limits, but their changed lines and files must be counted and reported separately. The accounting must distinguish at least human-authored lines/files, generated-artifact lines/files, and lockfile lines/files; do not hide excluded changes in the human-authored totals.
+Plans and implementation handoffs must describe the proposed review unit before work starts and account for it again at completion. Report human-authored maintained changes, generated artifacts, and lockfiles separately so the user can judge the review surface. A reviewed generated artifact contributes to cognitive review burden even when it is machine-produced; do not hide a large report or snapshot behind generated-file accounting.
 
-- Treat a slice at or below both target limits—`<=400` human-authored changed lines and `<=12` human-authored changed files—as a reviewability heuristic/target, not a mandate. Prefer it when it preserves coherence, but do not split a coherent concern solely to hit a number.
-- A proposed slice above either target and within the hybrid band—`401–800` human-authored changed lines or `13–24` human-authored changed files—requires a concrete rationale and explicit user approval before implementation or promotion. A user-approved named stack/ordered-unit plan may provide that approval in advance for each named above-target-but-below-ceiling unit when it records the rationale. Outside such a plan, approval for one slice does not authorize a different slice or a later threshold breach.
-- `>800` human-authored changed lines or `>24` human-authored changed files is an absolute ceiling violation. The work must be split into smaller review units and must not be approved wholesale. Exactly `800` lines or `24` files is still at the ceiling and requires the above-target rationale and approval when the other target is also respected.
-- Prefer fewer units when adjacent units repeatedly touch the same 2–3 files and are not independently understandable, mergeable, and reviewable. Coherence and independent merge/review value outrank numeric optimization. Do not trade a line excess for a file excess or use generated/lockfile exclusions to conceal maintained work.
+- Line and file counts are diagnostics, not approval gates or hard ceilings. A large diff triggers a decomposition check and concise rationale, not an automatic split.
+- Split when the unit contains independently valuable behavior, answers more than one reviewer question, spans separable risk boundaries, or cannot be validated as one outcome.
+- Keep work together when splitting would create unused scaffolding, partial abstractions, duplicated setup, or several dependent units that repeatedly touch the same core files.
+- Infrastructure or abstraction work should be consumed by a real path in the same unit unless the infrastructure is independently useful and independently verifiable.
+- Coherence, executable evidence, and independent merge/review value outrank numeric optimization.
 
-The plan and handoff must name the single concern, review-unit boundary, expected accounting, affected areas, dependencies and ordering, and whether above-target approval is required or was pre-authorized by the named stack/ordered-unit plan. If implementation would cross an unapproved target, the worker stops before the threshold breach, reports the current accounting, and returns for an explicit decision or a split. No worker or orchestrator may continue past the absolute ceiling.
+The plan and handoff must name the reviewer question, observable outcome, review-unit boundary, expected accounting, affected areas, dependencies, and ordering. If implementation reveals a second independent concern or loses its observable outcome, stop that expansion and return for decomposition; do not split merely because a numeric estimate was wrong.
 
 ### Ordered implementation and checkpoints
 
-Independent implementation may run in parallel only in isolated, non-overlapping branches or worktrees. This does not relax the existing fanout, bounded delegation, or serial validation rules: a parallel lane cannot bypass slice accounting, and promotion of PRs or fallback review units remains ordered. A user-approved named stack/ordered-unit plan authorizes uninterrupted execution of its already bounded units in the named order; no routine approval wait is required between those units while their scope, acceptance criteria, risks, and accounting remain unchanged. The plan does not authorize new scope, bypass required validation or finding/remediation decisions, or grant merge/release authorization.
+Independent implementation may run in parallel only in isolated, non-overlapping branches or worktrees when parallelism offers concrete leverage. This does not relax bounded delegation or serial validation: promotion of PRs or fallback review units remains ordered. A user-approved named stack/ordered-unit plan authorizes uninterrupted execution of its already bounded units in the named order; no routine approval wait is required between those units while their scope, acceptance criteria, risks, and accounting remain unchanged. The plan does not authorize new scope, bypass required validation or finding/remediation decisions, or grant merge/release authorization.
 
-After every PR or fallback review unit, the orchestrator must automatically present the checkpoint below as a non-blocking progress report. The checkpoint does not authorize a merge, promotion, or remediation. Ask the user again only for a material scope or acceptance change, a new risk or product decision, or a failed/BLOCKED validation that requires a decision. A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized. Outside a named approved stack/ordered-unit plan, an earlier initiative or slice approval does not imply approval for a different unit. This contract does not change the review-on-demand, reviewer-verdict, independent-validation, finding/remediation, merge authorization, or release-promotion gates elsewhere in the policy.
+After every PR or fallback review unit, the orchestrator must automatically present the checkpoint below as a non-blocking progress report. The checkpoint does not authorize a merge, promotion, or remediation. Ask the user again only for a material scope or acceptance change, a new risk or product decision, a newly independent concern that changes decomposition, or a failed/BLOCKED validation that requires a decision. Outside a named approved stack/ordered-unit plan, an earlier initiative or slice approval does not imply approval for a different unit. This contract does not change the review-on-demand, reviewer-verdict, independent-validation, finding/remediation, merge authorization, or release-promotion gates elsewhere in the policy.
 
 The bird's-eye checkpoint after every PR or fallback review unit must include:
 
 - purpose and single concern;
 - behavior before and after;
-- key decisions and approvals, including any above-target rationale;
+- key decisions and decomposition rationale;
 - human-authored diff statistics: changed lines and files;
 - generated-artifact and lockfile statistics separately: changed lines and files for each;
 - affected areas and files;
@@ -177,9 +192,16 @@ Completion reports and validation summaries must keep delivery status, diff acco
 
 Give `worker` or `worker-complex` the approved scope, acceptance criteria, relevant planning artifacts, exclusions, and evidence already available. Use ordinary `worker` by default. Use `worker-complex` only when behavior is sufficiently specified but implementation itself requires unusually difficult reasoning. Missing or ambiguous requirements belong with the orchestrator or planner, not a stronger worker.
 
-`worker` and `worker-complex` may author or update tests when tests are inside the approved scope, but must not execute tests, lint, typecheck, build, browser/device checks, or any other verification. They return changed files and requested validation commands or checks. `validator` exclusively executes verification and returns `PASS`, `FAIL`, or `BLOCKED`.
+`worker` and `worker-complex` may author or update tests inside the approved scope and may execute focused development tests and checks as `SELF-CHECKS` while iterating. They should prove the happy path before speculative hardening, run only the checks needed for immediate implementation feedback, and report those commands and results without presenting them as independent proof. `validator` independently reruns the smallest acceptance matrix and returns `PASS`, `FAIL`, or `BLOCKED`.
 
 Both worker roles must preserve unrelated user work and remain within scope. Ambiguous shared architecture, contracts, security behavior, or product semantics must be returned to the orchestrator for a decision.
+
+Implementation proceeds through progressive hardening:
+
+1. make the smallest approved end-to-end path work;
+2. explain the core process and run focused self-checks;
+3. identify additional guards, tests, or fallbacks with their requirement, observed failure, or safety boundary;
+4. implement only the justified hardening inside the approved scope and leave speculative ideas as residual work.
 
 Automatic repair handoffs are valid only for an acceptance blocker and must identify the exact blocker, failed deterministic criterion, evidence, bounded files/scope, owner, repair budget, and check to rerun. Broad directives such as `act`, `proceed`, `fix it`, or `implement`, and review authorization, do not authorize future findings or their repair.
 
@@ -190,6 +212,8 @@ Delegated source-changing worker output always requires independent validator ve
 - Test public action -> observable outcome. Do not assert implementation details such as CSS classes, DOM shape, source text, private functions, or incidental call syntax. The only exception is an explicit architecture or security contract.
 - Use the simplest, cheapest test layer that can detect the bug.
 - Do not duplicate the same evidence or contract in another test.
+- Add edge-case coverage only for an explicit acceptance criterion, observed regression, or safety boundary.
+- Prefer a real integration boundary over a fake that reimplements the external system when the integration is practical and central to the behavior.
 
 Before adding a test, answer: `This test will fail when ...` with a concrete defect. If that sentence cannot be completed, do not add the test.
 
@@ -201,7 +225,7 @@ Validation by `validator` is mandatory whenever a worker role changed code, test
 
 Only a deterministic, reproducible failure of an already-authorized acceptance criterion within the current implementation scope may be classified as an acceptance blocker eligible for automatic repair. `FAIL` alone is not enough: `BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations, unrelated failures, or a failure without a named deterministic criterion are not acceptance blockers.
 
-The validator must independently inspect the relevant diff and choose the smallest useful validation matrix, including predefined deterministic acceptance and any required browser/device checks. For each acceptance criterion, report observable evidence that demonstrates the expected public behavior and return `PASS`, `FAIL`, or `BLOCKED`. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Validation confirms acceptance criteria; it is not a covert reviewer and must not expand into architecture critique or speculative design findings. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
+The validator must independently inspect the relevant diff and independently rerun the smallest acceptance matrix, including predefined deterministic acceptance and any required browser/device checks. For each acceptance criterion, report observable evidence that demonstrates the expected public behavior and return `PASS`, `FAIL`, or `BLOCKED`. The validator must inspect every added or materially changed test and fail validation if it breaks any behavioral test rule above. Validation confirms acceptance criteria; it is not a covert reviewer and must not expand into architecture critique or speculative design findings. Suspicious APIs are review signals, not automatic failures. It must not modify source files, tests, dependencies, lockfiles, configuration, or git history. Normal generated build and test artifacts are allowed. Do not use validator for documentation-only or other non-code changes where mechanical validation is not applicable.
 
 If validation fails, send the exact failure to `debugger`; do not ask validator to diagnose or fix it.
 
@@ -248,7 +272,7 @@ Do not silently expand scope, switch models, start parallel repair attempts, or 
 
 ## Review on demand
 
-The `reviewer` runs only after an explicit user request or authorization, except for the narrow standing OpenSpec exception defined above. An explicit review instruction earlier in the same task remains authorization; do not ask the user to repeat it. Explicit authorization is a user request in the current task, invocation of a review skill/command, or a standing instruction in the project's harness configuration (e.g. a project instruction file); each authorizes review only for the scope it names. Outside that exception, never launch it automatically after implementation or validation, including for changes involving security, sensitive data, public contracts, deployment, broad refactors, or orchestration rules. When one of the concrete risks below is clearly present, the orchestrator must recommend review: one sentence in the final report naming the risk categories that occurred; it is not raised mid-task and does not ask a question. Outside that exception, never launch review without explicit user authorization. Once the user decides whether to run review for that scope, do not repeat the recommendation unless the scope or risk materially changes.
+The `reviewer` runs only after an explicit user request or authorization. An explicit review instruction earlier in the same task remains authorization; do not ask the user to repeat it. Explicit authorization is a user request in the current task, invocation of a review skill/command, or a standing instruction in the project's harness configuration (e.g. a project instruction file); each authorizes review only for the scope it names. Never launch it automatically after implementation or validation, including for OpenSpec, security, sensitive data, public contracts, deployment, broad refactors, or orchestration rules. When one of the concrete risks below is clearly present, the orchestrator must recommend review: one sentence in the final report naming the risk categories that occurred; it is not raised mid-task and does not ask a question. Once the user decides whether to run review for that scope, do not repeat the recommendation unless the scope or risk materially changes.
 
 The following categories are review recommendations:
 
@@ -266,6 +290,8 @@ Review is also available for an isolated low-risk bug fix with a targeted regres
 Before review, provide the reviewer with authoritative requirements, acceptance criteria, approved scope and exclusions, diff scope, and the compact validator report. The reviewer owns any additional repository evidence gathering and may commission `explorer` as defined above.
 
 The reviewer is read-only and analytical. It must not run formatters, linters, unit/integration/e2e tests, typechecks, builds, or other mechanical validation, and it must never fix findings. Those checks belong to `validator`. If validation is missing, the reviewer must state that clearly rather than silently replacing validator. A review handoff should be compact and include the approved scope, acceptance criteria, relevant diff, and validator report, following the short-handoff and history rules above.
+
+An actionable reviewer finding requires a concrete and plausible failure path, evidence that the path is reachable or violates an explicit contract, and practical impact. Speculative hardening ideas remain `Info` or follow-up suggestions. Before recommending added machinery, the reviewer must consider simplification, deletion, framework behavior, or natural failure as viable options and prefer the least complex correction that restores the approved behavior.
 
 ## Reviewer user-verdict gate
 
@@ -286,7 +312,7 @@ Every reviewer finding is a new finding unless it is already exactly covered by 
 
 After presenting findings, invoke the configured `question` tool. Require one individual single-choice question per actionable finding. Each question must be self-contained enough that the user does not need to infer context: identify the finding and present or faithfully summarize the concrete problem or failure mode and evidence, affected scope/impact, and detailed solution options with implementation direction, scope/cost, trade-offs/risks, and recommendation/rationale where appropriate. Each question must offer `Done`, `Skip`/`Pomiń`, and `Snooze`; `Done` authorizes only that finding now. These are disposition decisions, not solution selection and not ambiguous package authorization. If the tool supports multiple questions, show distinct questions up to its question-count limit and send overflow in additional calls; never collapse findings into one package approval by default. Put the recommended choice first and append `(Recommended)` to its label. Rely on the tool's automatic custom/free-text choice for an explicitly equivalent custom decision; do not add `Other` or `Custom`. Use multiple selection only when a finding genuinely supports multiple compatible actions. If the configured question tool is unavailable, reproduce the same choices in plain chat and wait for the user's actual answer; silence is not approval.
 
-Do not delegate fixes until the user answers. Only selected or custom-approved scope may be delegated for correction; the default executor is `worker`, except that reviewer-approved planning-artifact corrections under the OpenSpec exception return through planner reasoning and then to the selected worker. Skipped, unselected, declined, implied, or silent approval leaves the finding untouched, including newly discovered Low or Medium findings. Approval for a finding covers the complete correction for that same finding, including residual work required to resolve it, within that finding's own repair budget. Briefly state the approved scope before delegating. Each user-approved finding has its own bounded budget of one correction plus one targeted re-review of the changed scope plus adjacent consequences, independent of the validation repair budget in "Repair budget and stopping rule"; the correction may contain all edits needed for that same finding. This bounded cycle does not authorize repair cycles beyond this finding's own budget. Do not start a broad or automatic review loop. If a finding remains unresolved, its repair budget is exhausted, or the work would require a new scope or product compromise, stop and return to the user for authorization.
+Do not delegate fixes until the user answers. Only selected or custom-approved scope may be delegated for correction; the default executor is `worker`. Planning-artifact corrections may return through planner reasoning when interpretation is required, then to the selected worker. Skipped, unselected, declined, implied, or silent approval leaves the finding untouched, including newly discovered Low or Medium findings. Approval for a finding covers the complete correction for that same finding, including residual work required to resolve it, within that finding's own repair budget. Briefly state the approved scope before delegating. Each user-approved finding has its own bounded budget of one correction plus one targeted re-review of the changed scope plus adjacent consequences, independent of the validation repair budget in "Repair budget and stopping rule"; the correction may contain all edits needed for that same finding. This bounded cycle does not authorize repair cycles beyond this finding's own budget. Do not start a broad or automatic review loop. If a finding remains unresolved, its repair budget is exhausted, or the work would require a new scope or product compromise, stop and return to the user for authorization.
 
 Default to exactly one reviewer per explicitly requested review. Do not silently spawn specialized or parallel reviewers. If multiple reviewers could materially improve the result, ask for explicit approval first and state the proposed count, non-overlapping scopes, concrete benefit, and additional usage/latency cost. Without approval, use one reviewer.
 

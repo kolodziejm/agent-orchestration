@@ -53,26 +53,30 @@ a logical stopping condition and a separate enforceable whole-lane execution cap
 potentially blocking tool call also has its own enforceable per-call timeout. Potentially
 non-brief work runs in the background when supported so the primary remains responsive.
 Delegated source-changing worker output still requires an independent validator. Workers
-may author tests in scope but must not execute verification; `validator` owns predefined
-deterministic acceptance, including browser/device checks. Both worker tiers are leaves; the
+may run focused development tests and checks as `SELF-CHECKS`; `validator` independently
+reruns predefined deterministic acceptance, including browser/device checks. Both worker tiers are leaves; the
 primary routes visual work directly to existing image-capable roles. `worker` is the routine executor and
 `worker-complex` is reserved for sufficiently specified changes whose implementation
 requires unusually difficult reasoning. A stronger worker must not compensate for unclear
 product intent. After scope is known, large analysis spanning at least two independent
-top-level areas or a large file set MUST use 2–4 concurrent, non-overlapping `explorer`
-evidence lanes, followed by one synthesis owner/writer and a serial validator. Pi uses a
-single `runs.all` wave; other harnesses use their equivalent concurrent batch. Serialize
-only for a genuine data dependency, indivisible shared state, or too-small scope, and
-record the reason. Internal handoffs, schemas, workflow labels, and non-user-facing
+top-level areas or a large file set may use multiple non-overlapping `explorer` evidence
+lanes only when parallelism offers concrete latency, specialization, or context-isolation
+leverage; otherwise one focused lane is preferred. Any fanout is followed by one synthesis
+owner/writer and serial validation. Internal handoffs, schemas, workflow labels, and non-user-facing
 reports default to concise technical English; preserve original-language quotations plus
 an English normalization when nuance matters, while user-facing replies and artifacts stay
 in the user's requested language.
 
+Implementation is simplicity-first: prove the smallest end-to-end path before generalized
+hardening. Abstractions, fallbacks, error taxonomies, compatibility layers, and speculative
+guards require an explicit requirement, an observed failure, or a real security/data-loss/
+destructive boundary. Controlled internal misuse may fail naturally.
+
 ## Reviewable-PR delivery
 
-When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Use one coherent concern per PR (and per fallback unit). Treat `<=400` human-authored maintained changed lines and `<=12` human-authored maintained changed files as a reviewability heuristic/target, not a mandate; do not split a coherent concern solely to hit a number. Generated artifacts and lockfiles are excluded from those limits, but their lines/files are counted and reported separately. A `401–800` line or `13–24` file slice needs concrete rationale and explicit user approval before implementation or promotion unless a user-approved named stack/ordered-unit plan pre-authorizes that named unit and records the rationale; `>800` human-authored lines or `>24` human-authored files must be split and cannot be approved wholesale. Prefer fewer units when adjacent units repeatedly touch the same 2–3 files and are not independently understandable, mergeable, and reviewable; coherence and independent merge/review value outrank numeric optimization.
+When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Each unit answers one coherent reviewer question and preferably delivers observable behavior or removes complexity. Line/file counts are diagnostics, not approval gates or hard ceilings. Report human-authored, generated, and lockfile changes separately, but count every artifact a reviewer must inspect as cognitive burden. Split for independently valuable behavior or separable risk; keep work together when splitting would create unused scaffolding, partial abstractions, duplicated setup, or dependent units repeatedly touching the same files.
 
-If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees, while promotion remains ordered. A user-approved named stack/ordered-unit plan authorizes uninterrupted execution of its already bounded units in the named order without routine approval waits between them. After every PR or fallback unit, present a bird's-eye checkpoint automatically as a non-blocking progress report covering purpose/concern, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, validation evidence, residual work, and the next proposed unit. Checkpoints do not authorize merge, promotion, or remediation; existing review, finding/remediation, and merge authorization gates remain in force. Ask again only for a material scope or acceptance change, a new risk or product decision, or a failed/BLOCKED validation that requires a decision. A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
+If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees when it offers concrete leverage, while promotion remains ordered. Concretely plan only the next one to three units; later work remains a revisable roadmap informed by completed working slices. After every PR or fallback unit, present a bird's-eye checkpoint automatically as a non-blocking progress report covering reviewer question, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, self-checks and independent validation, residual work, and the next proposed unit. Checkpoints do not authorize merge, promotion, or remediation; existing review, finding/remediation, and merge authorization gates remain in force. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
 
 ## OpenCode harness
 

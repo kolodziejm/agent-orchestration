@@ -87,7 +87,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 ("pi-glm", outputs["pi-glm"] / "_shared" / "orchestration-core.md"),
             ):
                 content = core_path.read_text()
-                self.assertIn("Mandatory analysis fanout", content, name)
+                self.assertIn("Proportional analysis fanout", content, name)
                 if name.startswith("pi-"):
                     self.assertIn(
                         "Set a task-specific `max_turns` unless an equivalent enforceable whole-lane runtime deadline bounds the lane's total execution and cancels it at expiry; only then may `max_turns` be omitted.",
@@ -114,14 +114,14 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                 ["feature-workflow-pilot"],
             )
 
-    def test_canonical_policy_requires_fanout_and_internal_language_rule(self):
+    def test_canonical_policy_requires_proportional_fanout_and_internal_language_rule(self):
         """REGRESSION CONTRACT: bounded delegation, blocking calls, and internal language rules must remain complete in canonical and generated policies."""
         policy = POLICY.read_text()
         for phrase in (
-            "large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel",
+            "only when independent evidence lanes provide concrete leverage",
+            "normally two and never more than four",
             "one synthesis owner/writer",
             "implementation validation remains serial",
-            "genuine data dependency, indivisible shared state, or too-small scope",
             "Handoffs, task instructions, workflow labels, schemas, acceptance contracts",
             "original language when nuance matters",
             "user-facing replies and explicitly user-facing artifacts in the language requested by the user",
@@ -208,8 +208,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             self.assertIn(phrase, bounded_block)
         self.assertNotIn("or another confirmed terminal transition", bounded_block)
 
-        self.assertNotIn("two or three genuinely independent evidence scopes", policy)
-        self.assertNotIn("prefer parallel explorer tasks", policy)
+        self.assertNotIn("MUST use 2–4 parallel", policy)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -290,61 +289,52 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
         """This fails when the pilot can start another slice without a bounded unit or non-blocking checkpoint."""
         workflow = WORKFLOW.read_text()
         start = workflow.index("### Explicit delivery slices and ordered review units")
-        end = workflow.index("For a large initiative, persist a mindmap", start)
+        end = workflow.index("For a large initiative, keep one authoritative planning artifact", start)
         delivery = workflow[start:end]
 
         for phrase in (
-            "one bounded PR or fallback review unit and use one coherent concern per PR",
+            "one bounded PR or fallback review unit with one coherent reviewer question and an observable outcome",
             "suitable hosting/remote support and harness capability/authorization",
             "PR is the default delivery unit",
             "equivalently reviewable local branch, commit, or patch",
             "does not assume a hosting provider or authorize automatic",
             "branch, commit, push, merge, or PR creation",
-            "<=400` human-authored maintained changed lines",
-            "<=12` human-authored maintained changed files",
-            "reviewability heuristic/target, not a mandate",
-            "do not split a coherent concern solely to hit a number",
-            "generated artifacts and lockfiles",
-            "count and report generated-artifact and lockfile lines/files separately",
-            "401–800",
-            "13–24",
-            "concrete rationale and explicit user approval before implementation or promotion",
-            "user-approved named stack/ordered-unit plan pre-authorizes that named unit",
-            ">800` human-authored changed lines",
-            ">24` human-authored changed files",
-            "absolute maximum violation",
-            "must be split, not approved wholesale",
-            "adjacent units repeatedly touch the same 2–3 files",
-            "not independently understandable, mergeable, and reviewable",
-            "coherence and independent merge/review value outrank numeric optimization",
+            "line and file counts are diagnostics, not approval gates or hard ceilings",
+            "every artifact the reviewer must inspect as cognitive review burden",
+            "split when a unit contains independently valuable behavior",
+            "unused scaffolding",
+            "partial abstractions",
+            "smallest end-to-end slice that proves core behavior",
             "isolated, non-overlapping branches or worktrees",
             "promotion remains ordered",
             "A named stack/ordered-unit plan may group these bounded units",
-            "without inserting routine approval waits between them",
+            "Plan only the next one to three implementation units concretely",
+            "Later units remain a revisable roadmap",
+            "without inserting routine approval waits",
             "After every PR or fallback review unit",
             "automatically presents a bird's-eye checkpoint as a non-blocking progress report",
             "A checkpoint does not authorize merge, promotion, or remediation",
             "Ask again only for a material scope or acceptance change",
-            "A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized.",
             "new risk or product decision",
+            "decomposition change",
             "failed/BLOCKED validation that requires a decision",
             "existing review, finding/remediation, and merge authorization gates remain in force",
             "Outside a named approved stack/ordered-unit plan, an earlier initiative or slice approval never implies approval for a different unit",
-            "purpose/concern",
+            "purpose/reviewer question",
             "behavior before/after",
-            "key decisions and approvals",
+            "key decisions",
             "human-authored diff lines/files",
             "separate generated-artifact and lockfile lines/files",
             "affected areas/files",
             "risks",
-            "validation evidence or `not run`/`BLOCKED` status",
+            "self-check and independent validation evidence or `not run`/`BLOCKED` status",
             "residual work",
             "next proposed PR or fallback unit",
         ):
             self.assertIn(phrase, delivery)
 
         self.assertNotIn("waits for explicit user approval before the next PR or review unit", delivery)
-        self.assertNotIn("hard-ceiling exception", delivery)
+        self.assertNotIn("absolute ceiling", delivery)
 
         expected_workflow = workflow
         with tempfile.TemporaryDirectory() as directory:
@@ -457,7 +447,7 @@ console.log(JSON.stringify({{ request: {{ async: request.async, context: request
         self.assertEqual(events[2]["key"], "validator")
         self.assertEqual(events[2]["params"]["agent"], "validator")
         self.assertIn("result:writer", events[2]["params"]["task"])
-        self.assertIn("Do not run tests, checks, lint, typecheck, or builds.", events[1]["params"]["task"])
+        self.assertIn("Run only focused development checks as SELF-CHECKS", events[1]["params"]["task"])
         self.assertIn("review remains separately authorized", workflow)
         self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", workflow)
 
