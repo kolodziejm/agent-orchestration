@@ -130,21 +130,18 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("parallelism", policy)
         self.assertIn("independent risk separation", policy)
         self.assertIn("Delegated source-changing worker output always requires independent validator verification.", policy)
-        self.assertIn("Independent ready mutation lanes are parallel-by-default", policy)
+        self.assertIn("Independent ready mutation lanes may run in parallel", policy)
         self.assertIn("safe isolation", policy)
-        self.assertIn("record a concise reason", policy)
         self.assertIn("broad mechanical evidence gathering", policy)
-        self.assertIn("large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel", policy)
+        self.assertIn("only when independent evidence lanes provide concrete leverage", policy)
+        self.assertIn("normally two and never more than four", policy)
         self.assertIn("one synthesis owner/writer", policy)
         self.assertIn("implementation validation remains serial", policy)
-        self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", policy)
         self.assertIn("Handoffs, task instructions, workflow labels, schemas, acceptance contracts", policy)
         self.assertIn("requested by the user", policy)
         self.assertIn("`worker` and `worker-complex` may author or update tests", policy)
-        self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", policy)
-        self.assertIn("`validator` exclusively executes verification", policy)
-        self.assertNotIn("SELF-CHECK", policy)
-        self.assertNotIn("self-check", policy)
+        self.assertIn("focused development tests and checks as `SELF-CHECKS`", policy)
+        self.assertIn("`validator` independently reruns the smallest acceptance matrix", policy)
 
         for contradictory_wording in (
             "low- or medium-risk",
@@ -155,8 +152,8 @@ class ProfileControlPlaneTests(unittest.TestCase):
         ):
             self.assertNotIn(contradictory_wording, policy)
 
-    def test_reviewable_pr_delivery_contract_defines_limits_fallback_and_checkpoint(self):
-        """This fails when delivery can bypass review-unit sizing or non-blocking stack progress."""
+    def test_reviewable_pr_delivery_contract_defines_coherence_fallback_and_checkpoint(self):
+        """This fails when delivery can bypass cognitive coherence or non-blocking stack progress."""
         policy = (ROOT / "policy" / "orchestration.md").read_text()
         start = policy.index("## Reviewable-PR delivery contract")
         end = policy.index("## Implementation", start)
@@ -171,27 +168,16 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "pull requests are the default delivery and review unit",
             "equivalently reviewable local branch, commit, or patch",
             "must never claim that a remote action occurred",
-            "one coherent concern per PR",
-            "human-authored maintained changes",
-            "`<=400` human-authored changed lines",
-            "`<=12` human-authored changed files",
-            "Generated artifacts and lockfiles are excluded from both limits",
-            "changed lines and files must be counted and reported separately",
-            "reviewability heuristic/target, not a mandate",
-            "do not split a coherent concern solely to hit a number",
-            "401–800",
-            "13–24",
-            "concrete rationale and explicit user approval before implementation or promotion",
-            "user-approved named stack/ordered-unit plan may provide that approval in advance",
-            "above-target-but-below-ceiling unit",
-            "`>800` human-authored changed lines",
-            "`>24` human-authored changed files",
-            "absolute ceiling violation",
-            "must be split into smaller review units",
-            "must not be approved wholesale",
-            "adjacent units repeatedly touch the same 2–3 files",
-            "not independently understandable, mergeable, and reviewable",
-            "coherence and independent merge/review value outrank numeric optimization",
+            "one coherent reviewer question per PR",
+            "observable behavior or directly removes complexity",
+            "Line and file counts are diagnostics, not approval gates or hard ceilings",
+            "reviewed generated artifact contributes to cognitive review burden",
+            "Split when the unit contains independently valuable behavior",
+            "answers more than one reviewer question",
+            "unused scaffolding",
+            "partial abstractions",
+            "Infrastructure or abstraction work should be consumed by a real path in the same unit",
+            "Coherence, executable evidence, and independent merge/review value outrank numeric optimization",
             "isolated, non-overlapping branches or worktrees",
             "promotion of PRs or fallback review units remains ordered",
             "user-approved named stack/ordered-unit plan authorizes uninterrupted execution",
@@ -200,7 +186,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "checkpoint does not authorize a merge, promotion, or remediation",
             "purpose and single concern",
             "behavior before and after",
-            "key decisions and approvals",
+            "key decisions and decomposition rationale",
             "human-authored diff statistics",
             "generated-artifact and lockfile statistics separately",
             "affected areas and files",
@@ -213,14 +199,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertIn(normalize(phrase), delivery)
 
         self.assertIn(normalize("Ask the user again only for a material scope or acceptance change"), delivery)
-        self.assertNotIn(normalize("hard-ceiling exception"), delivery)
-        self.assertIn(
-            normalize(
-                "A detected or projected absolute-ceiling breach requires stopping and re-decomposing/splitting; it is not waivable and cannot be pre-authorized."
-            ),
-            delivery,
-        )
+        self.assertNotIn(normalize("absolute ceiling"), delivery)
         self.assertIn(normalize("new risk or product decision"), delivery)
+        self.assertIn(normalize("newly independent concern that changes decomposition"), delivery)
         self.assertIn(normalize("failed/BLOCKED validation that requires a decision"), delivery)
         self.assertIn(normalize("finding/remediation"), delivery)
         self.assertIn(normalize("merge authorization"), delivery)
@@ -244,62 +225,48 @@ class ProfileControlPlaneTests(unittest.TestCase):
         planner = contracts["planner"]
         for phrase in (
             "## Reviewable-PR slice planning",
-            "one coherent concern and one bounded PR or fallback review unit",
+            "one coherent reviewer question, an observable outcome, and one bounded PR or fallback review unit",
             "expected accounting for human-authored maintained changed lines/files",
             "generated-artifact changed lines/files",
             "lockfile changed lines/files",
-            "`<=400` lines and `<=12` files",
-            "reviewability heuristic/target, not a mandate",
-            "do not split a coherent concern solely to hit a number",
-            "`401–800` line or `13–24` file slice requires a concrete rationale",
-            "explicit user approval before implementation or promotion",
-            "`>800` human-authored changed lines or `>24` human-authored changed files",
-            "absolute ceiling",
-            "must be split rather than proposed for wholesale approval",
+            "Line and file counts are diagnostics, not approval gates or hard ceilings",
+            "independently valuable behavior",
+            "unused scaffolding",
+            "partial abstractions",
+            "cognitive review burden",
             "checkpoint fields",
             "next proposed unit",
-            "stop before an unapproved threshold breach",
+            "stop before expanding into a second independent concern",
             "user-approved named stack/ordered-unit plan",
-            "pre-authorizes that named unit",
+            "next one to three implementation units",
+            "revisable roadmap",
             "PR/fallback promotion remains ordered",
         ):
             self.assertIn(phrase, planner)
 
         for role, contract in contracts.items():
             for phrase in (
-                "one coherent concern and one bounded PR or fallback review unit",
+                "one coherent reviewer question",
                 "human-authored maintained changed lines/files",
                 "generated-artifact changed lines/files",
                 "lockfile changed lines/files",
-                "`>800` human-authored changed lines or `>24` human-authored changed files",
-                "absolute ceiling",
-                "reviewability heuristic/target, not a mandate",
-                "user-approved named stack/ordered-unit plan",
+                "Line and file counts are diagnostics, not approval gates or hard ceilings",
                 "non-blocking progress report",
                 "Parallel implementation",
             ):
                 self.assertIn(phrase, contract, role)
+            self.assertIn("stack/ordered-unit plan", contract, role)
             if role in ("worker", "worker-complex"):
                 self.assertIn("completion/readiness report", contract, role)
-                self.assertIn("validation requested or evidence", contract, role)
+                self.assertIn("independent validation requested or evidence", contract, role)
             order_phrase = (
                 "PR/fallback promotion remains ordered"
                 if role == "planner"
                 else "PR/fallback promotion remains ordered"
             )
             self.assertIn(order_phrase, contract, role)
-            stop_phrase = (
-                "stop before an unapproved threshold breach"
-                if role == "planner"
-                else "If the implementation would cross an unapproved target, stop before the threshold breach"
-            )
-            self.assertIn(stop_phrase, contract, role)
-            exclusion_phrase = (
-                "Generated artifacts and lockfiles do not count toward the thresholds"
-                if role == "planner"
-                else "Generated artifacts and lockfiles are excluded from the human-authored thresholds"
-            )
-            self.assertIn(exclusion_phrase, contract, role)
+            stop_phrase = "stop before expanding into a second independent concern"
+            self.assertIn(stop_phrase.casefold(), contract.casefold(), role)
             delivery_phrase = (
                 "create or push anything"
                 if role == "planner"
@@ -393,9 +360,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
 
         for contract in (worker, complex_worker):
             self.assertIn("author or update tests", contract)
-            self.assertIn("must not execute tests, lint, typecheck, build, browser/device checks", contract)
-            self.assertNotIn("SELF-CHECK", contract)
-            self.assertNotIn("self-check", contract)
+            self.assertIn("focused development tests and checks as `SELF-CHECKS`", contract)
+            self.assertIn("happy path before speculative hardening", contract)
+            self.assertIn("never present self-checks as validator evidence", contract)
         self.assertIn("predefined deterministic acceptance", validator)
         self.assertIn("browser/device checks", validator)
         self.assertIn("`PASS`, `FAIL`, or `BLOCKED`", validator)
@@ -423,8 +390,8 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("must never be launched automatically after implementation, validation, or review", orchestration)
         for contract in (planner, reviewer):
             self.assertIn("broad mechanical evidence gathering", contract)
-            self.assertIn("large analysis spanning at least two independent top-level areas or a large file set MUST use 2–4 parallel", contract)
-            self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", contract)
+            self.assertIn("only for genuinely independent evidence areas", contract)
+            self.assertIn("otherwise use one focused explorer or targeted direct reads", contract)
 
     def test_generators_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:
