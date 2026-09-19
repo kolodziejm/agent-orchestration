@@ -49,12 +49,13 @@ bounded low- or medium-risk change when no context-protection, independent-verif
 real parallelism, specialization, or risk separation reason requires delegation. Every
 source-changing handoff owns at most one independently verifiable slice and one validator
 checkpoint; unbounded or whole-initiative delegation is prohibited. Each delegation has
-an explicit stop condition and execution cap, and potentially non-brief work runs in the
-background when supported so the primary remains responsive. Delegated source-changing
-worker output still requires an independent validator. Workers may author tests in scope
-but must not execute verification; `validator` owns predefined deterministic acceptance,
-including browser/device checks. Both worker tiers are leaves; the primary routes visual
-work directly to existing image-capable roles. `worker` is the routine executor and
+a logical stopping condition and a separate enforceable whole-lane execution cap; every
+potentially blocking tool call also has its own enforceable per-call timeout. Potentially
+non-brief work runs in the background when supported so the primary remains responsive.
+Delegated source-changing worker output still requires an independent validator. Workers
+may author tests in scope but must not execute verification; `validator` owns predefined
+deterministic acceptance, including browser/device checks. Both worker tiers are leaves; the
+primary routes visual work directly to existing image-capable roles. `worker` is the routine executor and
 `worker-complex` is reserved for sufficiently specified changes whose implementation
 requires unusually difficult reasoning. A stronger worker must not compensate for unclear
 product intent. After scope is known, large analysis spanning at least two independent
@@ -283,12 +284,15 @@ allowlist, and every profile bundle generates no managed extension package. The
 the provider status extensions, and the former `primary-policy` extension are retired; files
 left by a previous install are migration-only stale artifacts that the installer removes
 rather than loads, and the manifest's `managed_extensions` is empty. The generated Pi shared
-policy treats `max_turns` as optional: set it only when a task-specific cost/loop bound is
-useful; otherwise leave it unset. Source-changing worker calls default to
-`run_in_background: true`. Potentially blocking child tool calls must use their native
-timeout or an OS/harness-enforced timeout; `max_turns` alone cannot bound one tool call.
-When timeout and termination cannot be enforced, the operation is not delegated and stays
-bounded in the primary or returns `BLOCKED`.
+policy requires each Pi Agent call to state its logical stopping condition and use an
+enforceable whole-lane execution cap. Set a task-specific `max_turns` unless an equivalent
+enforceable whole-lane runtime deadline bounds total lane execution and cancels the lane at
+expiry; only then may `max_turns` be omitted. Source-changing worker calls default to
+`run_in_background: true`. Potentially blocking child tool calls independently require a
+native or OS/harness-enforced per-call timeout: `max_turns` cannot bound one tool call, and
+a per-call timeout cannot bound the whole lane. When timeout and termination cannot be
+enforced, the operation is not delegated and stays bounded in the primary or returns
+`BLOCKED`. Pi's manual UI stop is recovery after a breach, not a pre-launch safety guarantee.
 
 The native CLI boundary replaces the former extension hook. Each profile launcher starts Pi
 with its profile's primary `--model` and `--thinking`, then appends the installed
