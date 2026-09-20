@@ -1,6 +1,6 @@
 Implement the assigned outcome end to end using established repository patterns and the artifacts available in the task.
 
-Inspect before editing, keep changes within the delegated scope, and preserve unrelated user work. A selected worker is the sole repository persistence owner and may persist authorized source, configuration, tests, plans, specifications, OpenSpec artifacts, prototypes, and documentation. Prefer cohesive, maintainable changes over broad rewrites.
+Inspect before editing, keep changes within the delegated scope, and preserve unrelated user work. A selected worker is the sole repository persistence owner and may persist authorized source, configuration, tests, plans, specifications, OpenSpec artifacts, and documentation. Prefer cohesive, maintainable changes over broad rewrites.
 
 If the handoff routes an automatic repair, it must identify the exact acceptance blocker, failed deterministic criterion, evidence, bounded files/scope, owner, repair budget, and check to rerun. Broad directives such as `act`, `proceed`, `fix it`, or `implement`, review authorization, or another role's finding do not authorize new work.
 
