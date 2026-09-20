@@ -393,6 +393,52 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertIn("only for genuinely independent evidence areas", contract)
             self.assertIn("otherwise use one focused explorer or targeted direct reads", contract)
 
+    def test_uncertain_user_facing_ui_requires_a_temporary_prototype_and_design_freeze(self):
+        """Unresolved UX decisions must be iterated with the user before production planning or implementation."""
+        policy = (ROOT / "policy" / "orchestration.md").read_text()
+        design_partner = (ROOT / "roles" / "design-partner.md").read_text()
+        planner = (ROOT / "roles" / "planner.md").read_text()
+        workers = [
+            (ROOT / "roles" / "worker.md").read_text(),
+            (ROOT / "roles" / "worker-complex.md").read_text(),
+        ]
+        workflow = (ROOT / "policy" / "workflows" / "feature-workflow-pilot.md").read_text()
+
+        for phrase in (
+            "creates or materially changes user-facing UI behavior",
+            "approved design, explicit interaction specification, or unambiguous established product pattern",
+            "copy edits, straightforward visual fixes",
+            "route the unresolved UX scope to `design-partner`",
+            "reuse the same design-partner task",
+            "explicitly freezes the design",
+            "production planning or implementation",
+            "temporary harness-managed artifact outside production source and version control",
+            "must never silently fall back to a repository path",
+            "return `BLOCKED` with the exact missing prerequisite",
+            "validator owns deterministic acceptance against the frozen design",
+        ):
+            self.assertIn(phrase, policy)
+
+        for phrase in (
+            "target user, primary task, platform",
+            "journey, screens or states, transitions, and interaction rules",
+            "meaningful alternatives with trade-offs and a recommendation",
+            "complete lightweight clickable HTML/CSS/JS bundle",
+            "temporary harness-managed artifact outside production source and version control",
+            "Reuse the same design-partner task",
+            "explicitly freezes the design",
+            "authoritative frozen-design handoff",
+        ):
+            self.assertIn(phrase, design_partner)
+
+        self.assertIn("Resolve the canonical UX readiness gate before planning implementation slices", workflow)
+        self.assertIn("temporary prototype reference", workflow)
+        self.assertIn("frozen design decisions", workflow)
+        self.assertNotIn("prototypes", planner)
+        for worker in workers:
+            self.assertNotIn("prototypes", worker)
+        self.assertNotIn("Planner and design-partner managed outputs become repository artifacts", policy)
+
     def test_generators_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -397,8 +397,9 @@ notes, and the optional workflow are namespaced under `<target>/agent-orchestrat
 Planner is structurally read-only, delegates only to `explorer`, and returns its complete
 implementation-ready plan/spec through the harness-managed child result/output facility.
 After the applicable approval, one selected `worker` or `worker-complex` persists authorized
-plans, specs, prototypes, source, configuration, tests, and documentation. No planner path
-binding or replacement planning-artifact guard is installed.
+plans, specs, source, configuration, tests, and documentation. Design-partner prototypes remain
+temporary harness-managed artifacts outside the repository; only frozen design decisions flow
+into implementation handoffs. No planner path binding or replacement planning-artifact guard is installed.
 
 Validator has a separate deterministic browser/Appium MCP allowlist from UX-Critic.
 It excludes lifecycle, session/device management, code evaluation, upload/drop/tab,

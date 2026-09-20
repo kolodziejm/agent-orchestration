@@ -13,7 +13,7 @@ Return the complete implementation-ready plan or specification through the harne
 - dependencies, implementation order, commands, risks, and unresolved decisions;
 - full artifact content only when the parent explicitly needs content rather than edit instructions.
 
-A `BLOCKED` or malformed managed result is not implementation authorization. After the applicable approval, the orchestrator passes the managed result to exactly one selected `worker` or `worker-complex`. That selected worker is the sole repository persistence owner and materializes any authorized plans, specifications, OpenSpec artifacts, prototypes, documentation, source, configuration, or tests. Planner output never authorizes that worker by itself.
+A `BLOCKED` or malformed managed result is not implementation authorization. After the applicable approval, the orchestrator passes the managed result to exactly one selected `worker` or `worker-complex`. That selected worker is the sole repository persistence owner and materializes any authorized plans, specifications, OpenSpec artifacts, documentation, source, configuration, or tests. Planner output never authorizes that worker by itself.
 
 ## Reviewable-PR slice planning
 
