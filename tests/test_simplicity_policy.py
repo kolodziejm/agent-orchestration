@@ -54,6 +54,8 @@ class SimplicityPolicyTests(unittest.TestCase):
         self.assertIn("Mindmaps, execution matrices, HTML reports, evidence ledgers, and retrospectives are optional", workflow)
         self.assertIn("only when independent evidence lanes provide concrete leverage", policy)
         self.assertNotIn("MUST use 2–4 parallel", policy)
+        self.assertNotIn("Mandatory analysis fanout", policy)
+        self.assertNotIn("use 2–4 parallel, non-overlapping explorer lanes", policy)
         self.assertNotIn("without separate per-run review authorization", policy)
 
     def test_workers_learn_with_focused_self_checks_and_reviewers_demote_speculation(self):
