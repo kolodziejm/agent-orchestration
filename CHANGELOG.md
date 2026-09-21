@@ -4,6 +4,11 @@ All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
 
+- Allow bounded external-job monitoring by delegated `validator`/`debugger` lanes in the
+  shared policy when the handoff names the whole-lane deadline, poll interval, and
+  per-call timeout, and hard cancellation of the lane and its in-flight process/tool call
+  is available; the one-shot-only restriction moves to the Pi operational note, since Pi
+  cannot reliably hard-cancel a child's in-flight tool call.
 - Require startup, idle, and total-runtime watchdog boundaries wherever a harness exposes
   child progress plus targeted cancellation, with terminal `BLOCKED` only after an
   acknowledged stop and evidence of the last meaningful progress.

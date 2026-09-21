@@ -165,6 +165,7 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
             self.assertTrue(core.startswith("<!-- agent-orchestration:start -->"))
             self.assertTrue(core.rstrip("\n").endswith("<!-- agent-orchestration:end -->"))
             self.assertIn((ROOT / "policy" / "orchestration.md").read_text().strip(), core)
+            self.assertNotIn("Delegated agents MUST NOT watch, poll", core)
 
     def test_shared_orchestration_core_includes_profile_addendum_after_policy(self):
         with tempfile.TemporaryDirectory() as directory:
