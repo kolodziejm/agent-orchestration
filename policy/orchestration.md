@@ -188,6 +188,10 @@ The bird's-eye checkpoint after every PR or fallback review unit must include:
 
 Completion reports and validation summaries must keep delivery status, diff accounting, and validation evidence distinct. They must identify the review unit and fallback status without implying that a remote PR, push, merge, or review occurred. When there is no next unit, report that explicitly rather than inferring permission to start more work.
 
+### Stacked PR titles
+
+Every PR in a named stack uses `[i/N] <title>`, where `i` is its 1-based order and `N` is the total number of PRs in the complete named stack. If stack membership or order changes before promotion, update affected titles so all titles remain mutually consistent. A standalone PR need not use `[1/1]`.
+
 ## Implementation
 
 Give `worker` or `worker-complex` the approved scope, acceptance criteria, relevant planning artifacts, exclusions, and evidence already available. Use ordinary `worker` by default. Use `worker-complex` only when behavior is sufficiently specified but implementation itself requires unusually difficult reasoning. Missing or ambiguous requirements belong with the orchestrator or planner, not a stronger worker.

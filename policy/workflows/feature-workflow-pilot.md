@@ -10,6 +10,8 @@ Resolve the canonical UX readiness gate before planning implementation slices. W
 
 For each implementation slice, the plan must define one bounded PR or fallback review unit with one coherent reviewer question and an observable outcome. When suitable hosting/remote support and harness capability/authorization exist, the PR is the default delivery unit; otherwise the plan names an equivalently reviewable local branch, commit, or patch. The workflow does not assume a hosting provider or authorize automatic branch, commit, push, merge, or PR creation, and no report may imply that a remote action occurred when it did not.
 
+For a named stack, title every PR `[i/N] <title>` using its 1-based order and the total PR count in the complete stack; if membership or order changes before promotion, renumber affected titles for mutual consistency. A standalone PR need not use `[1/1]`.
+
 Use the canonical accounting contract before implementation and at completion:
 
 - line and file counts are diagnostics, not approval gates or hard ceilings;
