@@ -40,7 +40,7 @@ VALIDATOR_MCP_TOOLS = [
 EXPECTED = {
     "openai": {
         "models": {
-            role: f"openai-codex/gpt-5.6-{'sol' if role in {'debugger', 'planner', 'reviewer'} else 'luna'}"
+            role: f"openai-codex/gpt-6-{'sol' if role in {'debugger', 'planner', 'reviewer'} else 'luna'}"
             for role in (
                 "worker", "worker-complex", "validator", "debugger", "explorer",
                 "planner", "design-partner", "reviewer", "ux-critic",
@@ -56,7 +56,7 @@ EXPECTED = {
     "hybrid": {
         "models": {
             role: (
-                "openai-codex/gpt-5.6-sol"
+                "openai-codex/gpt-6-sol"
                 if role in {"planner", "reviewer"}
                 else "deepseek/deepseek-flash"
             )
@@ -249,12 +249,12 @@ class PiGenerateTests(unittest.TestCase):
                     self.assertEqual(control["builtins"]["build"], {"model": "deepseek/deepseek-flash", "thinking": "high"})
                     self.assertEqual(control["builtins"]["plan"], {"model": "deepseek/deepseek-flash", "thinking": "max"})
                 elif profile_name == "hybrid":
-                    self.assertEqual(control["primary"], {"model": "openai-codex/gpt-5.6-sol", "thinking": "medium"})
+                    self.assertEqual(control["primary"], {"model": "openai-codex/gpt-6-sol", "thinking": "medium"})
                     self.assertEqual(control["small_model"], "deepseek/deepseek-flash")
-                    self.assertEqual(control["builtins"]["build"], {"model": "openai-codex/gpt-5.6-sol", "thinking": "medium"})
-                    self.assertEqual(control["builtins"]["plan"], {"model": "openai-codex/gpt-5.6-sol", "thinking": "high"})
+                    self.assertEqual(control["builtins"]["build"], {"model": "openai-codex/gpt-6-sol", "thinking": "medium"})
+                    self.assertEqual(control["builtins"]["plan"], {"model": "openai-codex/gpt-6-sol", "thinking": "high"})
                 elif profile_name == "openai":
-                    self.assertEqual(control["small_model"], "openai-codex/gpt-5.6-luna")
+                    self.assertEqual(control["small_model"], "openai-codex/gpt-6-luna")
                 else:
                     self.assertEqual(control["primary"], {"model": "zai/glm-5.3", "thinking": "high"})
                     self.assertEqual(control["small_model"], "zai/glm-5.3-flash")
@@ -276,7 +276,7 @@ class PiGenerateTests(unittest.TestCase):
                 shutil.copytree(ROOT / name, repo / name)
             profile = repo / "profiles" / "openai.toml"
             profile.write_text(profile.read_text().replace(
-                "openai/gpt-5.6-luna", "deepseek/deepseek-flash", 1
+                "openai/gpt-6-luna", "deepseek/deepseek-flash", 1
             ))
             result = subprocess.run(
                 [sys.executable, str(repo / "harnesses/pi/generate.py"), "--profile", "openai", "--output", str(Path(directory) / "out")],
@@ -314,8 +314,8 @@ class PiGenerateTests(unittest.TestCase):
             env = os.environ.copy()
             env["HOME"] = str(fake_home)
             cases = (
-                ("hybrid", fake_home / ".pi/agent", "openai-codex/gpt-5.6-sol", "medium"),
-                ("openai", fake_home / ".pi/profiles/openai", "openai-codex/gpt-5.6-sol", "medium"),
+                ("hybrid", fake_home / ".pi/agent", "openai-codex/gpt-6-sol", "medium"),
+                ("openai", fake_home / ".pi/profiles/openai", "openai-codex/gpt-6-sol", "medium"),
                 ("deepseek", fake_home / ".pi/profiles/deepseek", "deepseek/deepseek-flash", "max"),
                 ("glm", fake_home / ".pi/profiles/glm", "zai/glm-5.3", "high"),
             )
@@ -409,8 +409,8 @@ class PiGenerateTests(unittest.TestCase):
             env = os.environ.copy()
             env["HOME"] = str(fake_home)
             expected_primary = {
-                "hybrid": ("openai-codex/gpt-5.6-sol", "medium"),
-                "openai": ("openai-codex/gpt-5.6-sol", "medium"),
+                "hybrid": ("openai-codex/gpt-6-sol", "medium"),
+                "openai": ("openai-codex/gpt-6-sol", "medium"),
                 "deepseek": ("deepseek/deepseek-flash", "max"),
                 "glm": ("zai/glm-5.3", "high"),
             }
@@ -453,7 +453,7 @@ class PiGenerateTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             argv = [part.decode() for part in argv_path.read_bytes().split(b"\0") if part]
-            self.assertEqual(argv[:2], ["--model", "openai-codex/gpt-5.6-sol"])
+            self.assertEqual(argv[:2], ["--model", "openai-codex/gpt-6-sol"])
             self.assertEqual(argv[2:4], ["--thinking", "medium"])
             self.assertEqual(argv[4], "--append-system-prompt")
             self.assertEqual(argv[5], policy_text.rstrip("\n"))

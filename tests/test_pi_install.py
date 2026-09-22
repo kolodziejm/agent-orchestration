@@ -123,7 +123,7 @@ class PiInstallTests(unittest.TestCase):
         """An installed launcher must select the primary model/thinking and append the shared policy while managing no extensions."""
         install = load_install_module()
         cases = {
-            "hybrid": ("openai-codex/gpt-5.6-sol", "medium"),
+            "hybrid": ("openai-codex/gpt-6-sol", "medium"),
             "deepseek": ("deepseek/deepseek-flash", "max"),
             "glm": ("zai/glm-5.3", "high"),
         }

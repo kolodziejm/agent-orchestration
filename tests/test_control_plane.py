@@ -40,11 +40,11 @@ class ProfileControlPlaneTests(unittest.TestCase):
 
         openai = profiles["openai"]
         expected = {
-            "primary": {"model": "openai/gpt-5.6-sol", "effort": "medium"},
-            "small_model": "openai/gpt-5.6-luna",
+            "primary": {"model": "openai/gpt-6-sol", "effort": "medium"},
+            "small_model": "openai/gpt-6-luna",
             "builtins": {
-                "build": {"model": "openai/gpt-5.6-sol", "effort": "medium"},
-                "plan": {"model": "openai/gpt-5.6-sol", "effort": "high"},
+                "build": {"model": "openai/gpt-6-sol", "effort": "medium"},
+                "plan": {"model": "openai/gpt-6-sol", "effort": "high"},
             },
         }
         self.assertEqual(openai["control_plane"], expected)
@@ -55,15 +55,15 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 for role, config in openai["models"].items()
             },
             {
-                "worker": ("openai/gpt-5.6-luna", "high"),
-                "worker-complex": ("openai/gpt-5.6-luna", "max"),
-                "debugger": ("openai/gpt-5.6-sol", "high"),
-                "explorer": ("openai/gpt-5.6-luna", "medium"),
-                "validator": ("openai/gpt-5.6-luna", "medium"),
-                "planner": ("openai/gpt-5.6-sol", "high"),
-                "reviewer": ("openai/gpt-5.6-sol", "high"),
-                "design-partner": ("openai/gpt-5.6-luna", "high"),
-                "ux-critic": ("openai/gpt-5.6-luna", "high"),
+                "worker": ("openai/gpt-6-luna", "high"),
+                "worker-complex": ("openai/gpt-6-luna", "max"),
+                "debugger": ("openai/gpt-6-sol", "high"),
+                "explorer": ("openai/gpt-6-luna", "medium"),
+                "validator": ("openai/gpt-6-luna", "medium"),
+                "planner": ("openai/gpt-6-sol", "high"),
+                "reviewer": ("openai/gpt-6-sol", "high"),
+                "design-partner": ("openai/gpt-6-luna", "high"),
+                "ux-critic": ("openai/gpt-6-luna", "high"),
             },
         )
 

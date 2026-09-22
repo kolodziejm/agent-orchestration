@@ -93,7 +93,7 @@ class CheckRuntimeTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             output = result.stdout + result.stderr
             self.assertIn("primary model", output.lower())
-            self.assertIn("openai/gpt-5.6-sol", output)
+            self.assertIn("openai/gpt-6-sol", output)
             self.assertIn("wrong/primary", output)
             self.assertNotIn("SECRET_SHOULD_NOT_APPEAR", output)
 

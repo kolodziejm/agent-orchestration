@@ -184,11 +184,11 @@ class OpenCodeGenerateTests(unittest.TestCase):
             self.assertEqual(
                 control_plane,
                 {
-                    "primary": {"model": "openai/gpt-5.6-sol", "variant": "medium"},
-                    "small_model": "openai/gpt-5.6-luna",
+                    "primary": {"model": "openai/gpt-6-sol", "variant": "medium"},
+                    "small_model": "openai/gpt-6-luna",
                     "builtins": {
-                        "build": {"model": "openai/gpt-5.6-sol", "variant": "medium"},
-                        "plan": {"model": "openai/gpt-5.6-sol", "variant": "high"},
+                        "build": {"model": "openai/gpt-6-sol", "variant": "medium"},
+                        "plan": {"model": "openai/gpt-6-sol", "variant": "high"},
                     },
                 },
             )
@@ -405,17 +405,17 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             files, _ = install.desired_state(generated, target, adopt=True)
             merged = json.loads(files[config_path])
             self.assertEqual(merged["provider"], {"sentinel": {"enabled": True}})
-            self.assertEqual(merged["model"], "openai/gpt-5.6-sol")
+            self.assertEqual(merged["model"], "openai/gpt-6-sol")
             self.assertEqual(merged["variant"], "medium")
-            self.assertEqual(merged["small_model"], "openai/gpt-5.6-luna")
+            self.assertEqual(merged["small_model"], "openai/gpt-6-luna")
             self.assertEqual(merged["agent"]["custom-agent"], {"model": "custom/agent"})
             self.assertEqual(
                 merged["agent"]["build"],
-                {"model": "openai/gpt-5.6-sol", "variant": "medium"},
+                {"model": "openai/gpt-6-sol", "variant": "medium"},
             )
             self.assertEqual(
                 merged["agent"]["plan"],
-                {"model": "openai/gpt-5.6-sol", "variant": "high"},
+                {"model": "openai/gpt-6-sol", "variant": "high"},
             )
 
     def test_first_install_reports_unmanaged_role_collision_until_adopted(self):

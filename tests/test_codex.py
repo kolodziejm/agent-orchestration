@@ -91,11 +91,11 @@ class CodexGenerateContractTests(unittest.TestCase):
             self.assertEqual(
                 control_plane,
                 {
-                    "primary": {"model": "gpt-5.6-sol", "effort": "medium"},
-                    "small_model": "gpt-5.6-luna",
+                    "primary": {"model": "gpt-6-sol", "effort": "medium"},
+                    "small_model": "gpt-6-luna",
                     "builtins": {
-                        "build": {"model": "gpt-5.6-sol", "effort": "medium"},
-                        "plan": {"model": "gpt-5.6-sol", "effort": "high"},
+                        "build": {"model": "gpt-6-sol", "effort": "medium"},
+                        "plan": {"model": "gpt-6-sol", "effort": "high"},
                     },
                 },
             )
@@ -159,7 +159,7 @@ class CodexGenerateContractTests(unittest.TestCase):
     def test_generator_rejects_non_openai_model_mapping(self):
         """REGRESSION CONTRACT: Codex never silently accepts a non-OpenAI model identifier; TEST LAYER: generator unit test."""
         generator = load_generator()
-        self.assertEqual(generator.codex_model("openai/gpt-5.6-luna"), "gpt-5.6-luna")
+        self.assertEqual(generator.codex_model("openai/gpt-6-luna"), "gpt-6-luna")
         with self.assertRaises(SystemExit):
             generator.codex_model("deepseek/deepseek-v4-flash")
 
