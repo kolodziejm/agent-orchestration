@@ -3,6 +3,7 @@
 All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
+- Require user-facing status and explanations to lead with the outcome and next decision in plain language, avoid redundant recaps and framing, and keep mandatory evidence compact without hiding uncertainty.
 - Replace the finding-disposition labels with `Do now — [specific fix]` and `Not now`; require explicit choice of the authorized route when findings have multiple viable fixes, and avoid default action recommendations or untracked deferrals.
 
 - Route every Claude profile role and the control-plane small model to Opus, dropping

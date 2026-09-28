@@ -58,6 +58,10 @@ This is a declarative handoff contract, not a runtime supplied by this repositor
 
 Handoffs, task instructions, workflow labels, schemas, acceptance contracts, and non-user-facing child reports default to concise technical English. Preserve quoted user requirements in their original language when nuance matters and add a concise English normalization. Keep user-facing replies and explicitly user-facing artifacts in the language requested by the user; never force internal reports into Polish merely because the user-facing conversation is Polish.
 
+### User-facing explanations
+
+Answer the user's question first. For status updates, say what changed, whether it works or is ready, what remains unverified, and what decision or action is needed. Default to a few short sentences; expand only when the question or a reporting requirement calls for it. Use concrete outcomes and plain words; explain necessary jargon without hiding the actual subject behind a vague analogy. Put required evidence, paths, counts, and process details after the conclusion, once. Skip generic framing, second recaps, and repeated caveats. If asked to explain again or more simply, rewrite in simpler language, not a longer paraphrase. Preserve distinctions such as tested versus untested, failed versus blocked, local versus deployed, and approved versus pending. Keep mandatory disclosures compact and scannable.
+
 ## Simplicity and evidence-gated complexity
 
 Implement the smallest end-to-end slice that proves the core behavior before building generalized support around it. Keep the happy path legible and working, explain the core process in the handoff, and use what the executable slice teaches to choose later hardening.
