@@ -13,7 +13,7 @@ model = "opus"
 effort = "high"
 
 [control_plane]
-small_model = "sonnet"
+small_model = "opus"
 
 [control_plane.builtins.build]
 model = "opus"
@@ -24,24 +24,24 @@ model = "opus"
 effort = "high"
 
 [models.worker]
-model = "sonnet"
-variant = "high"
+model = "opus"
+variant = "medium"
 
 [models.worker-complex]
 model = "opus"
 variant = "xhigh"
 
 [models.validator]
-model = "sonnet"
-variant = "medium"
+model = "opus"
+variant = "low"
 
 [models.debugger]
 model = "opus"
 variant = "high"
 
 [models.explorer]
-model = "sonnet"
-variant = "medium"
+model = "opus"
+variant = "low"
 
 [models.planner]
 model = "opus"
@@ -52,9 +52,9 @@ model = "opus"
 variant = "high"
 
 [models.design-partner]
-model = "sonnet"
-variant = "high"
+model = "opus"
+variant = "medium"
 
 [models.ux-critic]
-model = "sonnet"
-variant = "high"
+model = "opus"
+variant = "medium"

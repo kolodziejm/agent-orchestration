@@ -5,6 +5,9 @@ All notable changes to the orchestration policy are documented here.
 ## Unreleased
 - Replace the finding-disposition labels with `Do now — [specific fix]` and `Not now`; require explicit choice of the authorized route when findings have multiple viable fixes, and avoid default action recommendations or untracked deferrals.
 
+- Route every Claude profile role and the control-plane small model to Opus, dropping
+  Sonnet; former Sonnet roles take a lower effort instead (`worker`, `design-partner`,
+  `ux-critic` → `medium`; `validator`, `explorer` → `low`).
 - Allow bounded external-job monitoring by delegated `validator`/`debugger` lanes in the
   shared policy when the handoff names the whole-lane deadline, poll interval, and
   per-call timeout, and hard cancellation of the lane and its in-flight process/tool call
