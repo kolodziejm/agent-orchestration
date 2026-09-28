@@ -3,6 +3,7 @@
 All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
+- Replace the finding-disposition labels with `Do now — [specific fix]` and `Not now`; require explicit choice of the authorized route when findings have multiple viable fixes, and avoid default action recommendations or untracked deferrals.
 
 - Allow bounded external-job monitoring by delegated `validator`/`debugger` lanes in the
   shared policy when the handoff names the whole-lane deadline, poll interval, and

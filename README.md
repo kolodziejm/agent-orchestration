@@ -300,6 +300,7 @@ a per-call timeout cannot bound the whole lane. When timeout and termination can
 enforced, the operation is not delegated and stays bounded in the primary or returns
 `BLOCKED`. Pi's manual UI stop is recovery after a breach, not a pre-launch safety guarantee.
 
+
 The native CLI boundary replaces the former extension hook. Each profile launcher starts Pi
 with its profile's primary `--model` and `--thinking`, then appends the installed
 `agent-orchestration/_shared/orchestration-core.md` through Pi's public
@@ -474,6 +475,76 @@ AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK=I_ACCEPT_OPENAI_USAGE \
 ./scripts/pi-live-canary
 ```
 
+## OMP harness
+
+OMP generation produces four isolated bundles in `build/omp/{hybrid,openai,deepseek,glm}`.
+The `glm` selection reads the Pi-specific `profiles/pi-glm.toml` source whose declared
+name is `pi-glm`; it does not use the generic `profiles/glm.toml`. OpenAI model selectors
+map from `openai/<id>` to `openai-codex/<id>`; DeepSeek and Z.AI keep their provider
+prefixes. Unsupported providers and malformed profile sources fail closed. DeepSeek and
+Pi GLM addenda are Pi-specific and are not copied into OMP prompts; their concrete model
+choices and effort values come from the validated TOML profile.
+
+Each bundle writes `config.yml` modelRoles for OMP's `default`, `smol`, `plan`, and all
+nine task-agent aliases. Per-role model effort is retained. `APPEND_SYSTEM.md` adds the
+shared orchestration policy to the primary prompt. OMP does not inherit that file into
+task agents, so each generated agent includes the same policy and its canonical role
+contract, with explicit `tools` and `spawns` frontmatter. Planner and reviewer may spawn
+only explorer; other generated agents declare no children. These declarations are not an
+OS sandbox: inherited MCP tools/instructions may remain available. OMP tool lists cannot
+constrain inherited tools or recreate an interactive `bash = "ask"` prompt for headless
+children; grants are not a sandbox.
+
+OMP has no native built-in `build` role equivalent; its source mapping is marked as
+non-installed intent in `manifest.json`. The generator does not install files or alter
+`~/.omp`, credentials, model catalogs, or project configuration. OMP runtime/provider
+availability and project-level overrides are outside generated-bundle verification.
+
+Generate all harnesses, including OMP:
+
+```bash
+./scripts/generate
+```
+
+Generate just one OMP profile, or verify all standard outputs and deterministic OMP bundles:
+
+```bash
+python3 harnesses/omp/generate.py --profile openai --output build/omp/openai
+uv run --locked ./scripts/check
+```
+
+An explicit OMP output must be `build/omp/<profile>` or beneath the process temporary
+directory; no user configuration path is an accepted generator destination.
+
+Install one generated bundle into the matching isolated OMP user profile:
+
+```bash
+./scripts/install-omp --profile hybrid --dry-run
+./scripts/install-omp --profile openai
+```
+
+The four selections are `hybrid` (default), `openai`, `deepseek`, and `glm`.
+The default destination is `~/.omp/profiles/<profile>/agent`; `--target
+<path>` selects an isolated fixture or alternate agent root, and `--dry-run`
+previews writes/removals without creating the target. Start OMP with the matching
+`omp --profile <profile>` selection. This installer only installs generated
+`config.yml`, `APPEND_SYSTEM.md`, and `agents/*.md` plus its ownership manifest.
+It refuses any unmanaged collision at a claimed filename, profile mismatch,
+malformed ownership manifest, or symlinked managed path; it has no adoption or
+overwrite mode. Reinstallations update and remove only files claimed by the prior
+manifest, and roll back files if a write/removal operation fails.
+
+Before installation, generate the OMP bundles with `./scripts/generate` (or
+allow the installer to generate its selected bundle). OMP and valid provider
+catalog/authentication for the selected models must already be available. The
+installer does not install OMP, configure provider credentials/catalogs, or
+modify `models.yml`, MCP state, project `.omp` settings, or other profiles.
+Existing `config.yml` or `APPEND_SYSTEM.md` files are deliberate collisions:
+back up and choose a genuinely isolated profile root rather than adopting or
+overwriting operator files. Project-level settings/agents and runtime overlays
+may shadow profile files; successful installation alone does not prove effective
+model selection or provider availability.
+
 ## Adding a role
 
 1. Add the role to `policy/routing.toml`.
@@ -489,7 +560,8 @@ AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK=I_ACCEPT_OPENAI_USAGE \
 Create a harness generator and optional installer under `harnesses/<harness>/` that consume only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the harness generator and installer, not in role contracts.
 
 Currently supported: OpenCode (`harnesses/opencode/`), Codex (`harnesses/codex/`),
-Claude Code (`harnesses/claude-code/`), and Pi (`harnesses/pi/`).
+Claude Code (`harnesses/claude-code/`), Pi (`harnesses/pi/`), and OMP
+(`harnesses/omp/`).
 
 ## Security
 

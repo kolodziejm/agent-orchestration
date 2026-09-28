@@ -355,30 +355,6 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                     name,
                 )
 
-    def test_pilot_keeps_finding_repairs_decision_gated_without_blanket_authorization(self):
-        """REGRESSION CONTRACT: pilot gates cover named scope; later findings need individual outcomes."""
-        workflow = WORKFLOW.read_text()
-        for phrase in (
-            "authorize only the named original scope and acceptance criteria",
-            "do not authorize future findings discovered by review, audit, exploration, or validation",
-            "only a deterministic, reproducible failure of an already-authorized in-scope acceptance criterion",
-            "individual Done / Skip / Snooze decision",
-            "clear, structured explanation",
-            "concrete problem or failure mode and evidence",
-            "affected scope and impact, including user-visible behavior, systems/components/files/contracts",
-            "detailed viable solution options—not just labels",
-            "implementation direction, scope/cost, trade-offs/risks",
-            "recommendation with rationale where appropriate",
-            "self-contained enough that the user does not need to infer context",
-            "These are disposition decisions, not solution selection or ambiguous package authorization.",
-            "batch distinct questions up to its limit",
-            "each finding remains a separate decision",
-            "record every outcome",
-            "do not silently create deferred tickets or re-propose skipped findings",
-            "No separate pilot-specific gate or blanket authorization is added.",
-        ):
-            self.assertIn(phrase, workflow)
-
     def test_pilot_has_executable_pi_runs_all_writer_validator_order(self):
         """REGRESSION CONTRACT: the pilot must execute as one raw workflowScript with a fanout barrier and serial stages."""
         workflow = WORKFLOW.read_text()

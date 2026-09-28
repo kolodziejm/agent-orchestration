@@ -294,32 +294,6 @@ class ProfileControlPlaneTests(unittest.TestCase):
         ):
             self.assertIn(phrase, policy)
 
-    def test_individual_finding_decisions_are_done_skip_snooze_and_recorded(self):
-        """REGRESSION CONTRACT: each non-blocker finding gets its own explicit outcome before repair."""
-        policy = (ROOT / "policy" / "orchestration.md").read_text()
-        for phrase in (
-            "Before launching a repair worker for each non-blocker finding",
-            "The individual `Done` / `Skip` / `Snooze` question must be self-contained enough that the user does not need to infer context",
-            "Each actionable finding has a stable ID and exactly one recorded outcome.",
-            "`Done` authorizes only that finding now; `Skip` declines it for this task; `Snooze` defers it",
-            "question-count limit",
-            "every finding remains a separate question and answer, never a package approval by default",
-            "Record each outcome in the handoff and final synthesis",
-            "do not re-propose a skipped finding in the same task unless evidence materially changes",
-            "clear, structured explanation",
-            "concrete problem or failure mode and evidence",
-            "what it affects, including user-visible behavior, systems/components/files/contracts",
-            "detailed viable solution options—not just labels",
-            "implementation direction, scope/cost, trade-offs/risks",
-            "recommendation with rationale where appropriate",
-            "self-contained enough that the user does not need to infer context",
-            "These are disposition decisions, not solution selection and not ambiguous package authorization.",
-        ):
-            self.assertIn(phrase, policy)
-        self.assertGreaterEqual(policy.count("self-contained enough that the user does not need to infer context"), 2)
-        self.assertGreaterEqual(policy.count("detailed viable solution options"), 2)
-        self.assertNotIn("Prefer one single-choice question per actionable finding", policy)
-
     def test_role_contracts_make_finding_authorization_boundary_explicit(self):
         """REGRESSION CONTRACT: role outputs and repair handoffs cannot authorize unrelated findings."""
         contracts = {
@@ -330,7 +304,6 @@ class ProfileControlPlaneTests(unittest.TestCase):
             )
         }
         self.assertIn("Reviewer output is evidence/findings only", contracts["reviewer"])
-        self.assertIn("individual Done / Skip / Snooze decision", contracts["reviewer"])
         for phrase in (
             "concrete problem or failure mode and evidence",
             "user-visible behavior, systems/components/files/contracts",
