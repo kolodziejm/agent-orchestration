@@ -26,9 +26,9 @@ class OmpGenerateTests(unittest.TestCase):
             self.generate("hybrid", root / "hybrid")
             self.generate("glm", root / "glm")
             hybrid = yaml.safe_load((root / "hybrid" / "config.yml").read_text())["modelRoles"]
-            self.assertEqual(hybrid["default"], "openai-codex/gpt-6-sol:medium")
+            self.assertEqual(hybrid["default"], "openai-codex/gpt-6.1-sol:medium")
             self.assertEqual(hybrid["smol"], "deepseek/deepseek-flash")
-            self.assertEqual(hybrid["plan"], "openai-codex/gpt-6-sol:high")
+            self.assertEqual(hybrid["plan"], "openai-codex/gpt-6.1-sol:high")
             self.assertEqual(hybrid["worker-complex"], "deepseek/deepseek-flash:max")
             glm = yaml.safe_load((root / "glm" / "config.yml").read_text())["modelRoles"]
             self.assertEqual(glm["default"], "zai/glm-5.3:high")

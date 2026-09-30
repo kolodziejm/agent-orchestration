@@ -274,7 +274,7 @@ The installer manages only manifest-owned policy, agent, workflow, extension, an
 Active Tintinweb and other runtime packages remain operator-owned. The installer never modifies settings, catalogs, auth, MCP, themes, and provider state.
 
 The OpenAI profile routes `worker-complex` to GPT-6 Luna with maximum reasoning. The
-hybrid profile keeps its primary, built-ins, planner, and reviewer on GPT-6
+hybrid profile keeps its primary, built-ins, planner, and reviewer on GPT-6.1
 Sol while routing the small model, routine and complex workers, validator, explorer,
 debugger, design-partner, and UX critic to direct `deepseek/deepseek-flash`. The complex worker uses the
 model's maximum reasoning level. Model mapping is explicit and fail-closed:

@@ -91,11 +91,11 @@ class CodexGenerateContractTests(unittest.TestCase):
             self.assertEqual(
                 control_plane,
                 {
-                    "primary": {"model": "gpt-6-sol", "effort": "medium"},
+                    "primary": {"model": "gpt-6.1-sol", "effort": "medium"},
                     "small_model": "gpt-6-luna",
                     "builtins": {
-                        "build": {"model": "gpt-6-sol", "effort": "medium"},
-                        "plan": {"model": "gpt-6-sol", "effort": "high"},
+                        "build": {"model": "gpt-6.1-sol", "effort": "medium"},
+                        "plan": {"model": "gpt-6.1-sol", "effort": "high"},
                     },
                 },
             )
