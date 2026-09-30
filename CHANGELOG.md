@@ -3,6 +3,7 @@
 All notable changes to the orchestration policy are documented here.
 
 ## Unreleased
+- Label finding authorization options with the specific fix instead of repeating `Do now`; retain per-finding approval and `Not now`.
 - Migrate active OpenAI Sol routing to GPT-6.1, retaining GPT-6 Luna without changing role or effort mappings.
 
 - Require user-facing status and explanations to lead with the outcome and next decision in plain language, avoid redundant recaps and framing, and keep mandatory evidence compact without hiding uncertainty.
