@@ -20,7 +20,7 @@ machine, or skill-specific persistence contract.
 The model may remain visible and may suggest this skill:
 
 - before material, multi-file, or architectural implementation work, for `PRE`;
-- after implementation and validation, before the user's personal review or merge
+- after implementation, independent validation, and AI review, before the user's personal review or merge
   decision, for `POST`.
 
 A suggestion is not a request. Loading, mentioning, or suggesting this skill MUST
@@ -29,8 +29,11 @@ current-user request for a PRE report, a POST report, or an update to the report
 Do not infer that request from a plan, approval, review authorization, or a prior
 conversation. Never create a report merely to inspect the repository.
 
-The report is evidence and communication. It never creates a PR, commits, pushes,
-merges, or authorizes a merge. Agent review never equals human review.
+The report is evidence and communication; the report itself never grants authority.
+It never creates a PR, commits, pushes, merges, or authorizes implementation,
+repair, release, or merge. Agent review never equals human review or human approval.
+Short chat completion reports are standard under the canonical policy; HTML is optional and requires an explicit current-user request.
+Do not make every task produce HTML or infer autonomy from a PRE proposal.
 
 ## Modes
 
@@ -45,25 +48,53 @@ Use PRE before implementation. Build an evidence-backed baseline and proposal:
 - proposed PR or review-unit decomposition with dependencies;
 - expected intermediate states and handoff points;
 - considered alternatives and why they were not selected;
-- risks, mitigations, planned validation, and open or confirmed human decisions.
+- preliminary per-unit low/standard/high risk based on blast radius, reversibility,
+  and verifiability, not LOC or worker labels; uncertainty is not low risk;
+- proposed autonomy limits within the original approved scope, with security/data-loss,
+  interpretation, scope-expansion, and exhaustion escalation boundaries; proposals
+  are not authority and cannot broaden the canonical bounded mandate;
+- intended human review and exact expected hotspots/gates with reasons: low needs
+  no mandatory full-diff reading, standard needs targeted important logic/state/
+  integration/shared-piece and test/behavior review, high needs an explicit human
+  gate with detailed critical-path review;
+- expected independent validator, fresh-context AI-review, and integration proofs,
+  mitigations, and open or confirmed human decisions.
 
 PRE must label facts separately from proposals and estimates. If the document is
 not yet implemented, the POST tab must visibly say `NOT IMPLEMENTED YET`.
 
 ### POST
 
-Use POST after implementation and validation, before human review or merge. Preserve
-and show the PRE baseline when a genuine PRE exists, then record:
+Use POST after implementation, independent validation, and AI review, before human
+review or merge. Lead with a top concise decision packet assembled by the orchestrator:
+outcome, final risk/rationale, actual validator and reviewer proof, exact human review hotspots with reasons,
+and residual decisions/blockers and unverified aspects. Do not merely copy the worker summary.
+If an explicitly requested status report precedes required proof, expose `NOT RUN`,
+`BLOCKED`, or `UNVERIFIED` and do not label the work complete or ready.
+Preserve and show the PRE baseline when a genuine PRE exists, then record:
 
 - plan-versus-actual differences and the actual architecture;
 - the actual stack organized per PR or fallback review unit, with dependencies and
   intermediate states;
+- final risks versus the PRE baseline and the independent reviewer's risk verification
+  or increase, with rationale; if no PRE exists, mark that comparison unavailable;
+- actual per-unit validator/reviewer evidence and full-stack integration at the exact
+  relevant revision; green units alone do not establish a green stack;
+- automatic repairs and their mandate: stable finding IDs, concrete evidence,
+  fix risk distinct from severity, orchestrator rationale/owner/budget/checks, outcome,
+  and targeted revalidation/re-review; report in-scope fixes without retrospective approval;
 - before/after behavior, affected paths, and diff accounting split into
   human-authored, generated-artifact, and lockfile lines/files;
 - tests and CI with `NOT REQUESTED`, `NOT RUN`, `UNKNOWN`, or observed results
   distinguished precisely;
 - agent review and human review as separate activities;
-- decisions, findings, residual work, risks, and readiness for human review/merge.
+- decisions, findings, residual work, risks, and readiness for human review/merge;
+- human hotspots/gates by exact location and reason, including high-risk dependency
+  gates that cannot be bypassed by preparing downstream code; name each pending decision
+  and keep nonmandated specific-fix versus `Not now` verdicts individual and explicit;
+- exact SHA or local diff revision for every proof, reviewed scope and integration
+  revision, with staleness: later edits, rebase, or integration stale affected proof
+  and require proportionate independent revalidation/targeted re-review.
 
 If no genuine PRE report exists, say that the PRE baseline is unavailable. Never
 backfill or fabricate a PRE from POST facts. A POST report may still describe the
@@ -91,7 +122,9 @@ Use these provenance labels when applicable, visibly and consistently:
 Keep `NOT REQUESTED`, `NOT RUN`, and `UNKNOWN` distinct: the first means no check
 was requested, the second means it was requested but not executed, and the third
 means its state cannot be established. Do not call agent observations human review,
-and do not call readiness merge authorization.
+and do not call readiness merge authorization. Required review/validation under standing
+policy is authorized even without an on-demand request; do not use `NOT REQUESTED`
+to imply an opt-out. Preserve actual results, remaining gaps, and human approval separately.
 
 ## Report language
 

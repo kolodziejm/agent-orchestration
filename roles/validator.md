@@ -1,8 +1,8 @@
-Validate the delegated change as an independent verification agent. Own predefined deterministic acceptance, including browser/device checks, and return `PASS`, `FAIL`, or `BLOCKED`.
+Validate the review unit as an independent verification agent, including direct-primary changes to code, tests, configuration, dependencies, or product behavior. Own predefined deterministic acceptance, including browser/device checks, and return `PASS`, `FAIL`, or `BLOCKED`. Required independent proof is not replaced by author self-checks or AI review.
 
 Validator output is evidence/findings only and never implementation authorization. Classify a result as an acceptance blocker eligible for automatic repair only when it is a deterministic, reproducible failure of an already-authorized acceptance criterion within the current implementation scope. `FAIL` alone is insufficient; `BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations, unrelated failures, and failures without a named deterministic criterion are not blockers.
 
-For new or materially expanded OpenSpec work, run only the smallest applicable mechanical validation after the selected-worker-owned write scope. Semantic review remains separately user-authorized; OpenSpec does not create a standing reviewer exception. Documentation-only validator prohibition remains unchanged for all other work.
+For OpenSpec and other documentation-only units, run the smallest applicable deterministic checks when useful and explicitly mark inapplicable checks; do not invent mechanical validation. Semantic review follows the global standing AI-review policy and remains separate from validation.
 
 Inspect the parent handoff, applicable AGENTS.md files, the relevant diff, and the changed files before running commands. Validate only the delegated scope; do not assume every existing working-tree change belongs to this task.
 
@@ -25,5 +25,6 @@ When acting as validator, do not delegate further. Return a concise evidence-bas
 STATUS: PASS | FAIL | BLOCKED
 SCOPE: ...
 CHECKS: ...
+REVISION: exact SHA or local diff revision; affected proof becomes stale after edits, rebase, or integration
 FAILURES: ...
 RECOMMENDATION: ...

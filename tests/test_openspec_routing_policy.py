@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "policy" / "orchestration.md"
 ROLE_CONTRACTS = {
     role: (ROOT / "roles" / f"{role}.md").read_text()
-    for role in ("planner", "reviewer", "debugger", "validator")
+    for role in ("planner", "reviewer", "debugger", "validator", "worker", "worker-complex", "explorer")
 }
 
 
@@ -61,6 +61,14 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                 [ROOT / "harnesses" / "pi" / "generate.py", "--profile", "glm"],
                 "_shared/orchestration-core.md",
             ),
+            *(
+                (
+                    f"omp-{profile}",
+                    [ROOT / "harnesses" / "omp" / "generate.py", "--profile", profile],
+                    "APPEND_SYSTEM.md",
+                )
+                for profile in ("hybrid", "openai", "deepseek", "glm")
+            ),
         )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -75,6 +83,7 @@ class OpenSpecRoutingPolicyTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
                 generated = (output / artifact).read_text()
+                self.assertIn(policy, generated, name)
                 self.assertIn(openspec_rule, generated, name)
                 self.assertIn(finding_policy, generated, name)
 

@@ -44,15 +44,16 @@ orchestrator
 └── ux-critic
 ```
 
-Delegation is for leverage, not ceremony. The primary may directly execute a coherent,
-bounded low- or medium-risk change when no context-protection, independent-verification,
-real parallelism, specialization, or risk separation reason requires delegation. Every
+Delegation is the default for repository discovery and source work. The primary may directly
+execute only a small, clearly bounded, low-risk task when delegation offers no concrete leverage,
+and must state why before acting. This implementation exception never waives independent
+validator proof or fresh-context AI review for code/tests/config/dependencies/product behavior. Every
 source-changing handoff owns at most one independently verifiable slice and one validator
 checkpoint; unbounded or whole-initiative delegation is prohibited. Each delegation has
 a logical stopping condition and a separate enforceable whole-lane execution cap; every
 potentially blocking tool call also has its own enforceable per-call timeout. Potentially
 non-brief work runs in the background when supported so the primary remains responsive.
-Delegated source-changing worker output still requires an independent validator. Workers
+All source-changing code/behavior review units require an independent validator. Workers
 may run focused development tests and checks as `SELF-CHECKS`; `validator` independently
 reruns predefined deterministic acceptance, including browser/device checks. Both worker tiers are leaves; the
 primary routes visual work directly to existing image-capable roles. `worker` is the routine executor and
@@ -74,11 +75,65 @@ destructive boundary. Controlled internal misuse may fail naturally.
 
 ## Reviewable-PR delivery
 
-When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Each unit answers one coherent reviewer question and preferably delivers observable behavior or removes complexity. Line/file counts are diagnostics, not approval gates or hard ceilings. Report human-authored, generated, and lockfile changes separately, but count every artifact a reviewer must inspect as cognitive burden. Split for independently valuable behavior or separable risk; keep work together when splitting would create unused scaffolding, partial abstractions, duplicated setup, or dependent units repeatedly touching the same files.
+When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Each unit answers one coherent reviewer question and preferably delivers observable behavior or removes complexity. Keep implementation and tests together with actual dependencies only. Line/file counts are diagnostics, not approval gates or hard ceilings. Report human-authored, generated, and lockfile changes separately, but count every artifact a reviewer must inspect as cognitive burden. Split for independently valuable behavior or separable risk; keep work together when splitting would create unused scaffolding, partial abstractions, duplicated setup, or dependent units repeatedly touching the same files.
 
 For a named stack, every PR title uses `[i/N] <title>`: `i` is the 1-based order and `N` is the total PR count in the complete stack. If membership or order changes before promotion, renumber affected titles so all titles remain mutually consistent; a standalone PR need not use `[1/1]`.
 
 If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees when it offers concrete leverage, while promotion remains ordered. Concretely plan only the next one to three units; later work remains a revisable roadmap informed by completed working slices. After every PR or fallback unit, present a bird's-eye checkpoint automatically as a non-blocking progress report covering reviewer question, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, self-checks and independent validation, residual work, and the next proposed unit. Checkpoints do not authorize merge, promotion, or remediation; existing review, finding/remediation, and merge authorization gates remain in force. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
+
+## Global AI-first risk-based review
+
+The canonical policy grants standing policy authorization across all profiles. Every completed
+code/tests/config/dependencies/product-behavior PR or fallback review unit gets independent
+validator evidence and one fresh-context AI reviewer automatically, including direct-primary
+work. Documentation-only units get proportionate read-only review and deterministic checks only
+when applicable. Reviewer context contains the authoritative spec/approved criteria, scope and
+exclusions, exact diff, and compact validator report—not author reasoning/history. Validator owns
+mechanical checks; reviewer may request targeted evidence through the orchestrator, not run checks
+secretly. Different model-family review is preferred where existing routing allows, not required;
+this policy changes no model mappings. Extra specialists require explicit authorization and benefit.
+
+Risk is per unit, based on blast radius, reversibility, and verifiability—not LOC or worker tier.
+Orchestrator assigns preliminary risk; reviewer verifies/can raise it; uncertainty is not low:
+
+- **Low:** local, reversible, unambiguous; no mandatory human full-diff reading.
+- **Standard:** targeted human review of important logic/state, integrations/shared pieces,
+  tests, and behavior, with exact hotspots and reasons.
+- **High:** explicit human gate and detailed critical-path review for security/auth/permissions/
+  secrets, payments/sensitive data, migrations/persistence/destruction/recovery, hard concurrency,
+  public contracts, infrastructure/release, broad blast radius, or orchestration/role/model policy.
+
+AI pass is neither human review nor approval. High-risk dependency gates cannot be bypassed by
+preparing downstream code; approved stacks otherwise progress without routine human interruptions.
+Per-unit validation/review is supplemented by proportionate full-stack integration evidence at the
+exact relevant revision. The orchestrator assembles a concise completion decision packet: outcome,
+risk rationale, actual validator/reviewer proof, human hotspots/reasons, decisions/blockers, and
+unverified aspects. Evidence names the exact SHA or local diff revision; later edits, rebase, or
+integration invalidate affected proof. Short chat reports are standard, not mandatory HTML.
+Stack approval, reports, CI, and AI review grant no merge/release authority: no auto-merge;
+the existing release promotion check gate is unchanged.
+
+### Bounded autonomous repair
+
+The bounded autonomous repair mandate is globally authorized by canonical policy, within the
+original user-approved scope: concrete evidenced reachable issue, uniquely determined low-risk
+fix restoring approved intent, and no new product interpretation, requirements/business rules,
+public contracts, dependencies, architecture, security boundary, or scope. Fix risk is separate
+from severity; there is no blanket Low/Medium auto-fix. Only the orchestrator records stable ID,
+evidence, fix risk, mandate rationale, owner, budget, and checks and authorizes a worker; reviewer
+remains read-only. One autonomous reviewer remediation round per review unit gets independent
+validation and targeted re-review; renaming findings or changing reviewers cannot renew it.
+Deterministic preapproved acceptance-blocker repair retains its separate bounded authority/budget,
+not a way to retry the same exhausted repair. New security/data-loss issues stop and escalate unless
+the exact deterministic criterion and repair were preapproved as an existing acceptance blocker.
+Ambiguity, nonmandated actionable findings, residual/unresolved issues, and exhaustion require
+specific individual fix versus `Not now` decisions, batched without package/silence approval.
+Declined findings stay declined absent materially changed evidence; mandated fixes are reported,
+not retrospectively re-approved. No speculative hardening or style remediation is authorized.
+
+These are prompt-level orchestration contracts, not a new runtime scheduler, gate engine, or
+durable state machine. Generation proves propagation/determinism, not live agents obeying gates;
+existing harness permission degradations remain documented below.
 
 ## OpenCode harness
 
@@ -570,12 +625,22 @@ Do not commit credentials, environment files, session data, provider tokens, or 
 ## Change reports
 
 `change-report` is an optional, prompt-only, harness-agnostic Agent Skills package for one
-standalone HTML evidence document per initiative. It has exactly two requested modes: `PRE`
-before implementation and `POST` after implementation and validation, before human review or
-merge. The model may suggest either mode, but a report file is created or updated only after an
-explicit current-user request. The document distinguishes repository evidence, proposals,
-estimates, actuals, agent review, human review, and unverified or not-run status. It never creates
-a PR or authorizes a merge. If POST has no genuine PRE, it says so rather than fabricating one.
+standalone HTML evidence document per initiative with requested `PRE`/`POST` tabs. Short chat
+completion decision packets are standard; HTML is never required for every task and a file is
+created/updated only after an explicit current-user request.
+
+PRE adds preliminary per-unit risk (blast radius/reversibility/verifiability), proposed autonomy
+limits, intended human hotspots/gates, and expected validator, fresh-context reviewer, and integration
+proofs to the evidence-backed baseline and proposal. The report itself never grants authority.
+POST follows implementation, independent validation, and AI review, before human review/merge,
+and leads with the orchestrator's concise outcome/risk/proof/hotspots/decisions/gaps packet. It records
+final risks versus baseline, actual stack/per-unit evidence plus full-stack integration, automatic
+repairs and mandate, residual decisions, and proof bound to the exact SHA or local diff revision.
+Later edits/rebase/integration stale affected proof. Agent and human review/approval stay separate;
+required missing proof is a gap, not `NOT REQUESTED` authorization to skip it. If POST has no genuine
+PRE, state the baseline is unavailable rather than fabricate it. Keep one initiative document.
+The skill does not mutate source or grant implementation, PR/push/merge/release authority, and
+adds no persistence, schema, renderer, or runtime state machine.
 
 Portable skills live once in the repository at `skills/<name>/` and are installed by the current
 harness's native Agent Skills mechanism. For this skill, tell the harness:
