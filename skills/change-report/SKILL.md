@@ -100,6 +100,16 @@ If no genuine PRE report exists, say that the PRE baseline is unavailable. Never
 backfill or fabricate a PRE from POST facts. A POST report may still describe the
 actual work and clearly mark unavailable comparisons.
 
+## Visual-first review
+
+For multi-part structural or logic changes, show a compact change map before findings and human decisions: changed/unchanged pieces, relevant flows, and decision hotspots. Match the diagram to the scope (flow, sequence, state, component, or dependency), not the whole system; trivial changes need none. PRE separates observed baseline facts from proposals; POST shows actual changes. Tie substantive findings and useful solution effects to paths/states, without requiring a diagram for every Low finding. Visual explanation is not acceptance proof or a replacement for tests and human critical-path review.
+
+For UI-visible changes, reuse validator-owned genuine comparable runtime before/after captures and relevant loading/empty/error states; use short recordings only for temporal behavior. Never fabricate a before baseline; label absent baseline or missing runtime evidence unavailable/`BLOCKED` as appropriate. Identify exact revision, scenario, viewport/device, and limits; later edits stale affected captures. Reviewer interprets evidence read-only; orchestrator synthesizes and owns any authorized publication. Do not run a new capture or covert mechanical validation merely to render this report.
+
+Captures stay in harness-managed temporary storage outside repositories/worktrees, never standalone repository image/video files or commits, with no `.gitignore` changes. Use sanitized data without secrets, private URLs, or sensitive user data. In this explicitly requested HTML, verified local screenshots may be embedded as self-contained data URIs; use links to verified GitHub evidence without external embeds for published images or recordings. Keep the document self-contained and offline; no external assets or network dependencies. This exception permits embedded observed captures, not supporting binaries or an automatic report. If embedding is unavailable, label the limitation rather than inventing evidence or fetching remote assets.
+
+Where a PR workflow is authorized, canonical native GitHub attachments belong in the PR overview with Mermaid and key images, plus one owned updateable `Visual review` comment for extra states/fix iterations. Preserve human-authored content and verify the exact target and assets before cleanup; no committed-file/public-host/expiring-CI fallback. Report creation itself does not authorize uploads or a PR. With no PR, use available in-chat or explicitly authorized report evidence and state limits; never force PR creation.
+
 ## Evidence, provenance, and status
 
 Use available harness tools for the smallest useful read-only evidence set. Do not
@@ -139,7 +149,8 @@ values exactly rather than translating them.
 
 Create one standalone HTML file for the initiative. It must:
 
-- use inline CSS, JavaScript, and SVG only; have no external assets, imports,
+- use inline CSS, JavaScript, and SVG, with verified local screenshots as embedded
+  data URIs only under the visual-evidence rules above; have no external assets, imports,
   fonts, analytics, network requests, or runtime dependencies;
 - use a light, responsive theme and be visually rich only where it improves
   comprehension; keep semantic colors restrained and pair them with text and
