@@ -113,6 +113,25 @@ integration invalidate affected proof. Short chat reports are standard, not mand
 Stack approval, reports, CI, and AI review grant no merge/release authority: no auto-merge;
 the existing release promotion check gate is unchanged.
 
+### Visual-first human review
+
+Before human-facing findings and decisions, multi-part structural/logic changes get a compact
+scope-matched map of changed/unchanged pieces, flows, and decision hotspots—not a whole-system
+diagram or ceremony for trivial changes. UI-visible changes use validator-owned genuine comparable
+before/after runtime screenshots and relevant loading/empty/error states; short recordings only
+when timing matters. Never invent a missing baseline. Label revision/scenario/viewport and stale
+affected captures after edits. Reviewer interprets risk read-only; orchestrator synthesizes and publishes.
+
+Captures live only in harness-managed temporary storage outside repositories/worktrees: no
+standalone evidence binaries or `.gitignore` edits. In an authorized GitHub PR workflow, use native
+attachments in the PR overview with Mermaid/key images and one owned updateable `Visual review`
+comment for extra states/fixes. Preserve human content; read back exact targets/assets before cleanup
+and retry only missing uploads. No public-host, committed-image, or expiring-CI fallback. Sanitize
+data; public-repo attachments are public. Missing prerequisites are unavailable/`BLOCKED`, not fake
+proof; no PR means in-chat/authorized-report evidence with limits, not forced PR creation. This grants
+no arbitrary publication, PR, or merge authority and changes no repair rules. Visuals explain changes
+and observed states, not a replacement for tests or required human critical-path review.
+
 ### Bounded autonomous repair
 
 The bounded autonomous repair mandate is globally authorized by canonical policy, within the
@@ -639,6 +658,9 @@ repairs and mandate, residual decisions, and proof bound to the exact SHA or loc
 Later edits/rebase/integration stale affected proof. Agent and human review/approval stay separate;
 required missing proof is a gap, not `NOT REQUESTED` authorization to skip it. If POST has no genuine
 PRE, state the baseline is unavailable rather than fabricate it. Keep one initiative document.
+Explicitly requested HTML may embed verified local captures as self-contained data URIs or link
+verified GitHub evidence without external embeds; it adds no standalone image files or external
+dependencies. PRE separates facts/proposals; POST shows actual changes with proportional visuals.
 The skill does not mutate source or grant implementation, PR/push/merge/release authority, and
 adds no persistence, schema, renderer, or runtime state machine.
 
