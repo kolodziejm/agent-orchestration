@@ -129,7 +129,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertIn("specialist", policy)
         self.assertIn("parallelism", policy)
         self.assertIn("independent risk separation", policy)
-        self.assertIn("Delegated source-changing worker output always requires independent validator verification.", policy)
+        self.assertIn("Delegated code-changing worker output always requires independent validator verification.", policy)
         self.assertIn("Independent ready mutation lanes may run in parallel", policy)
         self.assertIn("safe isolation", policy)
         self.assertIn("broad mechanical evidence gathering", policy)
@@ -208,7 +208,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
         self.assertNotIn(normalize("wait for the user's explicit approval before proceeding"), delivery)
         self.assertNotIn(normalize("Approval for the initiative, an earlier slice, or an earlier checkpoint is not approval for the next one."), delivery)
         self.assertIn(normalize("This contract does not grant authority to create, push, or merge"), delivery)
-        self.assertIn(normalize("This contract does not change the review-on-demand"), delivery)
+        self.assertIn(normalize("This contract preserves global AI-first review"), delivery)
 
     def test_ci_validates_pull_requests_and_main_pushes_without_duplicate_pr_pushes(self):
         """This fails when a pull-request branch also receives a duplicate push check."""
@@ -275,7 +275,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             self.assertIn(delivery_phrase, contract, role)
             self.assertIn("claim that a remote action occurred", contract, role)
 
-    def test_finding_authorization_boundary_allows_only_deterministic_in_scope_blockers(self):
+    def test_finding_authorization_boundary_separates_blockers_and_bounded_mandate(self):
         """REGRESSION CONTRACT: evidence, severity, and broad instructions never authorize new repair work."""
         policy = (ROOT / "policy" / "orchestration.md").read_text()
         for phrase in (
@@ -289,7 +289,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
             "`BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations",
             "duplicate rules/code, cleanup, refactors, quality improvements, newly proposed behavior, UX changes",
             "Critical security or data-loss findings must stop progress and be presented immediately.",
-            "A P0/security finding from a reviewer or UX critic is a new finding requiring an individual decision",
+            "New security or data-loss findings stop progress and escalate",
+            "bounded autonomous repair mandate",
+            "Fix risk is distinct from finding severity",
             "If classification is uncertain, default to a finding and ask rather than auto-fix.",
         ):
             self.assertIn(phrase, policy)

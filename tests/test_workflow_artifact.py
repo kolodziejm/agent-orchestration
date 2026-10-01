@@ -146,7 +146,8 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
             "Potentially non-brief work MUST run in the background when the harness supports it",
             "Foreground delegation is reserved for demonstrably brief, bounded work whose result immediately gates the next action",
             "reports completion, blocker, and checkpoint events without polling",
-            "serial validation or an automatic progress checkpoint occurs before the next dependent slice",
+            "serial independent validation and AI review of each completed code/behavior unit",
+            "precede the next dependent unit's launch",
             "cannot be safely bounded, pause and decompose it or ask the user",
             "MAY monitor CI, deployment, security, dependency, or other external-job state",
             "the whole-lane deadline, the poll interval, and the per-call timeout",
@@ -355,7 +356,7 @@ class FeatureWorkflowArtifactTests(unittest.TestCase):
                     name,
                 )
 
-    def test_pilot_has_executable_pi_runs_all_writer_validator_order(self):
+    def test_pilot_has_executable_pi_runs_all_writer_validator_reviewer_order(self):
         """REGRESSION CONTRACT: the pilot must execute as one raw workflowScript with a fanout barrier and serial stages."""
         workflow = WORKFLOW.read_text()
         blocks = re.findall(r"```js\s+(.*?)```", workflow, flags=re.DOTALL)
@@ -397,7 +398,7 @@ console.log(JSON.stringify({{ request: {{ async: request.async, context: request
             "workflowScriptType": "string",
         })
         events = payload["events"]
-        self.assertEqual([event["kind"] for event in events], ["all", "run", "run"])
+        self.assertEqual([event["kind"] for event in events], ["all", "run", "run", "run"])
         lanes = events[0]["items"]
         self.assertGreaterEqual(len(lanes), 2)
         self.assertLessEqual(len(lanes), 4)
@@ -419,7 +420,14 @@ console.log(JSON.stringify({{ request: {{ async: request.async, context: request
         self.assertEqual(events[2]["params"]["agent"], "validator")
         self.assertIn("result:writer", events[2]["params"]["task"])
         self.assertIn("Run only focused development checks as SELF-CHECKS", events[1]["params"]["task"])
-        self.assertIn("review remains separately authorized", workflow)
+        self.assertEqual(events[3]["key"], "reviewer")
+        self.assertEqual(events[3]["params"]["agent"], "reviewer")
+        self.assertIn("result:validator", events[3]["params"]["task"])
+        self.assertNotIn("result:writer", events[3]["params"]["task"])
+        self.assertIn("authoritative specification/approved criteria", events[3]["params"]["task"])
+        self.assertIn("exact-revision diff", events[3]["params"]["task"])
+        self.assertEqual(set(payload["result"]), {"evidence", "writer", "validator", "reviewer"})
+        self.assertIn("review is automatically authorized by canonical standing policy", workflow)
         self.assertIn("genuine data dependency, indivisible shared state, or too-small scope", workflow)
 
 
