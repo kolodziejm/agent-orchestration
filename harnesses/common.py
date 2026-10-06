@@ -12,6 +12,10 @@ HARNESS_SUPPORTED_EFFORTS = {
     "codex": frozenset({"low", "medium", "high", "max", "xhigh"}),
     "claude-code": frozenset({"low", "medium", "high", "max", "xhigh"}),
     "pi": SUPPORTED_EFFORTS,
+    # The DeepSeek Harness DeepSeek route accepts off/low/high/max on every
+    # pass-through model and the dsh adapter installs a role's effort on its
+    # subagent lane; only the control-plane efforts stay recorded intent.
+    "dsh": frozenset({"off", "low", "high", "max"}),
 }
 
 
@@ -265,5 +269,14 @@ def validate_profile(
     if harness == "claude-code" and primary_installable:
         raise SystemExit(
             "Claude Code cannot install the primary control plane; "
+            f"set primary_installable = false in {path}"
+        )
+    if harness == "dsh" and primary_installable:
+        # A dsh agent preset cannot select the session's own model route: the
+        # host composition owns it and the user's model settings decide it.
+        # Delegated children do get a per-role model through the delegation
+        # tool rows, which is why the profile still routes every role.
+        raise SystemExit(
+            "DeepSeek Harness cannot install the primary control plane from a preset; "
             f"set primary_installable = false in {path}"
         )

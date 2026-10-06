@@ -38,15 +38,21 @@ class OmpGenerateTests(unittest.TestCase):
             source_models = omp.load(ROOT / "profiles" / omp.PROFILES["glm"][0])["models"]
             self.assertEqual(set(manifest["agents"]), set(omp.load(ROOT / "policy/routing.toml")["roles"]))
             for role in manifest["agents"]:
-                frontmatter = (root / "glm" / "agents" / f"{role}.md").read_text().split("---\n", 2)[1]
+                content = (root / "glm" / "agents" / f"{role}.md").read_text()
+                frontmatter, body = content[4:].split("\n---\n", 1)
+                self.assertEqual(body, "")
                 metadata = yaml.safe_load(frontmatter)
+                self.assertEqual(
+                    set(metadata),
+                    {"name", "description", "model", "thinking-level", "tools"},
+                )
+                self.assertNotIn("spawns", metadata)
+                self.assertNotIn("task", metadata["tools"])
                 self.assertEqual("edit" in metadata["tools"], role in {"worker", "worker-complex"})
                 self.assertEqual("bash" in metadata["tools"], role not in {"planner", "reviewer", "design-partner", "ux-critic"})
-                self.assertEqual("task" in metadata["tools"], role in {"planner", "reviewer"})
                 self.assertEqual(metadata["model"], f"@{role}")
                 self.assertEqual(metadata["thinking-level"], source_models[role]["variant"])
-            self.assertIn("# Shared orchestration policy", (root / "glm" / "APPEND_SYSTEM.md").read_text())
-            self.assertNotIn("Pi GLM profile orchestration", (root / "glm" / "APPEND_SYSTEM.md").read_text())
+            self.assertNotIn("APPEND_SYSTEM.md", manifest["files"])
 
     def test_all_profiles_are_deterministic(self):
         """This test will fail when identical inputs generate different bundle bytes."""

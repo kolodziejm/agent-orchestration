@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if command -v uv >/dev/null 2>&1 && [[ "${AGENT_ORCHESTRATION_UV_RUN:-}" != "1" && -z "${VIRTUAL_ENV:-}" && -z "${UV_RUN_RECURSION_DEPTH:-}" ]]; then
+  exec env AGENT_ORCHESTRATION_UV_RUN=1 uv run --locked --project "$ROOT" "$0" "$@"
+fi
+
+PYTHON="${PYTHON:-python3}"
+exec "$PYTHON" "$ROOT/harnesses/dsh/install.py" "$@"

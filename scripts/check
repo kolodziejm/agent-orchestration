@@ -16,7 +16,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 FIRST="$TMP/first"
 SECOND="$TMP/second"
-OUTPUTS=(opencode codex claude-code pi/hybrid pi/openai pi/deepseek pi/glm omp/hybrid omp/openai omp/deepseek omp/glm)
+OUTPUTS=(opencode codex claude-code pi/hybrid pi/openai pi/deepseek pi/glm omp/hybrid omp/openai omp/deepseek omp/glm dsh)
 
 generate_all() {
   local root="$1"
@@ -31,6 +31,7 @@ generate_all() {
   "$PYTHON" "$ROOT/harnesses/omp/generate.py" --profile openai --output "$root/omp/openai"
   "$PYTHON" "$ROOT/harnesses/omp/generate.py" --profile deepseek --output "$root/omp/deepseek"
   "$PYTHON" "$ROOT/harnesses/omp/generate.py" --profile glm --output "$root/omp/glm"
+  "$PYTHON" "$ROOT/harnesses/dsh/generate.py" --output "$root/dsh"
 }
 
 "$PYTHON" "$ROOT/harnesses/validate.py"

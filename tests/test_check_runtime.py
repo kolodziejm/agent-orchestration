@@ -31,16 +31,20 @@ def runtime_fixture(target: Path) -> Path:
         "variant": control["primary"]["effort"],
         "small_model": control["small_model"],
         "agent": agents,
-        "instructions": [
-            str(target / "profiles" / "_shared" / "orchestration-core.md"),
-            str(target / "profiles" / "openai" / "orchestration.md"),
-        ],
     }
     config_path = target / "profiles" / "openai" / "opencode.json"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(config))
-    (target / "profiles" / "_shared").mkdir(parents=True)
     return config_path
+
+
+def run_check_runtime(arguments: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(SCRIPT), *arguments],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
 
 
 class CheckRuntimeTests(unittest.TestCase):
@@ -50,22 +54,33 @@ class CheckRuntimeTests(unittest.TestCase):
             config_path = runtime_fixture(target)
             before = config_path.read_bytes()
 
-            result = subprocess.run(
-                [
-                    str(SCRIPT),
-                    "--profile",
-                    "openai",
-                    "--config",
-                    str(config_path),
-                ],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
+            result = run_check_runtime(
+                ["--profile", "openai", "--config", str(config_path)]
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("synchronized", result.stdout.lower())
             self.assertEqual(config_path.read_bytes(), before)
+
+    def test_legacy_instruction_registration_is_reported_as_drift(self):
+        """This test will fail when a retired instruction path is silently accepted."""
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "opencode"
+            config_path = runtime_fixture(target)
+            config = json.loads(config_path.read_text())
+            config["instructions"] = [
+                "/operator/notes.md",
+                str(target / "profiles" / "_shared" / "orchestration-core.md"),
+            ]
+            config_path.write_text(json.dumps(config))
+
+            result = run_check_runtime(
+                ["--profile", "openai", "--config", str(config_path)]
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            output = result.stdout + result.stderr
+            self.assertIn("legacy instruction file is still registered", output)
 
     def test_check_runtime_reports_actionable_drift_without_leaking_config_secrets(self):
         """This test will fail when runtime drift is missed or diagnostics dump sensitive config."""
@@ -77,17 +92,8 @@ class CheckRuntimeTests(unittest.TestCase):
             config["apiKey"] = "SECRET_SHOULD_NOT_APPEAR"
             config_path.write_text(json.dumps(config))
 
-            result = subprocess.run(
-                [
-                    str(SCRIPT),
-                    "--profile",
-                    "openai",
-                    "--target",
-                    str(target),
-                ],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
+            result = run_check_runtime(
+                ["--profile", "openai", "--target", str(target)]
             )
 
             self.assertNotEqual(result.returncode, 0)

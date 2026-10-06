@@ -14,7 +14,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ROUTING = ROOT / "policy" / "routing.toml"
 PROFILES = ROOT / "profiles"
-ROLES = ROOT / "roles"
 GENERATE = ROOT / "harnesses" / "opencode" / "generate.py"
 INSTALL = ROOT / "harnesses" / "opencode" / "install.py"
 
@@ -40,7 +39,7 @@ def load_generate_module():
 def build_temp_repo(destination: Path) -> Path:
     """Copy the subset of the repo generate.py resolves ROOT against, so a test
     can corrupt one profile without touching the real profiles/ directory."""
-    for name in ("harnesses", "policy", "profiles", "roles"):
+    for name in ("harnesses", "policy", "profiles"):
         shutil.copytree(ROOT / name, destination / name)
     return destination
 
@@ -54,63 +53,6 @@ def set_toml_top_level_key(path: Path, key: str, value: str) -> None:
     lines = [line for line in path.read_text().splitlines() if not line.strip().startswith(f"{key} =")]
     lines.insert(0, f"{key} = {json.dumps(value)}")
     path.write_text("\n".join(lines) + "\n")
-
-
-class PolicyContractTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        with ROUTING.open("rb") as handle:
-            cls.routing = tomllib.load(handle)
-        cls.roles = cls.routing["roles"]
-
-    def test_every_role_has_a_contract(self):
-        for role in self.roles:
-            self.assertTrue((ROLES / f"{role}.md").is_file(), role)
-
-    def test_role_contracts_are_provider_agnostic(self):
-        forbidden = ("openai/", "deepseek/", "zai-coding-plan/")
-        for path in ROLES.glob("*.md"):
-            content = path.read_text()
-            for token in forbidden:
-                self.assertNotIn(token, content, f"{token} found in {path}")
-
-    def test_nested_delegation_boundaries(self):
-        self.assertEqual(self.roles["planner"]["delegates"], ["explorer"])
-        self.assertEqual(self.roles["reviewer"]["delegates"], ["explorer"])
-        self.assertEqual(self.roles["explorer"]["delegates"], [])
-        self.assertEqual(
-            [role for role, config in self.roles.items() if config["edit"] == "allow"],
-            ["worker", "worker-complex"],
-        )
-        self.assertEqual(self.roles["worker"]["delegates"], [])
-        self.assertEqual(self.roles["worker-complex"]["delegates"], [])
-
-    def test_profiles_map_every_role(self):
-        expected = set(self.roles)
-        for path in PROFILES.glob("*.toml"):
-            with path.open("rb") as handle:
-                profile = tomllib.load(handle)
-            self.assertEqual(set(profile["models"]), expected, path.name)
-
-    def test_debugger_and_validator_contracts_fail_closed_on_stalled_calls(self):
-        """This fails when a child role can monitor or invoke a blocking call without a bound."""
-        required = (
-            "finite, explicit per-call deadline or timeout",
-            "`max_turns` limits turns only and is never a tool timeout",
-            "whole-lane deadline or maximum wait",
-            "Do not monitor or poll indefinitely",
-            "silently self-extend",
-            "cancel or terminate the underlying call/child",
-            "fail closed with `BLOCKED`",
-            "last meaningful progress",
-            "exact prerequisite needed to resume",
-        )
-        for role in ("debugger", "validator"):
-            contract = (ROLES / f"{role}.md").read_text()
-            start = contract.index("## Anti-stall execution contract")
-            anti_stall = contract[start:]
-            for phrase in required:
-                self.assertIn(phrase, anti_stall, role)
 
 
 class OpenCodeGenerateTests(unittest.TestCase):
@@ -137,9 +79,10 @@ class OpenCodeGenerateTests(unittest.TestCase):
             planner = (output / "agents" / "planner.md").read_text()
             self.assertIn("mode: subagent", planner)
             self.assertIn('"*": deny', planner)
-            self.assertIn("explorer: allow", planner)
+            self.assertNotIn("task:", planner)
             self.assertNotIn("spec-writer", planner)
             self.assertNotIn("model:", planner)
+            self.assertEqual(planner.count("---"), 2)
 
             worker = (output / "agents" / "worker.md").read_text()
             complex_worker = (output / "agents" / "worker-complex.md").read_text()
@@ -147,18 +90,16 @@ class OpenCodeGenerateTests(unittest.TestCase):
             self.assertNotIn('"vision-*": allow', complex_worker)
             self.assertNotIn("Agent(", worker)
             self.assertNotIn("Agent(", complex_worker)
-            self.assertIn("focused development tests and checks as `SELF-CHECKS`", worker)
-            self.assertIn("focused development tests and checks as `SELF-CHECKS`", complex_worker)
-            self.assertIn("never present self-checks as validator evidence", worker)
-            self.assertIn("never present self-checks as validator evidence", complex_worker)
+            self.assertEqual(worker.count("---"), 2)
+            self.assertEqual(complex_worker.count("---"), 2)
 
             openai = json.loads((output / "profiles" / "openai" / "agent-routing.json").read_text())
             self.assertEqual(openai["agent"]["worker"]["variant"], "high")
             self.assertEqual(openai["agent"]["worker-complex"]["variant"], "max")
             self.assertNotIn("spec-writer", openai["agent"])
 
-            core = output / "profiles" / "_shared" / "orchestration-core.md"
-            self.assertEqual(core.read_text(), (ROOT / "policy" / "orchestration.md").read_text())
+            self.assertFalse((output / "profiles" / "_shared").exists())
+            self.assertFalse((output / "workflows").exists())
 
             validator = (output / "agents" / "validator.md").read_text()
             debugger = (output / "agents" / "debugger.md").read_text()
@@ -321,8 +262,8 @@ class OpenCodeGenerateTests(unittest.TestCase):
 
 
 class OpenCodeInstallPlanTests(unittest.TestCase):
-    def test_install_packages_optional_workflow_without_inlining_it_in_instructions(self):
-        """This test will fail when the optional workflow is omitted or loaded into every profile."""
+    def test_install_registers_no_instruction_file_and_strips_legacy_ones(self):
+        """This test will fail when install keeps registering policy files or loses user config bytes."""
         install = load_install_module()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -332,18 +273,20 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
 
             config_path = target / "profiles" / "openai" / "opencode.json"
             config_path.parent.mkdir(parents=True)
-            config_path.write_text(json.dumps({"instructions": ["/tmp/unrelated.md"]}))
+            legacy_core = str(target / "profiles" / "_shared" / "orchestration-core.md")
+            config_path.write_text(
+                json.dumps({"instructions": ["/tmp/unrelated.md", legacy_core]})
+            )
+            (target / "profiles" / "_shared").mkdir(parents=True)
+            (target / "profiles" / "_shared" / "orchestration-core.md").write_text("legacy core\n")
 
             files, _ = install.desired_state(generated, target, adopt=True)
-            workflow_target = target / "workflows" / "feature-workflow-pilot.md"
-            self.assertEqual(
-                files[workflow_target],
-                (generated / "workflows" / "feature-workflow-pilot.md").read_text(),
-            )
             merged = json.loads(files[config_path])
-            self.assertNotIn(str(workflow_target), merged["instructions"])
-            installed_manifest = json.loads(files[target / install.MANIFEST_NAME])
-            self.assertEqual(installed_manifest["workflows"], ["feature-workflow-pilot"])
+            self.assertEqual(merged["instructions"], ["/tmp/unrelated.md"])
+            self.assertNotIn("workflows", json.loads(files[target / install.MANIFEST_NAME]))
+            deletions = install.desired_state(generated, target, adopt=True)[1]
+            self.assertIn(target / "profiles" / "_shared" / "orchestration-core.md", deletions)
+            self.assertNotIn(target / "workflows" / "feature-workflow-pilot.md", files)
 
     def test_first_install_reports_unmanaged_control_plane_collision_until_adopted(self):
         """This test will fail when first install overwrites runtime control settings without adoption."""

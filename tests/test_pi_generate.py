@@ -107,8 +107,8 @@ EXPECTED = {
 
 
 class PiGenerateTests(unittest.TestCase):
-    def test_readme_documents_profile_switching_and_native_cli_boundary(self):
-        """Operators must know the exact process switch and the native CLI policy boundary."""
+    def test_readme_documents_profile_switching_and_launcher_routing(self):
+        """Operators must know the exact process switch and what the profile launcher selects."""
         readme = (ROOT / "README.md").read_text()
         for text in (
             "exit the current Pi process",
@@ -118,30 +118,11 @@ class PiGenerateTests(unittest.TestCase):
             "pi-glm",
             "--model",
             "--thinking",
-            "--append-system-prompt",
-            "agent-orchestration/_shared/orchestration-core.md",
-            "fails closed",
-            "before_agent_start",
-            "git-read.ts",
-            "migration-only stale",
-            "acceptanceRole: read-only",
-            "acceptance inference only",
-            "no hard read-only sandbox",
-            "cannot forward an `ask` decision",
-            "built-in `bash`",
-            "policy-level",
-            "framework-neutral",
-            "not runtime enforcement",
-            "exact child target `explorer`",
-            "Pi subagent watchdog",
-            "startup: 120 seconds",
-            "idle: 5 minutes",
-            "total runtime: 30 minutes",
-            "subagents:rpc:stop",
-            "last meaningful progress",
-            "retries cancellation every 30 seconds",
-            "watchdog-owned safety retry is not child-lane continuation",
-            "Nested agents and workflow-owned agents are not covered",
+            "AGENT_ORCHESTRATION_PROFILE",
+            "_shared/control-plane.json",
+            "internal orchestration bundle schema",
+            "settings, catalogs, auth, MCP",
+            "never install, select, migrate, or validate framework packages",
         ):
             with self.subTest(text=text):
                 self.assertIn(text, readme)
@@ -153,6 +134,11 @@ class PiGenerateTests(unittest.TestCase):
             "GLM off-peak ×1",
             "pace unavailable",
             "loads the managed `primary-policy.js`",
+            "--append-system-prompt",
+            "orchestration-core",
+            "before_agent_start",
+            "git-read.ts",
+            "feature-workflow-pilot",
         ):
             with self.subTest(text=removed):
                 self.assertNotIn(removed, readme)
@@ -161,7 +147,7 @@ class PiGenerateTests(unittest.TestCase):
         """The manifest version names the internal bundle schema, never a runtime package."""
         expected_keys = {
             "format_version", "roles", "profiles", "launchers",
-            "managed_extensions", "workflows", "shared",
+            "managed_extensions", "shared",
         }
         for profile_name in EXPECTED:
             with self.subTest(profile=profile_name), tempfile.TemporaryDirectory() as directory:
@@ -176,10 +162,15 @@ class PiGenerateTests(unittest.TestCase):
                 self.assertEqual(set(manifest), expected_keys)
                 self.assertNotIn("adapter", manifest)
                 self.assertNotIn("adapter_format", manifest)
-                for guidance in ("_shared/degradations.md", "_shared/control-plane.json"):
-                    content = (output / guidance).read_text()
-                    self.assertNotIn("pi-subagents", content)
-                    self.assertNotIn("0.67.0", content)
+                self.assertEqual(manifest["shared"], ["control-plane.json"])
+                guidance = (output / "_shared" / "control-plane.json").read_text()
+                self.assertNotIn("pi-subagents", guidance)
+                self.assertNotIn("0.67.0", guidance)
+                self.assertEqual(
+                    sorted(path.name for path in (output / "_shared").iterdir()),
+                    ["control-plane.json"],
+                )
+                self.assertFalse((output / "workflows").exists())
 
     def test_every_profile_generates_no_managed_extension_bundle(self):
         """REGRESSION CONTRACT: no bundle generates an extension directory/package and managed_extensions is empty."""
@@ -272,7 +263,7 @@ class PiGenerateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "repo"
-            for name in ("harnesses", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles"):
                 shutil.copytree(ROOT / name, repo / name)
             profile = repo / "profiles" / "openai.toml"
             profile.write_text(profile.read_text().replace(
@@ -288,7 +279,7 @@ class PiGenerateTests(unittest.TestCase):
         for bad_model in ("anthropic/claude", "deepseek//deepseek-flash", "deepseek/../flash"):
             with self.subTest(model=bad_model), tempfile.TemporaryDirectory() as directory:
                 repo = Path(directory) / "repo"
-                for name in ("harnesses", "policy", "profiles", "roles"):
+                for name in ("harnesses", "policy", "profiles"):
                     shutil.copytree(ROOT / name, repo / name)
                 profile = repo / "profiles" / "hybrid.toml"
                 profile.write_text(profile.read_text().replace("deepseek/deepseek-flash", bad_model, 1))
@@ -338,10 +329,11 @@ class PiGenerateTests(unittest.TestCase):
                         lines[:3],
                         [str(expected_root), str(fake_home / ".pi/agent/sessions"), profile_name],
                     )
-                    self.assertEqual(lines[3:7], ["--model", expected_model, "--thinking", expected_thinking])
-                    self.assertEqual(lines[7], "--append-system-prompt")
-                    self.assertEqual(lines[8], "SHARED ORCHESTRATION POLICY")
-                    self.assertEqual(lines[9:], ["--prompt", "two words", "--", "literal"])
+                    self.assertEqual(lines[3:], [
+                        "--model", expected_model,
+                        "--thinking", expected_thinking,
+                        "--prompt", "two words", "--", "literal",
+                    ])
             fake_pi.unlink()
             missing = subprocess.run(
                 [str(root / "openai" / "pi-openai")],
@@ -382,9 +374,6 @@ class PiGenerateTests(unittest.TestCase):
                 [sys.executable, str(GENERATE), "--profile", "hybrid", "--output", str(output)],
                 cwd=ROOT, check=True,
             )
-            policy = fake_home / ".pi/agent/agent-orchestration/_shared/orchestration-core.md"
-            policy.parent.mkdir(parents=True, exist_ok=True)
-            policy.write_text("SHARED ORCHESTRATION POLICY\n")
             result = subprocess.run(
                 [str(output / "pi-hybrid"), "--version"],
                 env=env, text=True, capture_output=True,
@@ -395,8 +384,8 @@ class PiGenerateTests(unittest.TestCase):
             self.assertEqual(result.stdout.splitlines()[0], "colocated-node")
             self.assertIn(str(fake_pi), result.stdout.splitlines())
 
-    def test_profile_launchers_bake_primary_model_thinking_and_append_shared_policy(self):
-        """REGRESSION CONTRACT: a launcher selects its primary model/thinking and passes the shared policy natively."""
+    def test_profile_launchers_bake_primary_model_and_thinking_only(self):
+        """REGRESSION CONTRACT: a launcher selects its primary model/thinking and passes no global policy."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fake_home = root / "home"
@@ -427,20 +416,13 @@ class PiGenerateTests(unittest.TestCase):
                     self.assertIn(f'--model "{model}"', text)
                     self.assertIn(f'--thinking "{thinking}"', text)
                     self.assertIn(f'export AGENT_ORCHESTRATION_PROFILE="{profile_name}"', text)
-                    self.assertIn('--append-system-prompt "$policy"', text)
-                    self.assertIn(
-                        'policy_path="$PI_CODING_AGENT_DIR/agent-orchestration/_shared/orchestration-core.md"',
-                        text,
-                    )
+                    self.assertNotIn("--append-system-prompt", text)
+                    self.assertNotIn("orchestration-core", text)
+                    self.assertNotIn("policy", text)
                     control = json.loads((output / "_shared" / "control-plane.json").read_text())
                     self.assertEqual(control["primary"], {"model": model, "thinking": thinking})
                     self.assertEqual(control["installed"]["primary"], "launcher")
 
-            # An installed-style launcher must pass the byte-exact generated policy and forward user args.
-            policy_text = (root / "hybrid" / "_shared" / "orchestration-core.md").read_text()
-            installed_policy = fake_home / ".pi/agent" / "agent-orchestration" / "_shared" / "orchestration-core.md"
-            installed_policy.parent.mkdir(parents=True, exist_ok=True)
-            installed_policy.write_text(policy_text)
             argv_path = root / "argv.bin"
             fake_pi.write_text(
                 "#!/bin/sh\n"
@@ -455,9 +437,7 @@ class PiGenerateTests(unittest.TestCase):
             argv = [part.decode() for part in argv_path.read_bytes().split(b"\0") if part]
             self.assertEqual(argv[:2], ["--model", "openai-codex/gpt-6.1-sol"])
             self.assertEqual(argv[2:4], ["--thinking", "medium"])
-            self.assertEqual(argv[4], "--append-system-prompt")
-            self.assertEqual(argv[5], policy_text.rstrip("\n"))
-            self.assertEqual(argv[6:], ["--prompt", "keep both words"])
+            self.assertEqual(argv[4:], ["--prompt", "keep both words"])
 
     def test_pi_tool_allowlists_preserve_shell_and_delegation_boundaries(self):
         """This test will fail when Pi drops required tools or widens a role boundary."""
@@ -467,9 +447,9 @@ class PiGenerateTests(unittest.TestCase):
             "validator": ", ".join(["read", "grep", "find", "ls", "bash", *VALIDATOR_MCP_TOOLS]),
             "debugger": "read, grep, find, ls, bash",
             "explorer": "read, grep, find, ls, bash",
-            "planner": "read, grep, find, ls, subagent",
+            "planner": "read, grep, find, ls",
             "design-partner": "read, grep, find, ls",
-            "reviewer": "read, grep, find, ls, subagent",
+            "reviewer": "read, grep, find, ls",
             "ux-critic": ", ".join(UX_CRITIC_TOOLS),
         }
         for profile_name in EXPECTED:
@@ -487,12 +467,9 @@ class PiGenerateTests(unittest.TestCase):
                     delegation_tools = [
                         name.strip()
                         for name in tools_line.removeprefix("tools: ").split(",")
-                        if name.strip() == "subagent"
+                        if name.strip() in {"subagent", "task"}
                     ]
-                    if role in {"planner", "reviewer"}:
-                        self.assertEqual(delegation_tools, ["subagent"])
-                    else:
-                        self.assertEqual(delegation_tools, [])
+                    self.assertEqual(delegation_tools, [], role)
                     acceptance_role_lines = [
                         line for line in frontmatter.splitlines() if line.startswith("acceptanceRole:")
                     ]
@@ -535,15 +512,6 @@ class PiGenerateTests(unittest.TestCase):
                     cwd=ROOT, text=True, capture_output=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                degradation = (output / "_shared/degradations.md").read_text()
-                self.assertIn("no hard read-only sandbox", degradation)
-                self.assertIn("cannot forward an `ask` decision", degradation)
-                self.assertIn("acceptanceRole: read-only", degradation)
-                self.assertIn("does not grant or revoke tools", degradation)
-                self.assertIn("policy-level boundary", degradation)
-                self.assertIn("framework-neutral", degradation)
-                self.assertIn("not runtime enforcement", degradation)
-                self.assertIn("exact child target `explorer`", degradation)
                 explorer = (output / "agents" / "explorer.md").read_text()
                 self.assertIn("acceptanceRole: read-only", explorer)
                 self.assertIn("tools: read, grep, find, ls, bash", explorer)
@@ -575,30 +543,19 @@ class PiGenerateTests(unittest.TestCase):
             self.assertEqual(
                 {path.stem for path in (output / "agents").glob("*.md")}, roles
             )
-            self.assertTrue((output / "_shared" / "orchestration-core.md").is_file())
             self.assertTrue((output / "_shared" / "control-plane.json").is_file())
-            self.assertTrue((output / "workflows" / "feature-workflow-pilot.md").is_file())
+            self.assertEqual(
+                sorted(path.name for path in (output / "_shared").iterdir()),
+                ["control-plane.json"],
+            )
+            self.assertFalse((output / "workflows").exists())
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual(manifest["roles"], sorted(roles))
             self.assertEqual(manifest["profiles"], ["hybrid"])
-            shared_policy = (output / "_shared" / "orchestration-core.md").read_text()
-            for phrase in (
-                "Delegated agents MUST NOT watch, poll, retry, sleep, or otherwise wait",
-                "at most one one-shot status query",
-                "terminal success maps to `PASS`",
-                "pending, queued, running, unknown, or otherwise non-terminal maps immediately to `BLOCKED`",
-                "Waiting or retry loops remain owned by the primary",
-                "hard cancellation can terminate both the execution lane and the in-flight process/tool call",
-                "the operation is forbidden and returns `BLOCKED`",
-                "/agents` → `Running agents` → select the agent → press `x`, then `x` again to confirm",
-                "Stopped output is partial/incomplete",
-                "Global Esc does not unambiguously target a background agent",
-                "`steer_subagent` is not cancellation",
-            ):
-                self.assertIn(phrase, shared_policy)
             for role, config in routing_roles.items():
                 content = (output / "agents" / f"{role}.md").read_text()
                 frontmatter = content.split("---", 2)[1]
+                self.assertEqual(content.split("---", 2)[2].strip(), "", role)
                 if role == "ux-critic":
                     expected_tools = UX_CRITIC_TOOLS
                 else:
@@ -609,8 +566,6 @@ class PiGenerateTests(unittest.TestCase):
                         expected_tools += ["edit", "write"]
                     if config["bash"] == "allow" or role in {"validator", "debugger"}:
                         expected_tools.append("bash")
-                    if "explorer" in config.get("delegates", []):
-                        expected_tools.append("subagent")
                 model = profile["models"][role]
                 expected_model = model["model"].replace("openai/", "openai-codex/", 1)
                 self.assertIn(f"model: {expected_model}", frontmatter)
@@ -620,10 +575,10 @@ class PiGenerateTests(unittest.TestCase):
                 self.assertIn("inheritProjectContext: false", frontmatter)
                 self.assertIn("inheritSkills: false", frontmatter)
                 self.assertNotIn("subagentOnlyExtensions:", frontmatter)
-                self.assertIn((ROOT / "roles" / f"{role}.md").read_text(), content)
+                self.assertNotIn("subagent", frontmatter)
 
-    def test_bundle_documents_pi_permission_and_control_plane_degradation(self):
-        """This test will fail when operators cannot see Pi's unavoidable semantic gaps."""
+    def test_bundle_documents_model_intent_without_policy_or_prompt_files(self):
+        """This test will fail when a Pi bundle ships policy, prompt, or workflow bytes."""
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "pi"
             subprocess.run(
@@ -632,13 +587,15 @@ class PiGenerateTests(unittest.TestCase):
                 check=True,
             )
 
-            note = (output / "_shared" / "degradations.md").read_text().lower()
-            self.assertIn("permissions.bash", note)
-            self.assertIn("operator-owned runtime state", note)
-            self.assertIn("do not copy or claim", note)
-            self.assertIn("omits `bash`", note)
-            self.assertIn("primary", note)
-            self.assertIn("not installed", note)
+            note = json.loads((output / "_shared" / "control-plane.json").read_text())
+            self.assertEqual(note["installed"]["roles"], "agent-files")
+            self.assertFalse(note["installed"]["small_model"])
+            self.assertFalse(note["installed"]["builtins"])
+            self.assertNotIn("Canonical policy restricts", note["note"])
+            self.assertFalse((output / "workflows").exists())
+            for path in output.rglob("*"):
+                if path.is_file() and path.name != "control-plane.json":
+                    self.assertNotIn("policy", path.read_text().lower(), path)
 
     def test_glm_uses_a_pi_specific_source_without_colliding_with_generic_glm(self):
         """Pi GLM must not repurpose the generic OpenCode profiles/glm.toml source."""

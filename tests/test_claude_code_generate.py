@@ -60,7 +60,7 @@ def expected_tools(config: dict, native_vision: bool, role: str | None = None) -
 def build_temp_repo(destination: Path) -> Path:
     """Copy the subset of the repo generate.py resolves ROOT against, so a test
     can corrupt one profile without touching the real profiles/ directory."""
-    for name in ("harnesses", "policy", "profiles", "roles"):
+    for name in ("harnesses", "policy", "profiles"):
         shutil.copytree(ROOT / name, destination / name)
     return destination
 
@@ -120,26 +120,8 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
                     role,
                 )
 
-    def test_flat_topology_omits_nested_agent_entries(self):
-        """This test will fail when Claude agents advertise unavailable nested delegation tools."""
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            subprocess.run(
-                [sys.executable, str(GENERATE), "--output", str(output)],
-                cwd=ROOT,
-                check=True,
-            )
-            for role, config in self.roles.items():
-                content = (output / "agents" / f"{role}.md").read_text()
-                for target in config.get("delegates", []):
-                    self.assertNotIn(f"Agent({target})", content, f"{role} -> {target}")
-
-            shared = (output / "_shared" / "orchestration-core.md").read_text()
-            self.assertIn("flat subagent topology", shared)
-            self.assertIn("invokes `explorer` directly", shared)
-
-    def test_role_contract_bodies_remain_provider_and_model_free(self):
-        forbidden = ("sonnet", "opus", "haiku")
+    def test_agent_definitions_have_no_body_and_omit_nested_agent_tools(self):
+        """This test will fail when Claude agents regain prompt bodies or nested delegation tools."""
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             subprocess.run(
@@ -149,40 +131,19 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
             )
             for role in self.roles:
                 content = (output / "agents" / f"{role}.md").read_text()
+                self.assertEqual(content.count("---"), 2, f"{role} frontmatter shape")
                 body = content.split("---", 2)[2]
-                for token in forbidden:
-                    self.assertNotIn(token, body, f"{token} leaked into {role} body")
+                self.assertEqual(body.strip(), "", f"{role} carries a prompt body")
+                self.assertNotIn("Agent(", content, role)
+                self.assertNotIn("sonnet", body, role)
+                self.assertNotIn("opus", body, role)
+                self.assertNotIn("haiku", body, role)
 
-    def test_shared_orchestration_core_is_marker_wrapped(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            subprocess.run(
-                [sys.executable, str(GENERATE), "--output", str(output)],
-                cwd=ROOT,
-                check=True,
-            )
-            core = (output / "_shared" / "orchestration-core.md").read_text()
-            self.assertTrue(core.startswith("<!-- agent-orchestration:start -->"))
-            self.assertTrue(core.rstrip("\n").endswith("<!-- agent-orchestration:end -->"))
-            self.assertIn((ROOT / "policy" / "orchestration.md").read_text().strip(), core)
-            self.assertNotIn("Delegated agents MUST NOT watch, poll", core)
+            self.assertFalse((output / "_shared" / "orchestration-core.md").exists())
+            self.assertFalse((output / "workflows").exists())
+            self.assertFalse((output / "CLAUDE.md").exists())
 
-    def test_shared_orchestration_core_includes_profile_addendum_after_policy(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            subprocess.run(
-                [sys.executable, str(GENERATE), "--output", str(output)],
-                cwd=ROOT,
-                check=True,
-            )
-            core = (output / "_shared" / "orchestration-core.md").read_text()
-            policy = (ROOT / "policy" / "orchestration.md").read_text().strip()
-            addendum = (ROOT / "profiles" / self.profile["addendum"]).read_text().strip()
-            self.assertIn(policy, core)
-            self.assertIn(addendum, core)
-            self.assertLess(core.index(policy), core.index(addendum))
-
-    def test_manifest_lists_all_roles_and_the_claude_profile(self):
+    def test_manifest_lists_all_roles_and_no_workflow_claim(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             subprocess.run(
@@ -194,6 +155,7 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
             self.assertEqual(manifest["format_version"], 1)
             self.assertEqual(set(manifest["roles"]), set(self.roles))
             self.assertEqual(manifest["profiles"], ["claude"])
+            self.assertNotIn("workflows", manifest)
 
     def test_snapshot_truthfully_documents_that_claude_cannot_install_primary_control_plane(self):
         """This test will fail when Claude output implies its primary model was installed."""
@@ -359,7 +321,7 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
     def test_frontmatter_scalar_values_are_json_quoted_and_survive_special_characters(self):
         generate_module = load_generate_module()
         tricky_description = 'Reviews: "high" risk changes # notes\nsecond line'
-        config = {"description": tricky_description, "edit": "deny", "delegates": []}
+        config = {"description": tricky_description, "edit": "deny"}
         model_config = {"model": "sonnet", "variant": "high"}
 
         generated = generate_module.frontmatter("tricky-role", config, model_config, native_vision=False)
@@ -377,7 +339,7 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
     def test_tools_for_rejects_an_edit_permission_value_it_cannot_route(self):
         generate_module = load_generate_module()
         with self.assertRaisesRegex(SystemExit, "edit permission"):
-            generate_module.tools_for({"edit": "ask", "delegates": []}, native_vision=False)
+            generate_module.tools_for({"edit": "ask"}, native_vision=False)
 
     def test_generator_rejects_bash_deny_without_granting_shell(self):
         """This test will fail when Claude Code generates bash=deny with Bash access."""
@@ -407,7 +369,7 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
     def test_frontmatter_round_trips_through_pyyaml(self):
         generate_module = load_generate_module()
         tricky_description = 'Reviews: "high" risk changes # notes\nsecond line'
-        config = {"description": tricky_description, "edit": "deny", "bash": "ask", "delegates": []}
+        config = {"description": tricky_description, "edit": "deny", "bash": "ask"}
         model_config = {"model": "sonnet", "variant": "high"}
 
         generated = generate_module.frontmatter("tricky-role", config, model_config, native_vision=False)

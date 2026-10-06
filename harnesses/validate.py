@@ -20,12 +20,8 @@ if str(HARNESSES_DIR) not in sys.path:
 from common import validate_capabilities, validate_profile
 
 ROOT = HARNESSES_DIR.parent
-VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi", "dsh"}
 SCHEMA_ERROR_LIMIT = 8
-ALLOWED_DELEGATES = {
-    "planner": frozenset({"explorer"}),
-    "reviewer": frozenset({"explorer"}),
-}
 
 
 def load_toml(path: Path) -> dict:
@@ -93,65 +89,6 @@ def validate_document(document: object, schema: dict, *, source: Path) -> None:
     raise SystemExit("\n".join(lines))
 
 
-def validate_delegation_graph(roles: dict[str, dict]) -> None:
-    """Validate only the canonical role graph and its fail-closed leaf boundary."""
-    valid_targets = set(roles)
-    for role in sorted(roles):
-        config = roles[role]
-        delegates = config.get("delegates", [])
-        if not isinstance(delegates, list):
-            # The schema normally emits this diagnostic first. Keep direct
-            # callers fail-closed without leaking a Python iteration error.
-            raise SystemExit(
-                f"Delegation graph: invalid delegates for role {role!r}; expected an array"
-            )
-        for target in delegates:
-            if not isinstance(target, str) or target not in valid_targets:
-                raise SystemExit(
-                    f"Delegation graph: unknown delegation target for role {role!r}: {target!r}"
-                )
-
-    colors = {role: 0 for role in sorted(roles)}
-    stack: list[str] = []
-
-    def visit(role: str) -> None:
-        colors[role] = 1
-        stack.append(role)
-        for target in sorted(
-            target for target in roles[role].get("delegates", []) if target in roles
-        ):
-            if colors[target] == 0:
-                visit(target)
-            elif colors[target] == 1:
-                cycle = stack[stack.index(target):] + [target]
-                raise SystemExit(
-                    "Delegation graph: cycle detected: " + " -> ".join(cycle)
-                )
-        stack.pop()
-        colors[role] = 2
-
-    for role in sorted(roles):
-        if colors[role] == 0:
-            visit(role)
-
-    for role in sorted(roles):
-        delegates = roles[role].get("delegates", [])
-        allowed = ALLOWED_DELEGATES.get(role)
-        if allowed is None:
-            if delegates:
-                rendered = ", ".join(repr(target) for target in delegates)
-                raise SystemExit(
-                    f"Delegation graph: leaf role {role!r} must declare delegates = []; "
-                    f"found [{rendered}]"
-                )
-            continue
-        for target in delegates:
-            if target not in allowed:
-                raise SystemExit(
-                    f"Delegation graph: delegation edge is not allowed: {role} -> {target}"
-                )
-
-
 def validate_routing(
     routing: dict,
     *,
@@ -169,16 +106,12 @@ def validate_routing(
     roles = routing.get("roles")
     if not isinstance(roles, dict) or not roles:
         raise SystemExit("Routing roles must be a non-empty table")
-    required = {"description", "mode", "edit", "bash", "delegates"}
+    required = {"description", "mode", "edit", "bash"}
     for role, config in roles.items():
         if not isinstance(role, str) or not role:
             raise SystemExit(f"Invalid role name: {role!r}")
         if not isinstance(config, dict) or set(config) != required:
             raise SystemExit(f"Invalid routing entry for role {role!r}")
-
-    # Unknown targets and cycles intentionally precede policy-edge checks so
-    # each failure category remains deterministic and independently useful.
-    validate_delegation_graph(roles)
 
     edit_capable = {role for role, config in roles.items() if config["edit"] == "allow"}
     if edit_capable != {"worker", "worker-complex"}:
@@ -192,23 +125,11 @@ def validate_routing(
         raise SystemExit(
             "Repository persistence policy: planner must have edit = deny and bash = deny"
         )
-    if planner["delegates"] != ["explorer"]:
-        raise SystemExit(
-            "Repository persistence policy: planner may delegate only to explorer"
-        )
-    reviewer = roles.get("reviewer")
-    if reviewer is None or reviewer["delegates"] != ["explorer"]:
-        raise SystemExit(
-            "Repository persistence policy: reviewer may delegate only to explorer"
-        )
 
     for role, config in roles.items():
         if config["mode"] not in {"primary", "subagent"}:
             raise SystemExit(f"Invalid mode for role {role!r}: {config['mode']!r}")
         validate_capabilities(role, config, "opencode")
-        contract = ROOT / "roles" / f"{role}.md"
-        if not contract.is_file():
-            raise SystemExit(f"Missing role contract: {contract}")
     return roles
 
 
@@ -322,7 +243,7 @@ def validate_sources(evaluations_root: Path | None = None) -> int:
             path,
             set(roles),
             harness,
-            require_role_variants=harness in {"claude-code", "pi"},
+            require_role_variants=harness in {"claude-code", "pi", "dsh"},
         )
         addendum = ROOT / "profiles" / profile["addendum"]
         if not addendum.is_file():
@@ -336,9 +257,6 @@ def validate_sources(evaluations_root: Path | None = None) -> int:
             "Expected exactly one Claude Code profile named 'claude'; "
             f"found {claude_profiles!r}"
         )
-    workflow = ROOT / "policy" / "workflows" / "feature-workflow-pilot.md"
-    if not workflow.is_file():
-        raise SystemExit(f"Missing optional workflow artifact: {workflow}")
     evaluation_count = validate_evaluations(
         evaluations_root or ROOT / "evaluations", set(profiles)
     )

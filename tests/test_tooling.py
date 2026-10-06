@@ -38,7 +38,7 @@ class ToolingContractTests(unittest.TestCase):
                 }
             )
 
-            for entrypoint in ("generate", "check", "install-pi"):
+            for entrypoint in ("generate", "check", "install-pi", "install-dsh"):
                 self.assertTrue(
                     os.access(isolated / "scripts" / entrypoint, os.X_OK),
                     f"{entrypoint} is not executable",
@@ -64,20 +64,19 @@ class ToolingContractTests(unittest.TestCase):
                 self.assertTrue(
                     (isolated / "build" / "pi" / profile / "agents" / "worker.md").is_file()
                 )
-                for guidance in ("degradations.md", "control-plane.json"):
-                    content = (
-                        isolated / "build" / "pi" / profile / "_shared" / guidance
-                    ).read_text()
-                    self.assertNotIn("pi-subagents", content)
-                    self.assertNotIn("0.67.0", content)
+                self.assertEqual(manifest["shared"], ["control-plane.json"])
+                guidance = (
+                    isolated / "build" / "pi" / profile / "_shared" / "control-plane.json"
+                ).read_text()
+                self.assertNotIn("pi-subagents", guidance)
+                self.assertNotIn("0.67.0", guidance)
 
             readme = (isolated / "README.md").read_text()
             for phrase in (
                 "internal orchestration bundle schema",
-                "manifest-owned policy, agent, workflow, extension, and launcher artifacts",
-                "does not install, select, migrate, or validate framework packages",
-                "settings, catalogs, auth, MCP, themes, and provider state",
-                "Active Tintinweb and other runtime packages remain operator-owned",
+                "The bundle manifest records every",
+                "never install, select, migrate, or validate framework packages",
+                "settings, catalogs, auth, MCP",
             ):
                 self.assertIn(phrase, readme)
             self.assertNotIn("--source", readme)

@@ -18,7 +18,7 @@ PROFILE = ROOT / "profiles" / "openai.toml"
 def build_temp_repo(destination: Path) -> Path:
     """Copy the subset of the repo generate.py resolves ROOT against, so a test
     can corrupt "build/codex" without touching the real repo."""
-    for name in ("harnesses", "policy", "profiles", "roles"):
+    for name in ("harnesses", "policy", "profiles"):
         shutil.copytree(ROOT / name, destination / name)
     return destination
 
@@ -55,7 +55,8 @@ class CodexGenerateContractTests(unittest.TestCase):
 
             self.assertEqual(set(path.stem for path in (output / "agents").glob("*.toml")), set(roles))
             self.assertEqual(len(list((output / "agents").glob("*.toml"))), 9)
-            self.assertTrue((output / "AGENTS.md").is_file())
+            self.assertFalse((output / "AGENTS.md").exists())
+            self.assertFalse((output / "workflows").exists())
             self.assertFalse((output / "manifest.json").exists())
 
     def test_snapshot_maps_openai_models_reasoning_and_sandbox_permissions(self):
@@ -100,8 +101,8 @@ class CodexGenerateContractTests(unittest.TestCase):
                 },
             )
 
-    def test_developer_instructions_preserve_every_role_contract_exactly(self):
-        """REGRESSION CONTRACT: Codex preserves each complete role contract; TEST LAYER: generated artifact contract test."""
+    def test_agent_files_carry_routing_keys_only(self):
+        """REGRESSION CONTRACT: Codex definitions are routing metadata, never prompt bodies; TEST LAYER: generated artifact contract test."""
         with ROUTING.open("rb") as handle:
             roles = tomllib.load(handle)["roles"]
 
@@ -112,7 +113,18 @@ class CodexGenerateContractTests(unittest.TestCase):
             for role in roles:
                 with (output / "agents" / f"{role}.toml").open("rb") as handle:
                     agent = tomllib.load(handle)
-                self.assertEqual(agent["developer_instructions"], (ROOT / "roles" / f"{role}.md").read_text())
+                self.assertEqual(
+                    set(agent),
+                    {
+                        "name",
+                        "description",
+                        "model",
+                        "model_reasoning_effort",
+                        "sandbox_mode",
+                    },
+                    role,
+                )
+                self.assertNotIn("developer_instructions", agent)
 
     def test_generation_is_deterministic(self):
         """REGRESSION CONTRACT: identical canonical inputs produce byte-identical Codex snapshots; TEST LAYER: generator integration test."""
@@ -130,31 +142,6 @@ class CodexGenerateContractTests(unittest.TestCase):
                 [path.read_bytes() for path in sorted(first.rglob("*")) if path.is_file()],
                 [path.read_bytes() for path in sorted(second.rglob("*")) if path.is_file()],
             )
-
-    def test_agents_file_preserves_planner_and_reviewer_delegation_instructions(self):
-        """REGRESSION CONTRACT: Codex instructions preserve planner and reviewer/explorer delegation; TEST LAYER: generated artifact contract test."""
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "codex"
-            generate_snapshot(output)
-
-            with (output / "agents" / "planner.toml").open("rb") as handle:
-                planner = tomllib.load(handle)
-            with (output / "agents" / "reviewer.toml").open("rb") as handle:
-                reviewer = tomllib.load(handle)
-
-            self.assertIn("broad mechanical evidence gathering", planner["developer_instructions"])
-            self.assertIn("only for genuinely independent evidence areas", planner["developer_instructions"])
-            self.assertIn("otherwise use one focused explorer or targeted direct reads", planner["developer_instructions"])
-            self.assertIn("managed output", planner["developer_instructions"])
-            self.assertNotIn("spec-writer", planner["developer_instructions"])
-            self.assertIn("broad mechanical evidence gathering", reviewer["developer_instructions"])
-            self.assertIn("only for genuinely independent evidence areas", reviewer["developer_instructions"])
-            self.assertIn("otherwise use one focused explorer or targeted direct reads", reviewer["developer_instructions"])
-            self.assertIn("Never invoke `worker`", reviewer["developer_instructions"])
-
-            agents = (output / "AGENTS.md").read_text()
-            self.assertIn("# Shared orchestration policy", agents)
-            self.assertIn("# OpenAI profile orchestration", agents)
 
     def test_generator_rejects_non_openai_model_mapping(self):
         """REGRESSION CONTRACT: Codex never silently accepts a non-OpenAI model identifier; TEST LAYER: generator unit test."""

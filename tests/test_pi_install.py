@@ -119,8 +119,8 @@ class PiInstallTests(unittest.TestCase):
 
             install.validate_installed(files, target)
 
-    def test_normal_launchers_select_primary_model_and_append_shared_policy_without_managed_extensions(self):
-        """An installed launcher must select the primary model/thinking and append the shared policy while managing no extensions."""
+    def test_normal_launchers_select_primary_model_without_managed_extensions(self):
+        """An installed launcher must select the primary model/thinking without passing policy bytes."""
         install = load_install_module()
         cases = {
             "hybrid": ("openai-codex/gpt-6.1-sol", "medium"),
@@ -140,15 +140,52 @@ class PiInstallTests(unittest.TestCase):
                     launcher = (bin_dir / f"pi-{profile}").read_text()
                     self.assertIn(f'--model "{model}"', launcher)
                     self.assertIn(f'--thinking "{thinking}"', launcher)
-                    self.assertIn('--append-system-prompt "$policy"', launcher)
-                    self.assertIn(
-                        "agent-orchestration/_shared/orchestration-core.md",
-                        launcher,
-                    )
+                    self.assertNotIn("--append-system-prompt", launcher)
+                    self.assertNotIn("orchestration-core", launcher)
                     extension_dir = target / "extensions"
                     self.assertFalse(extension_dir.exists())
                     manifest = json.loads((target / install.MANIFEST_NAME).read_text())
                     self.assertEqual(manifest["managed_extensions"], [])
+                    self.assertEqual(manifest["shared"], ["control-plane.json"])
+
+    def test_install_removes_previously_managed_policy_artifacts(self):
+        """Installing must delete policy files an earlier bundle claimed and keep operator files."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "hybrid"
+            shared = target / "agent-orchestration" / "_shared"
+            shared.mkdir(parents=True)
+            (shared / "orchestration-core.md").write_text("retired policy\n")
+            (shared / "degradations.md").write_text("retired degradations\n")
+            (shared / "operator-notes.md").write_text("operator-owned\n")
+            workflows = target / "agent-orchestration" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "feature-workflow-pilot.md").write_text("retired workflow\n")
+            (target / install.MANIFEST_NAME).write_text(json.dumps({
+                "format_version": 1,
+                "roles": ["worker"],
+                "profiles": ["hybrid"],
+                "workflows": ["feature-workflow-pilot"],
+                "shared": ["orchestration-core.md", "control-plane.json", "degradations.md"],
+                "launchers": ["pi-hybrid"],
+                "managed_extensions": [],
+                "managed_files": [],
+            }))
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                install.install(target, dry_run=False, profile="hybrid", bin_dir=None)
+
+            self.assertFalse((shared / "orchestration-core.md").exists())
+            self.assertFalse((shared / "degradations.md").exists())
+            self.assertFalse((workflows / "feature-workflow-pilot.md").exists())
+            self.assertTrue((shared / "operator-notes.md").is_file())
+            self.assertTrue((shared / "control-plane.json").is_file())
+            manifest = json.loads((target / install.MANIFEST_NAME).read_text())
+            self.assertEqual(manifest["shared"], ["control-plane.json"])
+            self.assertNotIn("workflows", manifest)
 
     def test_explorer_builtin_bash_and_no_extension_bundle_in_every_installed_profile(self):
         """REGRESSION CONTRACT: installation generates no extension bundle and explorer uses Pi's built-in bash."""

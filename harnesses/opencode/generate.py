@@ -30,8 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "build" / "opencode"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
-VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
-WORKFLOW_NAME = "feature-workflow-pilot"
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi", "dsh"}
 
 
 def load_toml(path: Path) -> dict:
@@ -48,13 +47,9 @@ def frontmatter(role: str, config: dict) -> str:
         f"  edit: {config['edit']}",
         "  bash:",
         f"    \"*\": {config['bash']}",
-        "  task:",
-        "    \"*\": deny",
+        "---",
+        "",
     ]
-    for target in config.get("delegates", []):
-        key = f'"{target}"' if "*" in target else target
-        lines.append(f"    {key}: allow")
-    lines.extend(["---", ""])
     return "\n".join(lines)
 
 
@@ -88,24 +83,9 @@ def generate_into(output: Path) -> None:
         validate_capabilities(role, config, "opencode")
 
     (output / "agents").mkdir(parents=True)
-    (output / "profiles" / "_shared").mkdir(parents=True)
-    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
-    if not workflow_source.is_file():
-        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
-    (output / "workflows").mkdir(parents=True)
-    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
 
     for role, config in roles.items():
-        contract_path = ROOT / "roles" / f"{role}.md"
-        if not contract_path.is_file():
-            raise SystemExit(f"Missing role contract: {contract_path}")
-        generated = frontmatter(role, config) + contract_path.read_text()
-        (output / "agents" / f"{role}.md").write_text(generated)
-
-    shutil.copy2(
-        ROOT / "policy" / "orchestration.md",
-        output / "profiles" / "_shared" / "orchestration-core.md",
-    )
+        (output / "agents" / f"{role}.md").write_text(frontmatter(role, config))
 
     expected_roles = set(roles)
     profile_names = []
@@ -128,8 +108,6 @@ def generate_into(output: Path) -> None:
 
         destination = output / "profiles" / name
         destination.mkdir(parents=True)
-        addendum = ROOT / "profiles" / profile["addendum"]
-        shutil.copy2(addendum, destination / "orchestration.md")
         (destination / "control-plane.json").write_text(
             json.dumps(control_plane_fragment(profile["control_plane"]), indent=2, sort_keys=True)
             + "\n"
@@ -154,7 +132,6 @@ def generate_into(output: Path) -> None:
                 "roles": sorted(roles),
                 "profiles": sorted(profile_names),
                 "control_plane": True,
-                "workflows": [WORKFLOW_NAME],
             },
             indent=2,
         )

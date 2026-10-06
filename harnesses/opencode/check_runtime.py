@@ -124,25 +124,23 @@ def compare_runtime(
         )
 
     instructions = config.get("instructions")
-    expected_instructions = [
-        str(target / "profiles" / "_shared" / "orchestration-core.md"),
-        str(target / "profiles" / profile_name / "orchestration.md"),
-    ]
-    if not isinstance(instructions, list) or not all(isinstance(value, str) for value in instructions):
-        drifts.append("instruction files: expected a list of paths")
-    else:
-        managed = [
-            value
-            for value in instructions
-            if value in expected_instructions
-            or value.endswith("/profiles/_shared/orchestration-core.md")
-            or value.endswith(f"/profiles/{profile_name}/orchestration.md")
-        ]
-        if managed != expected_instructions:
-            drifts.append(
-                "instruction files: expected managed paths "
-                f"{expected_instructions!r}, actual managed paths {managed!r}"
-            )
+    if instructions is not None:
+        if not isinstance(instructions, list) or not all(
+            isinstance(value, str) for value in instructions
+        ):
+            drifts.append("instruction files: expected a list of paths")
+        else:
+            legacy = [
+                value
+                for value in instructions
+                if value.endswith("/profiles/_shared/orchestration-core.md")
+                or value.endswith(f"/profiles/{profile_name}/orchestration.md")
+            ]
+            for value in legacy:
+                drifts.append(
+                    f"legacy instruction file is still registered: {value}; "
+                    "reinstall to remove it"
+                )
 
     return drifts
 

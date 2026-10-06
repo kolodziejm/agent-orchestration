@@ -78,20 +78,10 @@ def generate(output: Path, name: str) -> None:
     target.mkdir(parents=True, exist_ok=True)
     (target / "config.yml").write_text("\n".join(lines) + "\n")
 
-    policy = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
-    addendum = ""
-    if profile["addendum"] == "openai.md":
-        addendum = (ROOT / "profiles" / "openai.md").read_text().rstrip()
-    boundary = ("\n\nOMP boundary: task agents receive their own policy prompt; this append file "
-                "applies to the primary only. OMP tool declarations do not sandbox inherited "
-                "MCP tools or instructions, and headless bash grants cannot preserve bash=ask. "
-                "The built-in build mapping is not installed.\n")
-    (target / "APPEND_SYSTEM.md").write_text(policy + ("\n\n" + addendum if addendum else "") + boundary)
-
     agent_dir = target / "agents"
     agent_dir.mkdir(exist_ok=True)
     manifest = {"format_version": 1, "profile": name, "source": source_name,
-                "agents": sorted(roles), "files": ["config.yml", "APPEND_SYSTEM.md"]}
+                "agents": sorted(roles), "files": ["config.yml"]}
     for role, config in roles.items():
         model = profile["models"][role]
         tools = {
@@ -100,19 +90,15 @@ def generate(output: Path, name: str) -> None:
             "validator": ["read", "grep", "find", "bash", "eval"],
             "debugger": ["read", "grep", "find", "bash"],
             "explorer": ["read", "grep", "find", "bash"],
-            "planner": ["read", "grep", "find", "task"],
+            "planner": ["read", "grep", "find"],
             "design-partner": ["read", "grep", "find"],
-            "reviewer": ["read", "grep", "find", "task"],
+            "reviewer": ["read", "grep", "find"],
             "ux-critic": ["read", "grep", "find"],
         }[role]
-        spawns = ["explorer"] if role in {"planner", "reviewer"} else []
-        policy_text = policy
-        contract = (ROOT / "roles" / f"{role}.md").read_text().rstrip()
         front = ["---", f"name: {json.dumps(role)}", f"description: {json.dumps(config['description'])}",
                  f"model: {json.dumps('@' + role)}", f"thinking-level: {model['variant']}",
-                 f"tools: {json.dumps(tools)}", f"spawns: {json.dumps(spawns)}", "---", ""]
-        body = "\n".join(front) + policy_text + "\n\nOMP task-agent boundary: follow the declared tool and spawn allowlists; do not assume the primary APPEND_SYSTEM.md is inherited.\n\n" + contract + "\n"
-        (agent_dir / f"{role}.md").write_text(body)
+                 f"tools: {json.dumps(tools)}", "---", ""]
+        (agent_dir / f"{role}.md").write_text("\n".join(front))
         manifest["files"].append(f"agents/{role}.md")
     manifest["control_plane"] = {"build": {"installed": False,
         "model": model_selector(cp["builtins"]["build"]["model"], providers, cp["builtins"]["build"]["effort"]),

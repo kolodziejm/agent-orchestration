@@ -19,9 +19,8 @@ def load_installer():
 
 def bundle(root: Path, profile="hybrid", agents=("planner", "worker"), text="first"):
     root.mkdir(parents=True, exist_ok=True)
-    files = ["config.yml", "APPEND_SYSTEM.md", *(f"agents/{role}.md" for role in agents)]
+    files = ["config.yml", *(f"agents/{role}.md" for role in agents)]
     (root / "config.yml").write_text(f"modelRoles:\n  default: {text}\n")
-    (root / "APPEND_SYSTEM.md").write_text(f"policy {text}\n")
     for role in agents:
         path = root / "agents" / f"{role}.md"
         path.parent.mkdir(exist_ok=True)
@@ -111,6 +110,38 @@ class OmpInstallTests(unittest.TestCase):
                 self.installer.install("hybrid", self.target, generated=self.bundle)
         after = {p.relative_to(self.target): p.read_bytes() for p in self.target.rglob("*") if p.is_file()}
         self.assertEqual(after, original)
+
+    def test_previously_installed_append_system_is_removed(self):
+        """This test will fail when a retired instruction artifact is left behind."""
+        self.installer.install("hybrid", self.target, generated=self.bundle)
+        append = self.target / "APPEND_SYSTEM.md"
+        append.write_text("# Shared orchestration policy\noperator-visible policy bytes\n")
+        manifest = self.target / self.installer.MANIFEST_NAME
+        data = json.loads(manifest.read_text())
+        self.assertNotIn("APPEND_SYSTEM.md", data["files"])
+        data["files"] = sorted([*data["files"], "APPEND_SYSTEM.md"])
+        manifest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+        self.installer.install("hybrid", self.target, generated=self.bundle)
+
+        self.assertFalse(append.exists())
+        installed = json.loads(manifest.read_text())
+        self.assertNotIn("APPEND_SYSTEM.md", installed["files"])
+        self.assertIn("modelRoles", (self.target / "config.yml").read_text())
+
+    def test_legacy_append_system_is_removed_without_a_prior_manifest(self):
+        """This test will fail when a retired instruction file survives an install with no prior manifest."""
+        self.target.mkdir(parents=True)
+        append = self.target / "APPEND_SYSTEM.md"
+        append.write_text("# Shared orchestration policy\nlegacy bytes\n")
+        unrelated = self.target / "operator.txt"
+        unrelated.write_bytes(b"preserve")
+
+        self.installer.install("hybrid", self.target, generated=self.bundle)
+
+        self.assertFalse(append.exists())
+        self.assertEqual(unrelated.read_bytes(), b"preserve")
+        self.assertIn("modelRoles", (self.target / "config.yml").read_text())
 
     def test_malformed_manifest_and_unsafe_claims_fail_closed(self):
         """This test will fail when malformed prior ownership metadata authorizes deletion or overwrite."""

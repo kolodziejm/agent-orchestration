@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "harnesses" / "omp" / "generate.py"
 PROFILES = ("hybrid", "openai", "deepseek", "glm")
 MANIFEST_NAME = ".agent-orchestration.omp-manifest.json"
+# Frozen cleanup set: an earlier adapter installed this file and the current
+# one does not. The fixed target-relative path is always removed when present
+# (see `install`), independent of any prior manifest, while an installed
+# manifest may still claim it and a generated manifest may not claim it again.
+LEGACY_MANAGED_FILES = frozenset({"APPEND_SYSTEM.md"})
 
 
 def _entry(path: Path) -> bool:
@@ -63,8 +68,8 @@ def _read_manifest(path: Path, profile: str) -> list[str] | None:
     if (not files or not all(isinstance(item, str) for item in files)
             or len(files) != len(set(files))):
         raise SystemExit("Invalid installed OMP manifest file claims")
-    required = {"config.yml", "APPEND_SYSTEM.md"}
-    valid = lambda item: item in required or (
+    required = {"config.yml"}
+    valid = lambda item: item in required or item in LEGACY_MANAGED_FILES or (
         item.startswith("agents/") and item.endswith(".md") and item.count("/") == 1
     )
     if not required.issubset(files) or not all(valid(item) for item in files):
@@ -86,7 +91,7 @@ def _bundle(generated: Path, profile: str) -> dict[Path, bytes]:
             or not files or not all(isinstance(item, str) for item in files)
             or len(files) != len(set(files))):
         raise SystemExit("Generated OMP manifest is invalid or does not match selected profile")
-    required = {"config.yml", "APPEND_SYSTEM.md"}
+    required = {"config.yml"}
     valid = lambda item: item in required or (
         item.startswith("agents/") and item.endswith(".md") and item.count("/") == 1
     )
@@ -136,7 +141,13 @@ def install(profile: str, target: Path, dry_run: bool = False, generated: Path |
         manifest_path = _safe_path(target, MANIFEST_NAME)
         prior = _read_manifest(manifest_path, profile)
         prior = prior or []
-        destinations = {name: _safe_path(target, name) for name in set(prior) | set(desired)}
+        # The retired global instruction file is managed unconditionally: its fixed
+        # relative path is always treated as owned so a missing or non-claiming prior
+        # manifest cannot leave an earlier copy behind.
+        legacy = set(LEGACY_MANAGED_FILES)
+        destinations = {
+            name: _safe_path(target, name) for name in set(prior) | set(desired) | legacy
+        }
         if not prior:
             collisions = [name for name in desired if _entry(destinations[name])]
             if collisions:
@@ -147,7 +158,7 @@ def install(profile: str, target: Path, dry_run: bool = False, generated: Path |
             collisions = [name for name in desired.keys() - set(prior) if _entry(destinations[name])]
             if collisions:
                 raise SystemExit("Unmanaged OMP file collision(s); no files changed:\n" + "\n".join(f"  - {name}" for name in sorted(collisions)))
-        stale = set(prior) - set(desired)
+        stale = (set(prior) - set(desired)) | legacy
         for name in stale:
             path = destinations[name]
             if _entry(path) and not path.is_file():

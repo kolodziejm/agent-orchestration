@@ -1,7 +1,7 @@
 [project]
 name = "agent-orchestration"
 version = "0.1.0"
-description = "Harness-agnostic agent orchestration policy and harness configuration generators"
+description = "Harness-agnostic agent and subagent definitions, capability data, and model/effort routing, with per-harness configuration generators"
 requires-python = ">=3.11"
 dependencies = []
 

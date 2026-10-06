@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Codex harness configuration from the canonical orchestration policy."""
+"""Generate Codex subagent definitions from the routing policy and active profile."""
 
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 CODEX_MODEL_PREFIX = "openai/"
 CODEX_REASONING_EFFORTS = {"max": "xhigh"}
-WORKFLOW_NAME = "feature-workflow-pilot"
 
 
 def load_toml(path: Path) -> dict:
@@ -89,7 +88,7 @@ def toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def generate_agent(role: str, role_config: dict, model_config: dict, contract: str) -> str:
+def generate_agent(role: str, role_config: dict, model_config: dict) -> str:
     return "\n".join(
         [
             f"name = {toml_string(role)}",
@@ -97,7 +96,6 @@ def generate_agent(role: str, role_config: dict, model_config: dict, contract: s
             f"model = {toml_string(codex_model(model_config['model']))}",
             f"model_reasoning_effort = {toml_string(reasoning_effort(model_config))}",
             f"sandbox_mode = {toml_string(sandbox_mode(role_config))}",
-            f"developer_instructions = {toml_string(contract)}",
             "",
         ]
     )
@@ -123,20 +121,6 @@ def generate_control_plane(profile: dict) -> str:
     return "\n".join(lines)
 
 
-def generate_agents_file(profile: dict) -> str:
-    policy = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
-    addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
-
-    return "\n\n".join(
-        [
-            "# Agent Orchestration for Codex",
-            "Generated from the canonical policy and the active profile. Do not edit manually.",
-            policy,
-            addendum,
-        ]
-    ) + "\n"
-
-
 def validate_inputs(profile_name: str) -> None:
     routing = load_toml(ROOT / "policy" / "routing.toml")
     roles = routing["roles"]
@@ -157,12 +141,7 @@ def validate_inputs(profile_name: str) -> None:
 
     for role, role_config in roles.items():
         validate_capabilities(role, role_config, "codex")
-        contract_path = ROOT / "roles" / f"{role}.md"
-        if not contract_path.is_file():
-            raise SystemExit(f"Missing role contract: {contract_path}")
-        generate_agent(role, role_config, models[role], contract_path.read_text())
-
-    generate_agents_file(profile)
+        generate_agent(role, role_config, models[role])
 
 
 def generate_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
@@ -175,22 +154,11 @@ def generate_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
         validate_capabilities(role, role_config, "codex")
 
     (output / "agents").mkdir(parents=True, exist_ok=True)
-    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
-    if not workflow_source.is_file():
-        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
-    (output / "workflows").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
     (output / "control-plane.toml").write_text(generate_control_plane(profile))
     for role, role_config in roles.items():
-        contract_path = ROOT / "roles" / f"{role}.md"
-        if not contract_path.is_file():
-            raise SystemExit(f"Missing role contract: {contract_path}")
-
         (output / "agents" / f"{role}.toml").write_text(
-            generate_agent(role, role_config, models[role], contract_path.read_text())
+            generate_agent(role, role_config, models[role])
         )
-
-    (output / "AGENTS.md").write_text(generate_agents_file(profile))
 
 
 def assert_safe_output(output: Path) -> Path:

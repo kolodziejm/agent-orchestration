@@ -26,7 +26,6 @@ from common import assert_safe_rename, validate_capabilities, validate_profile
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = ROOT / "build" / "pi"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
-WORKFLOW_NAME = "feature-workflow-pilot"
 # The bundle format is this repository's internal orchestration schema, not a
 # Pi host or runtime-package version.
 BUNDLE_FORMAT_VERSION = 1
@@ -52,16 +51,6 @@ PROFILE_SOURCE_NAMES = {
 }
 LAUNCHER_MODEL_PLACEHOLDER = "__AGENT_ORCHESTRATION_PRIMARY_MODEL__"
 LAUNCHER_THINKING_PLACEHOLDER = "__AGENT_ORCHESTRATION_PRIMARY_THINKING__"
-PI_OPERATIONAL_NOTE = """## Pi operational note
-
-Every Pi Agent call must state its logical stopping condition and use an enforceable whole-lane execution cap. Set a task-specific `max_turns` unless an equivalent enforceable whole-lane runtime deadline bounds the lane's total execution and cancels it at expiry; only then may `max_turns` be omitted. A prompt deadline is not an execution cap. Source-changing `worker` and `worker-complex` calls default to `run_in_background: true`; foreground calls require a clearly brief, bounded scope. Apply the canonical cap behavior: exceeding a slice requires a new orchestrator decision rather than automatic continuation. Independently, every potentially blocking child tool call uses its native timeout or an OS/harness-enforced per-call timeout. `max_turns` does not bound a single tool call, and a per-call timeout does not bound the whole lane. If enforceable timeout and termination are unavailable, do not delegate that operation; keep it bounded in the primary or return `BLOCKED`.
-
-When the optional `harness-extensions` watchdog is installed, it covers top-level Pi agents only with a 120-second startup deadline, a 5-minute idle deadline, and a 30-minute total-runtime deadline. It observes meaningful child-session state changes, requests targeted cancellation through `subagents:rpc:stop`, and reports terminal `BLOCKED` with the last progress time and kind only after cancellation is acknowledged. A failed or missing acknowledgement emits a visible watchdog error, keeps the lane non-terminal, and retries cancellation every 30 seconds until the child becomes terminal or the host shuts down. This watchdog-owned safety retry is not child-lane continuation and never authorizes duplicate work. The watchdog catches zero-progress startup stalls that neither `max_turns` nor per-tool timeouts can see. Nested and workflow-owned children remain unsupported by the upstream lifecycle and stop surfaces; do not claim watchdog coverage for them or assume the optional package is installed.
-
-When a background agent must be stopped manually after a deadline breach, use `/agents` → `Running agents` → select the agent → press `x`, then `x` again to confirm. This manual UI stop is recovery only, not a pre-launch safety guarantee. Stopped output is partial/incomplete; keep the agent/task non-terminal until stop or terminal state is confirmed. Global Esc does not unambiguously target a background agent, and `steer_subagent` is not cancellation.
-
-Pi cannot reliably hard-cancel a child's in-flight tool call. Delegated agents MUST NOT watch, poll, retry, sleep, or otherwise wait for CI, deployment, security, dependency, or other external-job state. They MAY make at most one one-shot status query: terminal success maps to `PASS`, terminal unsuccessful maps to `FAIL`, and pending, queued, running, unknown, or otherwise non-terminal maps immediately to `BLOCKED`; never issue a second query. Waiting or retry loops remain owned by the primary, which MUST use a bounded process/tool timeout that terminates the underlying operation at the deadline. Neither delegated one-shot status nor primary waiting MAY start unless hard cancellation can terminate both the execution lane and the in-flight process/tool call. Without that guarantee, the operation is forbidden and returns `BLOCKED`.
-"""
 READ_TOOLS = ["read", "grep", "find", "ls"]
 # Pi's MCP directTools expose these concrete names. This is intentionally a
 # role-specific exception rather than a general capability abstraction: the
@@ -181,9 +170,6 @@ def tools_for(role: str, config: dict) -> list[str]:
         tools.append("bash")
     if role == "validator":
         tools.extend(VALIDATOR_MCP_TOOLS)
-    delegates = set(config.get("delegates", []))
-    if delegates & {"explorer"}:
-        tools.append("subagent")
     return tools
 
 
@@ -237,11 +223,8 @@ def control_plane(
         },
         "note": (
             "The profile launcher selects the primary model and Pi agent files configure "
-            "child roles. Canonical policy restricts planner and reviewer delegation to "
-            "the exact child target `explorer`; runtimes without a public framework-neutral "
-            "child-target enforcement API represent that restriction in policy and generated "
-            "tool lists, not runtime enforcement. Pi cannot install the small-model or "
-            "built-in mappings; those values are recorded as control-plane intent."
+            "child roles. Pi cannot install the small-model or built-in mappings; those "
+            "values are recorded as control-plane intent."
         ),
     }
 
@@ -285,80 +268,13 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
 
     (output / "agents").mkdir(parents=True)
     (output / "_shared").mkdir(parents=True)
-    (output / "workflows").mkdir(parents=True)
-
-    policy = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
-    addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
-    (output / "_shared" / "orchestration-core.md").write_text(
-        f"{policy}\n\n{addendum}\n\n{PI_OPERATIONAL_NOTE}"
-    )
     (output / "_shared" / "control-plane.json").write_text(
         json.dumps(control_plane(profile, allowed_providers, profile_name), indent=2, sort_keys=True) + "\n"
     )
-    (output / "_shared" / "degradations.md").write_text(
-        """# Pi adapter degradations
-
-- Pi's native child permission model rejects `permissions.bash` and always allows shell calls
-  when the `bash` tool is present. Pi cannot forward an `ask` decision from a headless child
-  to the parent UI, so the adapter resolves every canonical `bash = \"ask\"` role to a concrete
-  grant or denial. Validator, debugger, and explorer receive `bash`; reviewer omits `bash` and
-  keeps a stricter no-shell ceiling. Command-level permissions are operator-owned runtime state;
-  this bundle and its installer do not copy or claim permission configuration or bridges.
-- The profile launcher selects the primary session and Pi user agent files configure
-  subagents. Pi cannot install the small model or built-in build/plan mappings; their
-  mapped values are recorded in `control-plane.json` as profile intent and are not installed.
-- Validator, debugger, and explorer receive `bash` despite canonical `bash = "ask"` because
-  their contracts require mechanical checks, repository commands, or repository evidence.
-  This is an explicit, documented weakening: `bash` is unrestricted for these children and
-  there is no hard read-only sandbox. Planner and design-partner are structurally read-only
-  and omit `bash`, `edit`, and `write`; reviewer remains read-only and also omits `bash`.
-  Debugger remains source-edit read-only.
-- Validator has a separate deterministic browser/Appium MCP allowlist. Direct MCP tools
-  require an available background/async child and a prepared URL/session; when that
-  provider or session is unavailable, acceptance is reported as `BLOCKED`, never shifted
-  to UX-Critic. The validator list excludes video/recording, evaluation, upload/drop/tab,
-  lifecycle, device/session management, file, driver-settings, perform-actions, and clipboard
-  controls. UX-Critic's independent allowlist remains unchanged.
-- UX-Critic is an on-demand, read-only runtime audit. Its Pi agent file has an
-  explicit allowlist of verified Playwright MCP and Appium MCP interaction,
-  inspection, screenshot, and recording tools, plus Pi's built-in image-capable
-  `read` for opening saved screenshots. `read` is its only filesystem capability;
-  it receives no `edit`, `write`, or shell tools. The primary must supply the
-  running URL/session, device, scope, identity, reference, and screenshot
-  destination first.
-- Planner and reviewer receive the `subagent` tool, and canonical policy restricts both to
-  the exact child target `explorer`; all other canonical roles receive no `subagent` tool.
-  On runtimes without a public framework-neutral child-target enforcement API, this is a
-  policy-level boundary represented in role contracts and generated tool lists, not runtime enforcement.
-  The bundle does not claim fail-closed package integration. This boundary is
-  not an OS sandbox or a command-level shell policy.
-- Every other canonical role is a leaf and receives no `subagent` tool. When
-  the primary cannot inspect images natively, it routes visual work directly
-  to an existing image-capable role according to the shared policy.
-- Every generated profile manages no Pi extension package: there is no
-  `extensions/agent-orchestration` directory, no extension `package.json`, and
-  `managed_extensions` is empty. `explorer` receives Pi's built-in `bash` tool instead of
-  the removed `git_read` extension.
-- `explorer` frontmatter declares `acceptanceRole: read-only`, which is prompt/acceptance
-  metadata for acceptance inference only. It does not grant or revoke tools, does not create a
-  hard read-only sandbox, and does not constrain `bash`; `explorer` is expected to gather
-  repository evidence through read-only commands and the non-mutating read tools. The
-  installer validates only this tool allowlist and acceptance metadata, not the shell
-  commands a child runs.
-"""
-    )
-
-    workflow = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
-    if not workflow.is_file():
-        raise SystemExit(f"Missing optional workflow artifact: {workflow}")
-    shutil.copy2(workflow, output / "workflows" / workflow.name)
 
     for role, config in roles.items():
-        contract = ROOT / "roles" / f"{role}.md"
-        if not contract.is_file():
-            raise SystemExit(f"Missing role contract: {contract}")
         (output / "agents" / f"{role}.md").write_text(
-            frontmatter(role, config, profile["models"][role], allowed_providers) + contract.read_text()
+            frontmatter(role, config, profile["models"][role], allowed_providers)
         )
 
     launcher = ROOT / "harnesses" / "pi" / "templates" / f"pi-{profile_name}"
@@ -390,11 +306,8 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
                 "managed_extensions": [],
-                "workflows": [WORKFLOW_NAME],
                 "shared": [
-                    "orchestration-core.md",
                     "control-plane.json",
-                    "degradations.md",
                 ],
             },
             indent=2,

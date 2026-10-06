@@ -70,9 +70,6 @@ def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
         for workflow in sorted(current_manifest.get("workflows", []))
         if _has_entry(target / "workflows" / f"{workflow}.md")
     )
-    claude_md = target / "CLAUDE.md"
-    if _has_entry(claude_md):
-        collisions.append(str(claude_md))
     control_note = target / CONTROL_PLANE_NOTE
     if _has_entry(control_note):
         collisions.append(str(control_note))
@@ -96,24 +93,31 @@ def assert_safe_destination(path: Path, target: Path) -> None:
         current = current.parent
 
 
-def merge_claude_md(existing: str, section: str) -> str:
-    """Replace the marker-delimited managed section, or append it, preserving the rest."""
+def strip_claude_md(existing: str) -> str:
+    """Remove the marker-delimited managed section, preserving every other byte.
+
+    The adapter no longer installs instruction content into CLAUDE.md, so an
+    existing managed section is stripped instead of rewritten. Files without a
+    marker pair, and files with dangling or duplicated markers, are returned
+    unchanged: the installer never rewrites bytes it does not own.
+    """
     start_count = existing.count(MARKER_START)
     end_count = existing.count(MARKER_END)
-    if start_count == 0 and end_count == 0:
-        if existing and not existing.endswith("\n"):
-            existing += "\n"
-        if existing:
-            existing += "\n"
-        return existing + section
-    if start_count == 1 and end_count == 1 and existing.index(MARKER_START) < existing.index(MARKER_END):
-        return MARKER_PATTERN.sub(lambda _match: section.strip("\n"), existing)
-    raise SystemExit(
-        "CLAUDE.md contains malformed agent-orchestration markers "
-        f"({MARKER_START!r}: {start_count}, {MARKER_END!r}: {end_count}); "
-        "expected zero of both or exactly one well-formed start-before-end pair. "
-        "Repair CLAUDE.md manually before installing."
-    )
+    if start_count != 1 or end_count != 1:
+        return existing
+    match = MARKER_PATTERN.search(existing)
+    if match is None or existing.index(MARKER_START) > existing.index(MARKER_END):
+        return existing
+    before = existing[: match.start()]
+    after = existing[match.end() :]
+    # Drop the blank-line separator this adapter wrote before the section and
+    # the newline that terminated it, so repeated installs stay idempotent.
+    if before.endswith("\n\n") and after.startswith("\n"):
+        before = before[:-1]
+        after = after[1:]
+    elif after.startswith("\n"):
+        after = after[1:]
+    return before + after
 
 
 def load_and_preflight_manifests(
@@ -136,6 +140,7 @@ def load_and_preflight_manifests(
     paths = {
         target / MANIFEST_NAME,
         target / "CLAUDE.md",
+        target / "_shared" / "orchestration-core.md",
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
     paths.update(
@@ -177,6 +182,7 @@ def desired_state(
     stale_workflows = previous_workflows - current_workflows
 
     claude_md_path = target / "CLAUDE.md"
+    legacy_core = target / "_shared" / "orchestration-core.md"
 
     for role in current_roles:
         source = generated / "agents" / f"{role}.md"
@@ -190,9 +196,12 @@ def desired_state(
     for workflow in stale_workflows:
         deletions.add(target / "workflows" / f"{workflow}.md")
 
-    section = (generated / "_shared" / "orchestration-core.md").read_text()
+    deletions.add(legacy_core)
     existing_claude_md = claude_md_path.read_text() if claude_md_path.exists() else ""
-    files[claude_md_path] = merge_claude_md(existing_claude_md, section)
+    if existing_claude_md:
+        stripped = strip_claude_md(existing_claude_md)
+        if stripped != existing_claude_md:
+            files[claude_md_path] = stripped
     control_note_source = generated / CONTROL_PLANE_NOTE
     files[target / CONTROL_PLANE_NOTE] = control_note_source.read_text()
 

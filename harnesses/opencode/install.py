@@ -47,7 +47,14 @@ def text_diff(current: Path, desired: str, label: str) -> str:
     return "".join(difflib.unified_diff(before, after, fromfile=str(current), tofile=label))
 
 
-def managed_instruction_paths(target: Path, profiles: set[str]) -> set[str]:
+def legacy_instruction_paths(target: Path, profiles: set[str]) -> set[str]:
+    """Frozen cleanup set: instruction files an earlier installer registered.
+
+    The adapter no longer installs or registers any global instruction file. The
+    two legacy paths stay listed only so an existing installation is cleaned:
+    they are filtered out of every surviving `instructions` array and unlinked
+    when present on disk.
+    """
     paths = {str(target / "profiles" / "_shared" / "orchestration-core.md")}
     paths.update(str(target / "profiles" / name / "orchestration.md") for name in profiles)
     return paths
@@ -175,7 +182,6 @@ def load_and_preflight_manifests(
     profiles = set(current_manifest["profiles"]) | set(previous_manifest["profiles"])
     paths = {
         target / MANIFEST_NAME,
-        target / "profiles" / "_shared" / "orchestration-core.md",
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
     paths.update(target / "workflows" / f"{workflow}.md" for workflow in current_manifest.get("workflows", []))
@@ -183,6 +189,7 @@ def load_and_preflight_manifests(
     for name in profiles:
         paths.add(target / "profiles" / name / "opencode.json")
         paths.add(target / "profiles" / name / "orchestration.md")
+    paths.add(target / "profiles" / "_shared" / "orchestration-core.md")
     for path in paths:
         assert_safe_destination(path, target)
 
@@ -213,7 +220,7 @@ def desired_state(
     previous_workflows = set(previous_manifest.get("workflows", []))
     stale_roles = previous_roles - current_roles
     stale_workflows = previous_workflows - current_workflows
-    all_managed_instructions = managed_instruction_paths(target, current_profiles | previous_profiles)
+    legacy_instructions = legacy_instruction_paths(target, current_profiles | previous_profiles)
     previous_control_plane = bool(previous_manifest.get("control_plane", False))
 
     for role in current_roles:
@@ -228,8 +235,8 @@ def desired_state(
     for workflow in stale_workflows:
         deletions.add(target / "workflows" / f"{workflow}.md")
 
-    core = generated / "profiles" / "_shared" / "orchestration-core.md"
-    files[target / "profiles" / "_shared" / core.name] = core.read_text()
+    for legacy in legacy_instructions:
+        deletions.add(Path(legacy))
 
     for name in sorted(current_profiles | previous_profiles):
         profile_dir = generated / "profiles" / name
@@ -251,7 +258,7 @@ def desired_state(
 
         existing_instructions = config.get("instructions", [])
         unrelated_instructions = [
-            value for value in existing_instructions if value not in all_managed_instructions
+            value for value in existing_instructions if value not in legacy_instructions
         ]
 
         if name in current_profiles:
@@ -262,13 +269,7 @@ def desired_state(
             config["variant"] = control["primary"]["variant"]
             config["small_model"] = control["small_model"]
             agents.update(control["builtins"])
-            addendum_target = target / "profiles" / name / "orchestration.md"
-            files[addendum_target] = (profile_dir / "orchestration.md").read_text()
-            config["instructions"] = [
-                str(target / "profiles" / "_shared" / "orchestration-core.md"),
-                str(addendum_target),
-                *unrelated_instructions,
-            ]
+            config["instructions"] = unrelated_instructions
         else:
             config["instructions"] = unrelated_instructions
             if previous_control_plane:

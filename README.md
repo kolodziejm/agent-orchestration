@@ -1,683 +1,223 @@
 # Agent Orchestration
 
-Harness-agnostic source of truth for agent roles, delegation boundaries, validation/review gates, model routing, and harness configuration generation.
+Harness-agnostic source of truth for agent and subagent definitions, their
+capability data, and the model/reasoning-effort routing used to generate
+per-harness configuration.
 
-The repository separates stable orchestration semantics from replaceable executors:
-
-```text
-policy + role contracts + logical model profiles
-                    ↓
-            harness generator
-                    ↓
-       OpenCode / Codex / Claude Code / Pi / future harnesses
-```
-
-## Source of truth
-
-- `policy/orchestration.md` — human-readable orchestration invariants and gates.
-- `policy/routing.toml` — machine-readable roles, permissions, and delegation graph.
-- `roles/*.md` — provider- and harness-agnostic role contracts.
-- `profiles/*.toml` — versioned concrete model/effort mapping for an execution profile,
-  including the separate `[control_plane]` intent for the primary model, small model,
-  and built-in `build`/`plan` mappings.
-- `profiles/*.md` — profile-specific capability addenda.
-- `harnesses/validate.py` executes both Draft 2020-12 schemas before semantic
-  checks, then validates the exact delegation graph: only known canonical roles
-  are accepted, cycles fail closed, and every role outside the canonical
-  delegator allowlist must remain a leaf.
-
-Model identifiers belong only in profiles. Role contracts must not name providers.
-
-## Current delegation model
+This repository carries no role prompts and installs no global instruction file.
+A generated bundle contains agent or subagent definitions plus the model and
+effort values each harness needs to run them:
 
 ```text
-orchestrator
-├── planner
-│   └── explorer
-├── reviewer
-│   └── explorer
-├── worker
-├── worker-complex
-├── validator
-├── debugger
-├── design-partner
-└── ux-critic
+policy/routing.toml + profiles/*.toml
+                  ↓
+           harness generator
+                  ↓
+OpenCode / Codex / Claude Code / Pi / OMP / DeepSeek Harness
 ```
 
-Delegation is the default for repository discovery and source work. The primary may directly
-execute only a small, clearly bounded, low-risk task when delegation offers no concrete leverage,
-and must state why before acting. This implementation exception never waives independent
-validator proof or fresh-context AI review for code/tests/config/dependencies/product behavior. Every
-source-changing handoff owns at most one independently verifiable slice and one validator
-checkpoint; unbounded or whole-initiative delegation is prohibited. Each delegation has
-a logical stopping condition and a separate enforceable whole-lane execution cap; every
-potentially blocking tool call also has its own enforceable per-call timeout. Potentially
-non-brief work runs in the background when supported so the primary remains responsive.
-All source-changing code/behavior review units require an independent validator. Workers
-may run focused development tests and checks as `SELF-CHECKS`; `validator` independently
-reruns predefined deterministic acceptance, including browser/device checks. Both worker tiers are leaves; the
-primary routes visual work directly to existing image-capable roles. `worker` is the routine executor and
-`worker-complex` is reserved for sufficiently specified changes whose implementation
-requires unusually difficult reasoning. A stronger worker must not compensate for unclear
-product intent. After scope is known, large analysis spanning at least two independent
-top-level areas or a large file set may use multiple non-overlapping `explorer` evidence
-lanes only when parallelism offers concrete latency, specialization, or context-isolation
-leverage; otherwise one focused lane is preferred. Any fanout is followed by one synthesis
-owner/writer and serial validation. Internal handoffs, schemas, workflow labels, and non-user-facing
-reports default to concise technical English; preserve original-language quotations plus
-an English normalization when nuance matters, while user-facing replies and artifacts stay
-in the user's requested language.
+## Sources of truth
 
-Implementation is simplicity-first: prove the smallest end-to-end path before generalized
-hardening. Abstractions, fallbacks, error taxonomies, compatibility layers, and speculative
-guards require an explicit requirement, an observed failure, or a real security/data-loss/
-destructive boundary. Controlled internal misuse may fail naturally.
+- `policy/routing.toml` — the canonical roles and their capability data
+  (`description`, `mode`, `edit`, `bash`). It contains no model identifiers and no
+  delegation graph between roles.
+- `profiles/*.toml` — the versioned model and reasoning-effort mapping for one
+  execution profile. Each profile declares one `[models.<role>]` entry per role and
+  a `[control_plane]` intent for the primary model, the small model, and the
+  built-in `build`/`plan` mappings.
+- `profiles/*.md` — profile addenda. The `addendum` key names the file and
+  `harnesses/validate.py` requires it to exist, but no generator copies it into
+  generated output. The addenda are inert, hand-copy sources for an operator's own
+  global instructions.
+- `schema/*.json` — Draft 2020-12 schemas for routing documents, profiles, and
+  evaluations, executed before the semantic checks.
+- `harnesses/validate.py` — validates routing, every versioned profile, the profile
+  addenda, and the evaluation documents without provider calls.
 
-## Reviewable-PR delivery
+Model identifiers live only in `profiles/*.toml`; the generators read
+`policy/routing.toml` for role capability data and validate each profile before
+writing output.
 
-When a repository has suitable hosting/remote support and the harness has the capability and authorization, a pull request is the default delivery and review unit. Each unit answers one coherent reviewer question and preferably delivers observable behavior or removes complexity. Keep implementation and tests together with actual dependencies only. Line/file counts are diagnostics, not approval gates or hard ceilings. Report human-authored, generated, and lockfile changes separately, but count every artifact a reviewer must inspect as cognitive burden. Split for independently valuable behavior or separable risk; keep work together when splitting would create unused scaffolding, partial abstractions, duplicated setup, or dependent units repeatedly touching the same files.
+## Generated output
 
-For a named stack, every PR title uses `[i/N] <title>`: `i` is the 1-based order and `N` is the total PR count in the complete stack. If membership or order changes before promotion, renumber affected titles so all titles remain mutually consistent; a standalone PR need not use `[1/1]`.
+`./scripts/generate` writes every supported harness output into the untracked
+`build/` tree (`build/` and `generated/` are ignored). Agent bodies are empty: a
+bundle carries definitions and model/effort carriers, never a role prompt or a
+global instruction file.
 
-If PR creation or remote access is unavailable or unauthorized, prepare an equivalently reviewable local branch, commit, or patch and label it as a fallback—never claim a remote action. Parallel implementation is limited to isolated, non-overlapping branches/worktrees when it offers concrete leverage, while promotion remains ordered. Concretely plan only the next one to three units; later work remains a revisable roadmap informed by completed working slices. After every PR or fallback unit, present a bird's-eye checkpoint automatically as a non-blocking progress report covering reviewer question, before/after behavior, decisions, separate human-authored/generated/lockfile diff stats, affected areas/files, risks, self-checks and independent validation, residual work, and the next proposed unit. Checkpoints do not authorize merge, promotion, or remediation; existing review, finding/remediation, and merge authorization gates remain in force. This contract does not add GitHub-provider automation, credentials, or hosting assumptions, and does not automatically create branches, commits, or pull requests.
+| Bundle | Contents |
+| --- | --- |
+| `build/opencode/` | `agents/<role>.md` (description, mode, permissions), `profiles/<profile>/agent-routing.json` (per-role model/variant), `profiles/<profile>/control-plane.json`, `manifest.json` |
+| `build/codex/` | `agents/<role>.toml` (`model`, `model_reasoning_effort`, `sandbox_mode`), `control-plane.toml` |
+| `build/claude-code/` | `agents/<role>.md` with the profile model and effort baked into frontmatter, `_shared/control-plane.md` intent note, `manifest.json` |
+| `build/pi/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `_shared/control-plane.json`, `pi-<profile>` launcher, `manifest.json` |
+| `build/omp/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `config.yml` `modelRoles`, `manifest.json` |
+| `build/dsh/` | `patch/cordis.patch.yml` (one subagent lane per role carrying provider, model, and effort, with a tool filter for restricted roles), `_shared/control-plane.md`, `manifest.json` |
 
-## Global AI-first risk-based review
+The Pi launcher selects the profile's primary `--model` and `--thinking` and
+exports `AGENT_ORCHESTRATION_PROFILE` before starting Pi. Where a harness cannot
+install the primary model, small model, or built-in `build`/`plan` mappings, the
+bundle records those values as control-plane intent only.
 
-The canonical policy grants standing policy authorization across all profiles. Every completed
-code/tests/config/dependencies/product-behavior PR or fallback review unit gets independent
-validator evidence and one fresh-context AI reviewer automatically, including direct-primary
-work. Documentation-only units get proportionate read-only review and deterministic checks only
-when applicable. Reviewer context contains the authoritative spec/approved criteria, scope and
-exclusions, exact diff, and compact validator report—not author reasoning/history. Validator owns
-mechanical checks; reviewer may request targeted evidence through the orchestrator, not run checks
-secretly. Different model-family review is preferred where existing routing allows, not required;
-this policy changes no model mappings. Extra specialists require explicit authorization and benefit.
+A custom output root is accepted only when it is the repository `build/<harness>`
+destination or a directory below the process temporary root; any other destination
+is refused before any file is written.
 
-Risk is per unit, based on blast radius, reversibility, and verifiability—not LOC or worker tier.
-Orchestrator assigns preliminary risk; reviewer verifies/can raise it; uncertainty is not low:
+## Generate and check
 
-- **Low:** local, reversible, unambiguous; no mandatory human full-diff reading.
-- **Standard:** targeted human review of important logic/state, integrations/shared pieces,
-  tests, and behavior, with exact hotspots and reasons.
-- **High:** explicit human gate and detailed critical-path review for security/auth/permissions/
-  secrets, payments/sensitive data, migrations/persistence/destruction/recovery, hard concurrency,
-  public contracts, infrastructure/release, broad blast radius, or orchestration/role/model policy.
-
-AI pass is neither human review nor approval. High-risk dependency gates cannot be bypassed by
-preparing downstream code; approved stacks otherwise progress without routine human interruptions.
-Per-unit validation/review is supplemented by proportionate full-stack integration evidence at the
-exact relevant revision. The orchestrator assembles a concise completion decision packet: outcome,
-risk rationale, actual validator/reviewer proof, human hotspots/reasons, decisions/blockers, and
-unverified aspects. Evidence names the exact SHA or local diff revision; later edits, rebase, or
-integration invalidate affected proof. Short chat reports are standard, not mandatory HTML.
-Stack approval, reports, CI, and AI review grant no merge/release authority: no auto-merge;
-the existing release promotion check gate is unchanged.
-
-### Visual-first human review
-
-Before human-facing findings and decisions, multi-part structural/logic changes get a compact
-scope-matched map of changed/unchanged pieces, flows, and decision hotspots—not a whole-system
-diagram or ceremony for trivial changes. UI-visible changes use validator-owned genuine comparable
-before/after runtime screenshots and relevant loading/empty/error states; short recordings only
-when timing matters. Never invent a missing baseline. Label revision/scenario/viewport and stale
-affected captures after edits. Reviewer interprets risk read-only; orchestrator synthesizes and publishes.
-
-Captures live only in harness-managed temporary storage outside repositories/worktrees: no
-standalone evidence binaries or `.gitignore` edits. In an authorized GitHub PR workflow, use native
-attachments in the PR overview with Mermaid/key images and one owned updateable `Visual review`
-comment for extra states/fixes. Preserve human content; read back exact targets/assets before cleanup
-and retry only missing uploads. No public-host, committed-image, or expiring-CI fallback. Sanitize
-data; public-repo attachments are public. Missing prerequisites are unavailable/`BLOCKED`, not fake
-proof; no PR means in-chat/authorized-report evidence with limits, not forced PR creation. This grants
-no arbitrary publication, PR, or merge authority and changes no repair rules. Visuals explain changes
-and observed states, not a replacement for tests or required human critical-path review.
-
-### Bounded autonomous repair
-
-The bounded autonomous repair mandate is globally authorized by canonical policy, within the
-original user-approved scope: concrete evidenced reachable issue, uniquely determined low-risk
-fix restoring approved intent, and no new product interpretation, requirements/business rules,
-public contracts, dependencies, architecture, security boundary, or scope. Fix risk is separate
-from severity; there is no blanket Low/Medium auto-fix. Only the orchestrator records stable ID,
-evidence, fix risk, mandate rationale, owner, budget, and checks and authorizes a worker; reviewer
-remains read-only. One autonomous reviewer remediation round per review unit gets independent
-validation and targeted re-review; renaming findings or changing reviewers cannot renew it.
-Deterministic preapproved acceptance-blocker repair retains its separate bounded authority/budget,
-not a way to retry the same exhausted repair. New security/data-loss issues stop and escalate unless
-the exact deterministic criterion and repair were preapproved as an existing acceptance blocker.
-Ambiguity, nonmandated actionable findings, residual/unresolved issues, and exhaustion require
-specific individual fix versus `Not now` decisions, batched without package/silence approval.
-Declined findings stay declined absent materially changed evidence; mandated fixes are reported,
-not retrospectively re-approved. No speculative hardening or style remediation is authorized.
-
-These are prompt-level orchestration contracts, not a new runtime scheduler, gate engine, or
-durable state machine. Generation proves propagation/determinism, not live agents obeying gates;
-existing harness permission degradations remain documented below.
-
-## OpenCode harness
-
-Requires Python 3.11 or newer (`python3` on `PATH`).
-
-Generate every supported harness configuration into the untracked `build/` tree:
+The project requires Python 3.11 or newer and pins PyYAML 6.0.2 and jsonschema
+4.25.1 in `pyproject.toml`, `requirements-dev.txt`, and `uv.lock`.
 
 ```bash
 ./scripts/generate
-```
-
-`./scripts/generate` accepts an optional first positional output root (default
-`build/`). A custom root must satisfy each generator's fail-closed output-path
-policy: the repository's `build/` destination or a directory below the process
-temporary root.
-
-Run contract tests and verify every generated harness/profile output is
-deterministic in the reproducible uv environment:
-
-```bash
 uv run --locked ./scripts/check
 ```
 
-`./scripts/check` rebuilds each OpenCode, Codex, Claude Code, and four Pi
-profile output twice in separate temporary roots and diffs the corresponding
-results. It never reads or updates a committed snapshot.
+`./scripts/check` runs `harnesses/validate.py`, the `tests/` unittest suite, then
+generates each OpenCode, Codex, Claude Code, four Pi, four OMP, and DeepSeek
+Harness output twice into separate temporary roots and diffs the results. It never
+reads or updates a committed snapshot, so nondeterministic generation fails the
+check. Where `uv` is unavailable, the documented local fallback is:
 
-The project requires Python 3.11 or newer and pins PyYAML 6.0.2 and jsonschema 4.25.1
-in `pyproject.toml` and `uv.lock`. The scripts also work when invoked directly with a
-3.11+ `python3`; on macOS
-systems whose `/usr/bin/python3` is 3.9, use the uv command above. Scripts detect an
-already-active uv environment and do not recursively invoke uv.
+```bash
+PYTHON=.venv/bin/python ./scripts/check
+```
 
-Preview installation against the active OpenCode configuration:
+## Installation
+
+Installers merge generated artifacts into a harness configuration, record what they
+own in a manifest, delete files a previous manifest claimed, and roll back on
+failure. Except for the OMP installer, which rolls back in memory, keeps no backups,
+and removes the retired `APPEND_SYSTEM.md` name unconditionally even with no prior
+manifest, every installer backs up each changed or removed file under
+`~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/<harness>/`.
+Operator-owned runtime state — settings, catalogs, auth, MCP configuration, themes,
+provider state, sessions, and caches — keeps its bytes, and the installers
+never install, select, migrate, or validate framework packages. A first
+installation reports existing files at managed names as collisions; every
+installer except OMP requires `--adopt` before taking them over, while OMP refuses
+the collision.
+
+### OpenCode
 
 ```bash
 ./scripts/install-opencode --dry-run
-```
-
-For an isolated preview, always pass a fixture target rather than the active configuration:
-
-```bash
-uv run --locked ./scripts/install-opencode --target /tmp/opencode-fixture --dry-run --skip-validate
-```
-
-On a first installation, existing managed role files, instruction files, or
-managed agent entries are reported as collisions and no changes are made. If
-those names are intentionally being taken over, rerun with `--adopt` (the
-dry-run flag can be combined with it to inspect the takeover).
-
-Install, back up changed files, and validate every configured profile with `opencode debug config`:
-
-```bash
 ./scripts/install-opencode
 ```
 
-The installer merges generated agent routing and the selected versioned profile's control
-plane into existing profile `opencode.json` files. The primary model/variant and
-`small_model` are managed at the config root; built-in `build` and `plan` mappings are
-managed under `agent`. It preserves unrelated provider, plugin, skill, MCP, compaction,
-and model-limit configuration. On validation failure it restores the original files.
+Merges each profile's `agent-routing.json` and `control-plane.json` into an
+existing `<target>/profiles/<profile>/opencode.json` (default
+`~/.config/opencode`), preserving unrelated configuration, and copies
+`agents/<role>.md`. On a target with no profile config it writes only
+`agents/<role>.md` and the manifest, so the `check-runtime` step below then fails
+with `OpenCode runtime config is missing` until that config exists. It also removes
+the managed instruction files an earlier version registered.
 
-The optional `workflows/feature-workflow-pilot.md` artifact is copied separately and is
-not added to profile `instructions`, so its detailed procedure is not injected into every
-base prompt.
-
-Compare an effective OpenCode configuration to the selected profile without changing it:
+Compare an effective configuration to the selected profile without changing it:
 
 ```bash
 uv run --locked ./scripts/check-runtime --profile openai --target ~/.config/opencode
 ```
 
-`check-runtime` reports actionable drift for the primary model/effort, `small_model`,
-built-in mappings, managed instruction paths, and managed subagent model/variant entries.
-It reads only known fields and never prints credentials or the complete runtime config.
-
-The local `.agent-orchestration.manifest.json` records exactly which roles and profiles are managed. This allows later policy versions to remove obsolete generated agents without deleting unrelated user-defined agents or instructions.
-
-Backups are written under unique, namespaced directories per harness:
-
-```text
-~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/opencode/
-~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/claude-code/
-```
-
-## Codex harness
-
-Codex is generator-only: there is no Codex installer, no `scripts/install-codex`, and
-no write to `~/.codex`. The Codex generator consumes the same canonical policy and
-the `openai` profile, and generates the nine role contracts as standalone Codex
-agent TOML files, the selected control-plane intent as `control-plane.toml`, and the
-policy and profile addendum into `AGENTS.md`:
+### Claude Code
 
 ```bash
-./scripts/generate
+./scripts/install-claude-code --dry-run
+./scripts/install-claude-code
 ```
 
-That writes every harness output, including the Codex output at the default
-untracked `build/codex/`. To generate only Codex output, invoke its generator
-directly:
+Copies `agents/<role>.md` and the `_shared/control-plane.md` note into `<target>/`
+(default `~/.claude`). As legacy cleanup, it strips the managed instruction section
+an earlier version of this installer wrote into `CLAUDE.md`, preserving
+operator-authored content outside the managed section.
+
+### Pi
 
 ```bash
-python3 harnesses/codex/generate.py --output build/codex --profile openai
+./scripts/install-pi --profile hybrid --dry-run
+./scripts/install-pi --profile hybrid
 ```
 
-To inspect the output outside the repository, generate into a safe temporary
-output root and copy the files you want:
+The four profiles are `hybrid` (default), `openai`, `deepseek`, and `glm`. The
+default target is `~/.pi/agent` for `hybrid` and `~/.pi/profiles/<profile>` for the
+others; `--target` selects an isolated fixture and `--bin-dir` overrides the
+launcher directory (default `~/.local/bin`). The bundle manifest records every
+managed file, and the installer deletes files a previous manifest claimed. Its
+`format_version: 1` names the internal orchestration bundle schema, not a Pi host
+or runtime version. Install each profile, then exit the current Pi process and
+start the matching launcher, because profile roots are selected only at process
+startup:
+
+```bash
+pi-hybrid    # mixed OpenAI + DeepSeek routing at ~/.pi/agent
+pi-openai    # OpenAI routing at ~/.pi/profiles/openai
+pi-deepseek  # DeepSeek routing at ~/.pi/profiles/deepseek
+pi-glm       # Z.AI GLM routing at ~/.pi/profiles/glm
+```
+
+### OMP
+
+```bash
+./scripts/install-omp --profile hybrid --dry-run
+./scripts/install-omp --profile hybrid
+```
+
+Installs `config.yml` and `agents/<role>.md` into
+`~/.omp/profiles/<profile>/agent` (override with `--target`). It has no adoption or
+overwrite mode: a collision at a managed name is refused. An `APPEND_SYSTEM.md` at
+that retired managed name is removed on every install, including a first install
+where no prior manifest claims it, and OMP keeps no on-disk backups. Start OMP with
+the matching `omp --profile <profile>`.
+
+### DeepSeek Harness
+
+```bash
+./scripts/install-dsh --dry-run
+./scripts/install-dsh
+```
+
+Manages `cordis.patch.yml`, `.agent-orchestration/`, and the manifest under
+`$DSH_HOME` (default `~/.dsh`). `AGENTS.md` is not generated or installed; as legacy
+cleanup, a managed section an earlier version wrote into `AGENTS.md` is stripped
+while operator-authored content outside the managed section is preserved.
+Generate a Windows bundle with `--shell pwsh`.
+
+### Codex (manual installation)
+
+Codex is generator-only: there is no `scripts/install-codex`, and nothing in this
+repository writes to `~/.codex`. Copy the generated files yourself:
 
 ```bash
 tmp_root="$(mktemp -d)"
 python3 harnesses/codex/generate.py --output "$tmp_root/codex" --profile openai
-mkdir -p /desired/codex/location/agents
-cp "$tmp_root/codex/AGENTS.md" "$tmp_root/codex/control-plane.toml" /desired/codex/location/
-cp "$tmp_root/codex/agents/"*.toml /desired/codex/location/agents/
+mkdir -p ~/.codex/agents
+cp "$tmp_root/codex/agents/"*.toml ~/.codex/agents/
+cp "$tmp_root/codex/control-plane.toml" ~/.codex/
 ```
 
-A custom output path is accepted only when it stays below the process temporary
-root, so an accidental repository or user-configuration destination fails closed
-before any file is written.
-
-The generator removes the `openai/` provider prefix from model identifiers, maps the profile `variant` to Codex `model_reasoning_effort` (`max` becomes Codex's `xhigh`), and maps canonical `edit = deny` to `read-only` while writable roles use `workspace-write`. Codex cannot represent canonical `bash = deny`; the generator fails before writing if that capability is configured, so it never silently grants shell access. The optional feature workflow is copied separately under `build/codex/workflows/`. Copy `build/codex/AGENTS.md`, `build/codex/control-plane.toml`, and `build/codex/agents/*.toml` into the Codex locations you choose. There is no installer, deployment manager, backup, adoption, or rollback logic.
-
-## Claude Code harness
-
-Generate the Claude Code harness configuration (this also generates the OpenCode and Codex output) into `build/`:
-
-```bash
-./scripts/generate
-```
-
-Run contract tests and verify generated-output determinism:
-
-```bash
-uv run --locked ./scripts/check
-```
-
-Preview installation against the active Claude Code configuration:
-
-```bash
-./scripts/install-claude-code --dry-run
-```
-
-Install and back up changed files:
-
-```bash
-./scripts/install-claude-code
-```
-
-Claude Code also reports existing unmanaged managed-name files or sections on
-first install. Use `--adopt` to explicitly take ownership after reviewing the
-collision list; subsequent installations use the manifest as before.
-
-The installer copies each generated `agents/<role>.md` subagent file into `<target>/agents/`,
-copies the optional workflow under `<target>/workflows/`, and merges the shared
-orchestration policy into `<target>/CLAUDE.md` by replacing only the section between the
-`<!-- agent-orchestration:start -->` / `<!-- agent-orchestration:end -->` markers (or
-appending it if absent). Content outside the markers is preserved untouched. The default
-target is `~/.claude`, overridable with `--target`.
-
-Unlike OpenCode, a Claude Code subagent file has no separate profile-routing layer: the active profile's `model` and `effort` are baked directly into each agent's frontmatter at generation time. The generator also emits `_shared/control-plane.md`, which records the profile intent and truthfully states that Claude Code cannot install the primary model, small model, or built-in `build`/`plan` mappings; those require manual session configuration. The `harness` field controls which harness generator picks up a profile: OpenCode selects `harness = "opencode"` (the backward-compatible default), Claude Code selects the single `harness = "claude-code"` profile, and Pi-only profiles declare `harness = "pi"`. Codex accepts only explicitly selected OpenCode/Codex-compatible profiles. Every profile-scanning generator recognizes and intentionally skips known profiles for other harnesses while still rejecting unknown harness values.
-
-### Claude Code permission degradation
-
-Claude Code has no per-subagent equivalent of OpenCode's `bash = "ask"` permission; prompts are configured at the session level, not per agent file. `Bash` is therefore granted to every generated agent, including read-only roles, since they still need it for investigation. If a role declares `bash = "deny"`, the generator fails before writing because Claude Code cannot preserve that prohibition. Claude Code uses a flat subagent topology: the orchestrator performs the logical policy's nested delegation, invokes `explorer` directly when planner or reviewer evidence is needed, and includes that evidence in the handoff. Generated subagent files contain no `Agent(explorer)` entries; all delegated targets are omitted from their frontmatter. The native-vision Claude profile inspects images directly.
-
-Generated subagents start without parent history, which satisfies the policy's no-history default. `subagent_type: "fork"` (full-history) is allowed only as the documented exception, with the reason stated in the handoff. The `model` parameter of the `Agent` tool must never be passed; model and effort are baked into each role's frontmatter by the active profile. Built-in harness agents (e.g. `general-purpose`, `Explore`, `Plan`, `claude`) must not be used while a matching role exists; they are allowed only when no role covers the work, with the reason stated in the handoff.
-
-The local `.agent-orchestration.manifest.json` under the target directory tracks managed roles,
-the optional workflow, and the non-installable control-plane note the same way as the
-OpenCode harness, so obsolete generated agents and artifacts are removed without deleting
-unrelated agents or CLAUDE.md content.
-
-## Generated output
-
-`build/opencode/`, `build/codex/`, `build/claude-code/`, and the isolated
-`build/pi/hybrid/`, `build/pi/openai/`, `build/pi/deepseek/`, and `build/pi/glm/` bundles are
-untracked generator output; `build/` and `generated/` are ignored so no generated
-harness configuration is committed. They include the separately
-packaged optional workflow and the harness-specific control-plane artifact. A policy or
-profile change shows the harness-agnostic semantic change in review, while CI proves
-that every harness output is reproducible from it.
-
-`./scripts/generate` writes every supported harness/profile output under the default
-untracked `build/` tree. `./scripts/check` generates each output twice into separate
-temporary roots and diffs the corresponding results, so CI fails on nondeterministic
-generation without relying on committed snapshots.
-
-## Pi harness
-
-The Pi generator produces a default hybrid bundle plus OpenAI, DeepSeek, and Z.AI GLM
-routing profiles. The manifest's `format_version: 1` is the internal orchestration bundle schema, not a Pi host or runtime version.
-The installer manages only manifest-owned policy, agent, workflow, extension, and launcher artifacts; it does not install, select, migrate, or validate framework packages.
-Active Tintinweb and other runtime packages remain operator-owned. The installer never modifies settings, catalogs, auth, MCP, themes, and provider state.
-
-The OpenAI profile routes `worker-complex` to GPT-6 Luna with maximum reasoning. The
-hybrid profile keeps its primary, built-ins, planner, and reviewer on GPT-6.1
-Sol while routing the small model, routine and complex workers, validator, explorer,
-debugger, design-partner, and UX critic to direct `deepseek/deepseek-flash`. The complex worker uses the
-model's maximum reasoning level. Model mapping is explicit and fail-closed:
-`openai/<id>` becomes `openai-codex/<id>`, `deepseek/<id>` remains
-`deepseek/<id>`, and `zai/<id>` remains `zai/<id>`. Unknown and malformed tokens are
-rejected. Each bundle bakes the role's mapped model and variant (as `thinking`) into
-exactly nine `agents/*.md` definitions. Every role explicitly uses
-`defaultContext: fresh`, a strict tool allowlist, replacement system prompts, and no
-inherited project context or skill catalog. The `extensions` field is intentionally
-omitted, so normal Pi extensions remain available subject to each role's strict tool
-allowlist, and every profile bundle generates no managed extension package. The
-`git-read.ts` explorer runtime extension and its `extensions/agent-orchestration/package.json`,
-the provider status extensions, and the former `primary-policy` extension are retired; files
-left by a previous install are migration-only stale artifacts that the installer removes
-rather than loads, and the manifest's `managed_extensions` is empty. The generated Pi shared
-policy requires each Pi Agent call to state its logical stopping condition and use an
-enforceable whole-lane execution cap. Set a task-specific `max_turns` unless an equivalent
-enforceable whole-lane runtime deadline bounds total lane execution and cancels the lane at
-expiry; only then may `max_turns` be omitted. Source-changing worker calls default to
-`run_in_background: true`. Potentially blocking child tool calls independently require a
-native or OS/harness-enforced per-call timeout: `max_turns` cannot bound one tool call, and
-a per-call timeout cannot bound the whole lane. When timeout and termination cannot be
-enforced, the operation is not delegated and stays bounded in the primary or returns
-`BLOCKED`. Pi's manual UI stop is recovery after a breach, not a pre-launch safety guarantee.
-
-
-The native CLI boundary replaces the former extension hook. Each profile launcher starts Pi
-with its profile's primary `--model` and `--thinking`, then appends the installed
-`agent-orchestration/_shared/orchestration-core.md` through Pi's public
-`--append-system-prompt` flag. The launcher fails closed before `exec` when that policy file
-is missing or unreadable. Because the policy is supplied on the command line, the bundle
-does not hook `before_agent_start`, does not load a managed policy extension, and does not
-manage or replace user `AGENTS.md`, `APPEND_SYSTEM.md`, or project context files. Each
-launcher also exports `AGENT_ORCHESTRATION_PROFILE` (`hybrid`, `openai`, `deepseek`, or
-`glm`) so optional native Pi packages can select profile-specific behavior without copying
-runtime implementation into this repository.
-
-Optional Pi runtime integrations live in the separate
-[`kolodziejm/harness-extensions`](https://github.com/kolodziejm/harness-extensions)
-repository. Install that repository with Pi's native package manager in each profile where
-the watchdog or status UI is wanted. The package maps `hybrid`/`deepseek` to the DeepSeek
-price period, `openai` to Codex weekly pace, and `glm` to the GLM price period.
-
-The Pi subagent watchdog covers top-level agents and enforces three independent defaults:
-
-- startup: 120 seconds before the first meaningful child-session state change;
-- idle: 5 minutes since the last meaningful state change;
-- total runtime: 30 minutes regardless of continued progress.
-
-On expiry it requests targeted cancellation through `subagents:rpc:stop`. It emits terminal
-`BLOCKED` only after cancellation is acknowledged and includes the last meaningful progress
-time and kind. Failed or missing acknowledgement remains non-terminal, produces one visible
-watchdog error, and retries cancellation every 30 seconds until the child becomes terminal or
-the host shuts down. This watchdog-owned safety retry is not child-lane continuation and never
-authorizes duplicate work. Nested agents and workflow-owned agents are not covered
-because `pi-subagents` 0.19.0 intentionally hides their lifecycle records and rejects external
-stop requests. The underlying native record remains `stopped`; `BLOCKED` is
-the companion package's terminal evidence contract.
-
-This installer deliberately does not mutate package settings or own that runtime package.
-
-```bash
-PI_CODING_AGENT_DIR="$HOME/.pi/agent" pi install git:github.com/kolodziejm/harness-extensions
-PI_CODING_AGENT_DIR="$HOME/.pi/profiles/openai" pi install git:github.com/kolodziejm/harness-extensions
-PI_CODING_AGENT_DIR="$HOME/.pi/profiles/deepseek" pi install git:github.com/kolodziejm/harness-extensions
-PI_CODING_AGENT_DIR="$HOME/.pi/profiles/glm" pi install git:github.com/kolodziejm/harness-extensions
-```
-
-Generate and check the output through the standard entrypoints:
-
-```bash
-./scripts/generate
-uv run --locked ./scripts/check
-```
-
-Preview a user installation without changing it:
-
-```bash
-./scripts/install-pi --profile hybrid --dry-run
-./scripts/install-pi --profile openai --dry-run
-./scripts/install-pi --profile deepseek --dry-run
-./scripts/install-pi --profile glm --dry-run
-```
-
-The default profile is `hybrid`, and its target is the main bare-Pi runtime at
-`~/.pi/agent`. The OpenAI, DeepSeek, and Z.AI GLM profiles target
-`~/.pi/profiles/openai`, `~/.pi/profiles/deepseek`, and `~/.pi/profiles/glm`; use
-`--target` for an isolated fixture. The installer places the matching `pi-hybrid`,
-`pi-openai`, `pi-deepseek`, or `pi-glm` launcher in `~/.local/bin` by default; use
-`--bin-dir` for an isolated fixture. Launchers invoke the configured Pi executable with its colocated Node runtime rather than ambient `PATH`,
-share sessions under `$HOME/.pi/agent/sessions`, forward all arguments exactly, and contain no credentials. Install switchable profiles, then exit the current Pi process before starting the other launcher (profile roots are selected only at
-process startup):
-
-```bash
-./scripts/install-pi --profile hybrid
-./scripts/install-pi --profile openai
-./scripts/install-pi --profile glm
-pi-hybrid   # mixed OpenAI + DeepSeek routing at ~/.pi/agent
-pi-openai   # OpenAI routing at ~/.pi/profiles/openai
-pi-glm      # Z.AI GLM Coding Plan at ~/.pi/profiles/glm
-```
-
-On first installation, existing files at manifest-owned names require explicit `--adopt`.
-The installer backs up every changed or removed manifest-owned file under a unique
-`~/.local/state/agent-orchestration/backups/<timestamp>-<unique>/pi/` directory,
-validates only the installed bundle artifacts and launchers, removes stale claims recorded
-in its own manifest, and rolls back validation failures and interruptions. Each managed-file
-write is atomic: existing destination modes are preserved unless a mode is specified, new
-ordinary bundle files use `0644`, and launchers are explicitly executable. Caught failures
-restore the snapshotted bytes and modes. Abrupt process or host termination cannot produce
-a partially written individual managed file, but it may leave a mix of complete old and new
-bundle files; rerun the installer to repair that mix. Dry-run prints the planned writes and
-deletions without changing the target. Existing runtime files are
-left byte-for-byte untouched, including settings, catalogs, auth, MCP, themes, provider
-state, sessions, caches, logs, analytics, and runtime history. Credential values are never
-printed or written to repository artifacts. A prior manifest's legacy operator-owned
-claims are dropped without deleting those files; retired project artifacts remain subject
-to the manifest's ordinary stale cleanup. Shared policy, control-plane intent, degradation
-notes, and the optional workflow are namespaced under `<target>/agent-orchestration/`.
-
-### Pi planning, validator MCP, and operator-owned runtime state
-
-Planner is structurally read-only, delegates only to `explorer`, and returns its complete
-implementation-ready plan/spec through the harness-managed child result/output facility.
-After the applicable approval, one selected `worker` or `worker-complex` persists authorized
-plans, specs, source, configuration, tests, and documentation. Design-partner prototypes remain
-temporary harness-managed artifacts outside the repository; only frozen design decisions flow
-into implementation handoffs. No planner path binding or replacement planning-artifact guard is installed.
-
-Validator has a separate deterministic browser/Appium MCP allowlist from UX-Critic.
-It excludes lifecycle, session/device management, code evaluation, upload/drop/tab,
-video/recording, file, driver-settings, perform-actions, and clipboard controls.
-Direct MCP execution requires a prepared URL/session and supported async child; when
-those prerequisites are unavailable, validator acceptance is `BLOCKED`, not delegated
-to UX-Critic. UX-Critic remains a separate, explicit, on-demand heuristic audit.
-
-Permissions, authentication, MCP configuration, theme selection, and theme files are
-operator-owned runtime state. The Pi bundle and installer never copy, create, adopt,
-validate, or claim those paths; existing files retain their bytes and metadata, and fresh
-roots contain none of them. The one-time manifest migration drops legacy permission/theme
-claims without deleting those files, while retired project artifacts continue through the
-ordinary stale cleanup and rollback transaction.
-
-### Pi explorer shell degradation
-
-Every generated hybrid, OpenAI, DeepSeek, and GLM Pi profile manages no extension package:
-there is no `extensions/agent-orchestration` directory, no extension `package.json`, and the
-manifest's `managed_extensions` is empty. The former manifest-owned
-`extensions/agent-orchestration/git-read.ts` explorer runtime extension is retired; any file
-left by a previous install is migration-only stale that the installer deletes. Explorer now
-receives Pi's built-in `bash` tool for repository evidence instead of the removed extension,
-and every other role excludes `git_read`.
-
-Canonical policy sets `bash = "ask"` for explorer. Pi cannot forward an `ask` decision from a
-headless child to the parent UI, so the Pi integration explicitly degrades that ask to an allowed
-shell. This is a documented weakening, not a read-only guarantee: `bash` is unrestricted for
-explorer and there is no hard read-only sandbox. Explorer frontmatter declares
-`acceptanceRole: read-only`, which is prompt/acceptance metadata for acceptance inference only;
-it does not grant or revoke tools, does not constrain `bash`, and is not runtime enforcement.
-The installer validates the explorer tool allowlist and acceptance metadata during adoption,
-idempotent updates, stale managed-file cleanup, backup, and rollback; it does not validate the
-shell commands a child runs.
-
-Pi's native child permissions deliberately reject `permissions.bash`; if `bash` is in
-an agent's tool list, the Pi host passes it through. The Pi integration degrades canonical
-shell-`ask` roles explicitly: validator, debugger, and explorer receive `bash`, while reviewer
-omits it and keeps a stricter no-shell ceiling. Command-level
-permission configuration remains operator-owned and is not copied or claimed by this project.
-Pi agent files configure child roles and each profile launcher selects the primary model.
-Planner and reviewer retain the `subagent` tool, while canonical policy restricts each to the
-exact child target `explorer`; all other canonical roles lack `subagent`, so they are leaves at
-the Pi tool boundary. Under runtimes without a public framework-neutral child-target
-enforcement API, that exact restriction is a policy-level boundary represented in role
-contracts and generated tool lists, not runtime enforcement. This bundle does not claim
-fail-closed package integration, and the policy guidance is not an OS sandbox or general
-command classifier. Pi cannot install the small model or built-in build/plan mappings, so
-each bundle's `_shared/control-plane.json` records those values as non-installed intent.
-When the primary cannot inspect images natively, it routes visual work once directly to
-existing image-capable canonical roles: `explorer` for repository evidence, `worker` or
-`worker-complex` for implementation, `validator` for deterministic checks, `design-partner`
-for product-flow exploration, and `ux-critic` only for an explicitly authorized runtime
-audit. Workers remain leaves, while validator and UX-critic boundaries continue to govern
-their visual checks.
-
-The normal `./scripts/check` / `uv run --locked ./scripts/check` path is deterministic,
-credential-free, and never invokes a provider. An optional paid OpenAI integration
-canary is deliberately separate and local-only; it is available but not run by
-CI/default checks. It refuses without both explicit opt-in and acknowledgement,
-refuses whenever `CI` is set, requires the existing `pi-openai` launcher, and bounds
-its temporary workspace, runtime, output, and child count. The deterministic stalled
-`debugger`/`validator` coverage uses a local fake launcher to exercise the harness-owned
-wall-clock and cleanup boundary; it does not certify upstream Pi child scheduling or
-cancellation. Run it only when you accept OpenAI usage:
-
-```bash
-AGENT_ORCHESTRATION_PI_LIVE_CANARY=1 \
-AGENT_ORCHESTRATION_PI_LIVE_CANARY_ACK=I_ACCEPT_OPENAI_USAGE \
-./scripts/pi-live-canary
-```
-
-## OMP harness
-
-OMP generation produces four isolated bundles in `build/omp/{hybrid,openai,deepseek,glm}`.
-The `glm` selection reads the Pi-specific `profiles/pi-glm.toml` source whose declared
-name is `pi-glm`; it does not use the generic `profiles/glm.toml`. OpenAI model selectors
-map from `openai/<id>` to `openai-codex/<id>`; DeepSeek and Z.AI keep their provider
-prefixes. Unsupported providers and malformed profile sources fail closed. DeepSeek and
-Pi GLM addenda are Pi-specific and are not copied into OMP prompts; their concrete model
-choices and effort values come from the validated TOML profile.
-
-Each bundle writes `config.yml` modelRoles for OMP's `default`, `smol`, `plan`, and all
-nine task-agent aliases. Per-role model effort is retained. `APPEND_SYSTEM.md` adds the
-shared orchestration policy to the primary prompt. OMP does not inherit that file into
-task agents, so each generated agent includes the same policy and its canonical role
-contract, with explicit `tools` and `spawns` frontmatter. Planner and reviewer may spawn
-only explorer; other generated agents declare no children. These declarations are not an
-OS sandbox: inherited MCP tools/instructions may remain available. OMP tool lists cannot
-constrain inherited tools or recreate an interactive `bash = "ask"` prompt for headless
-children; grants are not a sandbox.
-
-OMP has no native built-in `build` role equivalent; its source mapping is marked as
-non-installed intent in `manifest.json`. The generator does not install files or alter
-`~/.omp`, credentials, model catalogs, or project configuration. OMP runtime/provider
-availability and project-level overrides are outside generated-bundle verification.
-
-Generate all harnesses, including OMP:
-
-```bash
-./scripts/generate
-```
-
-Generate just one OMP profile, or verify all standard outputs and deterministic OMP bundles:
-
-```bash
-python3 harnesses/omp/generate.py --profile openai --output build/omp/openai
-uv run --locked ./scripts/check
-```
-
-An explicit OMP output must be `build/omp/<profile>` or beneath the process temporary
-directory; no user configuration path is an accepted generator destination.
-
-Install one generated bundle into the matching isolated OMP user profile:
-
-```bash
-./scripts/install-omp --profile hybrid --dry-run
-./scripts/install-omp --profile openai
-```
-
-The four selections are `hybrid` (default), `openai`, `deepseek`, and `glm`.
-The default destination is `~/.omp/profiles/<profile>/agent`; `--target
-<path>` selects an isolated fixture or alternate agent root, and `--dry-run`
-previews writes/removals without creating the target. Start OMP with the matching
-`omp --profile <profile>` selection. This installer only installs generated
-`config.yml`, `APPEND_SYSTEM.md`, and `agents/*.md` plus its ownership manifest.
-It refuses any unmanaged collision at a claimed filename, profile mismatch,
-malformed ownership manifest, or symlinked managed path; it has no adoption or
-overwrite mode. Reinstallations update and remove only files claimed by the prior
-manifest, and roll back files if a write/removal operation fails.
-
-Before installation, generate the OMP bundles with `./scripts/generate` (or
-allow the installer to generate its selected bundle). OMP and valid provider
-catalog/authentication for the selected models must already be available. The
-installer does not install OMP, configure provider credentials/catalogs, or
-modify `models.yml`, MCP state, project `.omp` settings, or other profiles.
-Existing `config.yml` or `APPEND_SYSTEM.md` files are deliberate collisions:
-back up and choose a genuinely isolated profile root rather than adopting or
-overwriting operator files. Project-level settings/agents and runtime overlays
-may shadow profile files; successful installation alone does not prove effective
-model selection or provider availability.
-
-## Adding a role
-
-1. Add the role to `policy/routing.toml`.
-2. Add `roles/<role>.md` without provider/model identifiers.
-3. Map the role in every versioned `profiles/*.toml` file.
-4. Keep each profile's `[control_plane]` and `capabilities.supported_variants` valid.
-5. Run `uv run --locked ./scripts/generate` and `uv run --locked ./scripts/check`.
-6. Review the generated model-routing and control-plane output; operator-owned permission,
-   auth, MCP, and theme files are never generated or claimed.
-
-## Adding another harness
-
-Create a harness generator and optional installer under `harnesses/<harness>/` that consume only `policy/`, `roles/`, and `profiles/`. Harness-specific permissions, prompt frontmatter, config paths, and installation mechanics belong in the harness generator and installer, not in role contracts.
-
-Currently supported: OpenCode (`harnesses/opencode/`), Codex (`harnesses/codex/`),
-Claude Code (`harnesses/claude-code/`), Pi (`harnesses/pi/`), and OMP
-(`harnesses/omp/`).
+**Manual cleanup when upgrading from an earlier version.** Because no installer
+manages Codex, nothing removes the artifacts an earlier version installed. Delete
+the previously installed policy text from `~/.codex/AGENTS.md` (remove the file too
+if it held only that text) and delete the old role TOML files under
+`~/.codex/agents/` before copying the new bundle. Nothing in this repository
+rewrites those files for you.
+
+## Repository layout
+
+- `harnesses/<harness>/generate.py` — renders one harness bundle from `policy/` and
+  `profiles/`.
+- `harnesses/<harness>/install.py` — optional installer for that bundle.
+- `harnesses/common.py` — profile contract validation shared by the generators, and
+  `harnesses/validate.py` — the source-validation entrypoint run by `scripts/check`.
+- `scripts/` — `generate`, `check`, `check-runtime`, and the per-harness installers.
+- `skills/change-report/` — optional portable Agent Skills package, installed
+  through a harness's own Agent Skills mechanism rather than by this repository.
+- `evaluations/` — versioned evaluation configuration validated by `validate.py`.
 
 ## Security
 
-Do not commit credentials, environment files, session data, provider tokens, or complete runtime configurations. Profile files contain model IDs only. Installers must merge into local configs rather than copying secrets into this repository. `scripts/check-runtime` is read-only and reports only the known model, effort, instruction, and managed-agent fields.
-
-## Change reports
-
-`change-report` is an optional, prompt-only, harness-agnostic Agent Skills package for one
-standalone HTML evidence document per initiative with requested `PRE`/`POST` tabs. Short chat
-completion decision packets are standard; HTML is never required for every task and a file is
-created/updated only after an explicit current-user request.
-
-PRE adds preliminary per-unit risk (blast radius/reversibility/verifiability), proposed autonomy
-limits, intended human hotspots/gates, and expected validator, fresh-context reviewer, and integration
-proofs to the evidence-backed baseline and proposal. The report itself never grants authority.
-POST follows implementation, independent validation, and AI review, before human review/merge,
-and leads with the orchestrator's concise outcome/risk/proof/hotspots/decisions/gaps packet. It records
-final risks versus baseline, actual stack/per-unit evidence plus full-stack integration, automatic
-repairs and mandate, residual decisions, and proof bound to the exact SHA or local diff revision.
-Later edits/rebase/integration stale affected proof. Agent and human review/approval stay separate;
-required missing proof is a gap, not `NOT REQUESTED` authorization to skip it. If POST has no genuine
-PRE, state the baseline is unavailable rather than fabricate it. Keep one initiative document.
-Explicitly requested HTML may embed verified local captures as self-contained data URIs or link
-verified GitHub evidence without external embeds; it adds no standalone image files or external
-dependencies. PRE separates facts/proposals; POST shows actual changes with proportional visuals.
-The skill does not mutate source or grant implementation, PR/push/merge/release authority, and
-adds no persistence, schema, renderer, or runtime state machine.
-
-Portable skills live once in the repository at `skills/<name>/` and are installed by the current
-harness's native Agent Skills mechanism. For this skill, tell the harness:
-
-> Install the `change-report` skill globally from the `kolodziejm/agent-orchestration` repository.
-
-The harness chooses its native installation mechanism; this repository does not prescribe a
-package manager or harness-specific destination. When invoked, the skill writes by default to
-`change-reports/<change-id>.html` under the active project so the report is visible in editors
-such as VS Code. Report prose follows the language of the user's current conversation while
-preserving code, paths, commands, API names, and identifiers. The skill never edits `.gitignore`,
-stages, or commits the report automatically.
-
-The skill is model-rendered from its prompt and needs no additional repository runtime or
-skill-specific tests. A harness without Agent Skills support must report that this skill is
-unsupported rather than mutating unrelated configuration. This repository does not provide a
-custom skill installer or manage harness settings. Harness generators and installers remain a
-separate concern and are not replaced or reclassified by the portable-skill rule.
+Do not commit credentials, environment files, session data, provider tokens, or
+complete runtime configurations. Profile files contain model identifiers, effort values,
+and capability flags, never credentials. Installers merge into local configuration
+rather than copying secrets into this repository, and `scripts/check-runtime` is
+read-only and reports only known model, effort, instruction, and managed-agent fields.

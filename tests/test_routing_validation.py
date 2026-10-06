@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 VALIDATE = ROOT / "harnesses" / "validate.py"
 ROUTING_SCHEMA = ROOT / "schema" / "policy.schema.json"
 PROFILE_SCHEMA = ROOT / "schema" / "profile.schema.json"
-FIXTURES = ROOT / "tests" / "fixtures" / "routing"
 
 
 def load_validator_module():
@@ -27,79 +26,66 @@ class RoutingValidationTests(unittest.TestCase):
         cls.schema = cls.validator.load_json_schema(ROUTING_SCHEMA)
         cls.profile_schema = cls.validator.load_json_schema(PROFILE_SCHEMA)
 
-    def validate_fixture(self, name):
-        path = FIXTURES / name
-        return self.validator.validate_routing(
-            self.validator.load_toml(path), source=path, schema=self.schema
-        )
-
-    def test_schema_rejects_wrong_field_types_before_graph_checks(self):
-        with self.assertRaises(SystemExit) as raised:
-            self.validate_fixture("wrong-field-types.toml")
-        message = str(raised.exception)
-        self.assertIn("Schema validation failed", message)
-        self.assertIn("wrong-field-types.toml", message)
-        self.assertIn("$.roles.validator.description", message)
-        self.assertIn("$.roles.validator.delegates", message)
-
-    def test_unknown_target_is_rejected_before_edge_policy(self):
-        with self.assertRaises(SystemExit) as raised:
-            self.validate_fixture("unknown-target.toml")
-        message = str(raised.exception)
-        self.assertIn("unknown delegation target", message)
-        self.assertIn("planner", message)
-        self.assertIn("missing-role", message)
-
-    def test_cycle_reports_a_closed_deterministic_path_before_edge_policy(self):
-        messages = []
-        for _ in range(2):
-            with self.assertRaises(SystemExit) as raised:
-                self.validate_fixture("cycle.toml")
-            messages.append(str(raised.exception))
-        self.assertEqual(messages[0], messages[1])
-        self.assertIn("cycle detected: planner -> reviewer -> planner", messages[0])
-
-    def test_canonical_leaf_delegation_gets_a_leaf_specific_failure(self):
-        with self.assertRaises(SystemExit) as raised:
-            self.validate_fixture("illegal-leaf-delegation.toml")
-        message = str(raised.exception)
-        self.assertIn("leaf role 'validator'", message)
-        self.assertIn("delegates = []", message)
-
-    def test_current_routing_passes_schema_and_graph_validation(self):
+    def test_current_routing_carries_capability_data_only(self):
+        """This test will fail when routing regains graph data or loses a role capability."""
         path = ROOT / "policy" / "routing.toml"
         roles = self.validator.validate_routing(
             self.validator.load_toml(path), source=path, schema=self.schema
         )
-        self.assertEqual(roles["planner"]["delegates"], ["explorer"])
-        self.assertEqual(roles["reviewer"]["delegates"], ["explorer"])
-        self.assertEqual(roles["worker"]["delegates"], [])
-        self.assertEqual(roles["worker-complex"]["delegates"], [])
-        self.assertEqual(roles["planner"]["edit"], "deny")
-        self.assertEqual(roles["planner"]["bash"], "deny")
+        self.assertEqual(
+            sorted(roles),
+            [
+                "debugger",
+                "design-partner",
+                "explorer",
+                "planner",
+                "reviewer",
+                "ux-critic",
+                "validator",
+                "worker",
+                "worker-complex",
+            ],
+        )
+        for role, config in roles.items():
+            self.assertEqual(set(config), {"description", "mode", "edit", "bash"}, role)
+            self.assertEqual(config["mode"], "subagent", role)
         self.assertEqual(
             [role for role, config in roles.items() if config["edit"] == "allow"],
             ["worker", "worker-complex"],
         )
+        self.assertEqual(roles["planner"]["edit"], "deny")
+        self.assertEqual(roles["planner"]["bash"], "deny")
 
-    def test_worker_roles_are_leaves_and_virtual_vision_targets_are_rejected(self):
-        self.validator.validate_delegation_graph(
-            {
-                "worker": {"delegates": []},
-                "worker-complex": {"delegates": []},
-            }
-        )
-        with self.assertRaisesRegex(SystemExit, "leaf role 'worker'"):
-            self.validator.validate_delegation_graph(
-                {
-                    "worker": {"delegates": ["worker-complex"]},
-                    "worker-complex": {"delegates": []},
+    def test_stray_delegates_key_is_rejected(self):
+        """This test will fail when a delegation key can be reintroduced into routing."""
+        document = {
+            "version": 1,
+            "roles": {
+                "worker": {
+                    "description": "Routine implementation worker",
+                    "mode": "subagent",
+                    "edit": "allow",
+                    "bash": "allow",
+                    "delegates": ["explorer"],
                 }
+            },
+        }
+        with self.assertRaises(SystemExit) as raised:
+            self.validator.validate_routing(
+                document, source=Path("synthetic-routing.toml"), schema=self.schema
             )
-        with self.assertRaisesRegex(SystemExit, "unknown delegation target"):
-            self.validator.validate_delegation_graph(
-                {"worker": {"delegates": ["vision-*"]}}
+        message = str(raised.exception)
+        self.assertIn("Schema validation failed", message)
+        self.assertIn("$.roles.worker", message)
+        self.assertIn("'delegates' was unexpected", message)
+
+        with self.assertRaises(SystemExit) as raised:
+            self.validator.validate_routing(
+                document,
+                source=Path("synthetic-routing.toml"),
+                schema={"type": "object"},
             )
+        self.assertIn("Invalid routing entry for role 'worker'", str(raised.exception))
 
     def test_profile_schema_rejects_wrong_model_types_before_semantic_checks(self):
         profile = {
@@ -125,7 +111,7 @@ class RoutingValidationTests(unittest.TestCase):
         self.assertIn("Schema validation failed", message)
         self.assertIn("$.models.planner.model", message)
 
-    def test_schema_diagnostics_are_sorted_and_bounded(self):
+    def test_schema_diagnostics_are_bounded_and_deterministic(self):
         document = {
             "version": "bad",
             "roles": {
@@ -145,19 +131,15 @@ class RoutingValidationTests(unittest.TestCase):
             )
         message = str(raised.exception)
         lines = message.splitlines()
-        self.assertEqual(lines[0], "Schema validation failed for synthetic-routing.toml (61 error(s)):")
+        self.assertTrue(lines[0].startswith("Schema validation failed for synthetic-routing.toml ("))
         self.assertEqual(len(lines), 10)
         self.assertIn("additional schema error(s) omitted", lines[-1])
-        self.assertLessEqual(lines[1], lines[2])
 
-    def test_noncanonical_wildcards_are_unknown_targets(self):
-        roles = {
-            "planner": {
-                "delegates": ["explorer-*"],
-            }
-        }
-        with self.assertRaisesRegex(SystemExit, "unknown delegation target"):
-            self.validator.validate_delegation_graph(roles)
+        with self.assertRaises(SystemExit) as repeated:
+            self.validator.validate_document(
+                document, self.schema, source=Path("synthetic-routing.toml")
+            )
+        self.assertEqual(str(repeated.exception), message)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 # Changelog
 
-All notable changes to the orchestration policy are documented here.
+All notable changes to the agent and subagent definitions, capability data, and model/effort routing are documented here.
 
 ## Unreleased
+- Stop generating orchestration policy and instruction content. The role contracts (`roles/*.md`), `policy/orchestration.md`, the feature workflow, the routing delegation graph, and every generated global instruction artifact are removed. Each generated bundle now carries only agent and subagent definitions plus their model/effort carriers, and the installers strip previously installed managed instruction artifacts while preserving user bytes (except OMP, which removes the retired `APPEND_SYSTEM.md` name unconditionally even with no prior manifest and keeps no backups).
+- Rewrite `README.md` against the post-reset repository and delete the two `docs/reports/` pages that linked to removed paths. Codex remains generator-only, so an operator upgrading from an earlier version must remove the stale `~/.codex/AGENTS.md` policy text and old agent TOMLs by hand.
+- Add a DeepSeek Harness adapter (`harnesses/dsh/`) that exposes the nine roles as delegation lanes on a generated `agent-orchestration` agent preset in the harness home patch, with per-lane model, reasoning effort, and tool filter; a managed section an earlier adapter wrote into `AGENTS.md` is stripped as legacy cleanup.
 - Label finding authorization options with the specific fix instead of repeating `Do now`; retain per-finding approval and `Not now`.
 - Migrate active OpenAI Sol routing to GPT-6.1, retaining GPT-6 Luna without changing role or effort mappings.
 

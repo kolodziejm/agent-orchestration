@@ -33,7 +33,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
             supported = profile["capabilities"]["supported_variants"]
             expected_supported = (
                 {"low", "high", "max"}
-                if name in {"deepseek", "pi-glm"}
+                if name in {"deepseek", "pi-glm", "dsh"}
                 else {"low", "medium", "high", "max", "xhigh"}
             )
             self.assertEqual(set(supported), expected_supported, name)
@@ -97,9 +97,9 @@ class ProfileControlPlaneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("harnesses", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles"):
                 shutil.copytree(ROOT / name, repo / name)
-            for profile_name in ("openai", "claude"):
+            for profile_name in ("openai", "claude", "dsh"):
                 profile = repo / "profiles" / f"{profile_name}.toml"
                 lines = profile.read_text().splitlines()
                 lines.remove(next(line for line in lines if line.startswith("effort =")))
@@ -115,312 +115,19 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 self.assertIn("control", result.stderr.lower(), generator)
                 self.assertFalse(output.exists(), generator)
 
-    def test_core_policy_defaults_to_delegation_with_a_narrow_direct_work_exception(self):
-        """This test will fail when direct primary work is broader than the approved exception."""
-        policy = (ROOT / "policy" / "orchestration.md").read_text()
-
-        self.assertIn("Delegation is the default for repository discovery and source work.", policy)
-        self.assertIn("small, clearly bounded, low-risk task", policy)
-        self.assertIn("when delegation offers no concrete leverage", policy)
-        self.assertIn("Before acting directly, the primary must briefly state why delegation is not useful.", policy)
-        self.assertIn("broader discovery", policy)
-        self.assertIn("multi-area or behavior-changing work", policy)
-        self.assertIn("uncertain or context-heavy work", policy)
-        self.assertIn("specialist", policy)
-        self.assertIn("parallelism", policy)
-        self.assertIn("independent risk separation", policy)
-        self.assertIn("Delegated code-changing worker output always requires independent validator verification.", policy)
-        self.assertIn("Independent ready mutation lanes may run in parallel", policy)
-        self.assertIn("safe isolation", policy)
-        self.assertIn("broad mechanical evidence gathering", policy)
-        self.assertIn("only when independent evidence lanes provide concrete leverage", policy)
-        self.assertIn("normally two and never more than four", policy)
-        self.assertIn("one synthesis owner/writer", policy)
-        self.assertIn("implementation validation remains serial", policy)
-        self.assertIn("Handoffs, task instructions, workflow labels, schemas, acceptance contracts", policy)
-        self.assertIn("requested by the user", policy)
-        self.assertIn("`worker` and `worker-complex` may author or update tests", policy)
-        self.assertIn("focused development tests and checks as `SELF-CHECKS`", policy)
-        self.assertIn("`validator` independently reruns the smallest acceptance matrix", policy)
-
-        for contradictory_wording in (
-            "low- or medium-risk",
-            "Everything else is non-trivial",
-            "Apart from trivial work",
-            "For a trivial inline edit as defined above",
-            "After implementation, give `validator`",
-        ):
-            self.assertNotIn(contradictory_wording, policy)
-
-    def test_reviewable_pr_delivery_contract_defines_coherence_fallback_and_checkpoint(self):
-        """This fails when delivery can bypass cognitive coherence or non-blocking stack progress."""
-        policy = (ROOT / "policy" / "orchestration.md").read_text()
-        start = policy.index("## Reviewable-PR delivery contract")
-        end = policy.index("## Implementation", start)
-        def normalize(text):
-            return " ".join(text.casefold().split())
-
-        delivery = normalize(policy[start:end])
-
-        for phrase in (
-            "suitable hosting or remote support",
-            "required capability and authorization",
-            "pull requests are the default delivery and review unit",
-            "equivalently reviewable local branch, commit, or patch",
-            "must never claim that a remote action occurred",
-            "one coherent reviewer question per PR",
-            "observable behavior or directly removes complexity",
-            "Line and file counts are diagnostics, not approval gates or hard ceilings",
-            "reviewed generated artifact contributes to cognitive review burden",
-            "Split when the unit contains independently valuable behavior",
-            "answers more than one reviewer question",
-            "unused scaffolding",
-            "partial abstractions",
-            "Infrastructure or abstraction work should be consumed by a real path in the same unit",
-            "Coherence, executable evidence, and independent merge/review value outrank numeric optimization",
-            "isolated, non-overlapping branches or worktrees",
-            "promotion of PRs or fallback review units remains ordered",
-            "user-approved named stack/ordered-unit plan authorizes uninterrupted execution",
-            "no routine approval wait is required between those units",
-            "automatically present the checkpoint below as a non-blocking progress report",
-            "checkpoint does not authorize a merge, promotion, or remediation",
-            "purpose and single concern",
-            "behavior before and after",
-            "key decisions and decomposition rationale",
-            "human-authored diff statistics",
-            "generated-artifact and lockfile statistics separately",
-            "affected areas and files",
-            "risks and mitigations",
-            "validation evidence",
-            "residual work",
-            "next proposed PR or fallback review unit",
-            "Completion reports and validation summaries must keep delivery status, diff accounting, and validation evidence distinct",
-        ):
-            self.assertIn(normalize(phrase), delivery)
-
-        self.assertIn(normalize("Ask the user again only for a material scope or acceptance change"), delivery)
-        self.assertNotIn(normalize("absolute ceiling"), delivery)
-        self.assertIn(normalize("new risk or product decision"), delivery)
-        self.assertIn(normalize("newly independent concern that changes decomposition"), delivery)
-        self.assertIn(normalize("failed/BLOCKED validation that requires a decision"), delivery)
-        self.assertIn(normalize("finding/remediation"), delivery)
-        self.assertIn(normalize("merge authorization"), delivery)
-        self.assertNotIn(normalize("wait for the user's explicit approval before proceeding"), delivery)
-        self.assertNotIn(normalize("Approval for the initiative, an earlier slice, or an earlier checkpoint is not approval for the next one."), delivery)
-        self.assertIn(normalize("This contract does not grant authority to create, push, or merge"), delivery)
-        self.assertIn(normalize("This contract preserves global AI-first review"), delivery)
-
     def test_ci_validates_pull_requests_and_main_pushes_without_duplicate_pr_pushes(self):
         """This fails when a pull-request branch also receives a duplicate push check."""
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         self.assertIn("on:\n  pull_request:\n  push:\n    branches:\n      - main\n", workflow)
         self.assertNotIn("on:\n  push:\n  pull_request:", workflow)
 
-    def test_planner_and_workers_define_reviewable_pr_slice_boundaries(self):
-        """This fails when a plan or worker can silently widen a delivery slice."""
-        contracts = {
-            role: (ROOT / "roles" / f"{role}.md").read_text()
-            for role in ("planner", "worker", "worker-complex")
-        }
-        planner = contracts["planner"]
-        for phrase in (
-            "## Reviewable-PR slice planning",
-            "one coherent reviewer question, an observable outcome, and one bounded PR or fallback review unit",
-            "expected accounting for human-authored maintained changed lines/files",
-            "generated-artifact changed lines/files",
-            "lockfile changed lines/files",
-            "Line and file counts are diagnostics, not approval gates or hard ceilings",
-            "independently valuable behavior",
-            "unused scaffolding",
-            "partial abstractions",
-            "cognitive review burden",
-            "checkpoint fields",
-            "next proposed unit",
-            "stop before expanding into a second independent concern",
-            "user-approved named stack/ordered-unit plan",
-            "next one to three implementation units",
-            "revisable roadmap",
-            "PR/fallback promotion remains ordered",
-        ):
-            self.assertIn(phrase, planner)
-
-        for role, contract in contracts.items():
-            for phrase in (
-                "one coherent reviewer question",
-                "human-authored maintained changed lines/files",
-                "generated-artifact changed lines/files",
-                "lockfile changed lines/files",
-                "Line and file counts are diagnostics, not approval gates or hard ceilings",
-                "non-blocking progress report",
-                "Parallel implementation",
-            ):
-                self.assertIn(phrase, contract, role)
-            self.assertIn("stack/ordered-unit plan", contract, role)
-            if role in ("worker", "worker-complex"):
-                self.assertIn("completion/readiness report", contract, role)
-                self.assertIn("independent validation requested or evidence", contract, role)
-            order_phrase = (
-                "PR/fallback promotion remains ordered"
-                if role == "planner"
-                else "PR/fallback promotion remains ordered"
-            )
-            self.assertIn(order_phrase, contract, role)
-            stop_phrase = "stop before expanding into a second independent concern"
-            self.assertIn(stop_phrase.casefold(), contract.casefold(), role)
-            delivery_phrase = (
-                "create or push anything"
-                if role == "planner"
-                else "automatically create or push branches, commits, or PRs"
-            )
-            self.assertIn(delivery_phrase, contract, role)
-            self.assertIn("claim that a remote action occurred", contract, role)
-
-    def test_finding_authorization_boundary_separates_blockers_and_bounded_mandate(self):
-        """REGRESSION CONTRACT: evidence, severity, and broad instructions never authorize new repair work."""
-        policy = (ROOT / "policy" / "orchestration.md").read_text()
-        for phrase in (
-            "evidence/findings, never implementation authorization by themselves",
-            "Severity labels, including `P0` or `Critical`, do not grant mutation authority.",
-            "earlier broad instruction such as `act`, `proceed`, `fix`, or `implement`",
-            "Only a deterministic, reproducible failure of an already-authorized acceptance criterion",
-            "deterministic test/lint/typecheck/build/compile/format failure",
-            "A validator `FAIL` is not automatically an acceptance blocker.",
-            "One `debugger` -> `worker` -> `validator` repair cycle is allowed only for a validation failure classified as an acceptance blocker",
-            "`BLOCKED`, infrastructure failures, missing prerequisites, nondeterministic observations",
-            "duplicate rules/code, cleanup, refactors, quality improvements, newly proposed behavior, UX changes",
-            "Critical security or data-loss findings must stop progress and be presented immediately.",
-            "New security or data-loss findings stop progress and escalate",
-            "bounded autonomous repair mandate",
-            "Fix risk is distinct from finding severity",
-            "If classification is uncertain, default to a finding and ask rather than auto-fix.",
-        ):
-            self.assertIn(phrase, policy)
-
-    def test_role_contracts_make_finding_authorization_boundary_explicit(self):
-        """REGRESSION CONTRACT: role outputs and repair handoffs cannot authorize unrelated findings."""
-        contracts = {
-            role: (ROOT / "roles" / f"{role}.md").read_text()
-            for role in (
-                "reviewer", "ux-critic", "planner", "debugger", "validator",
-                "explorer", "worker", "worker-complex",
-            )
-        }
-        self.assertIn("Reviewer output is evidence/findings only", contracts["reviewer"])
-        for phrase in (
-            "concrete problem or failure mode and evidence",
-            "user-visible behavior, systems/components/files/contracts",
-            "detailed viable solution options, not just labels",
-            "implementation direction, scope/cost, and trade-offs/risks",
-            "recommend an option with rationale where appropriate",
-            "self-contained user question",
-        ):
-            self.assertIn(phrase, contracts["reviewer"])
-        self.assertIn("Validator output is evidence/findings only and never implementation authorization", contracts["validator"])
-        self.assertIn("`FAIL` alone is insufficient", contracts["validator"])
-        self.assertIn("Planning output is evidence, findings, and recommendations, not implementation authorization", contracts["planner"])
-        self.assertIn("Debugger output is evidence/findings only, not implementation authorization", contracts["debugger"])
-        self.assertIn("Explorer output is evidence/findings only and never mutation authority", contracts["explorer"])
-        for role in ("worker", "worker-complex"):
-            self.assertIn("exact acceptance blocker", contracts[role])
-            self.assertIn("Broad directives such as `act`, `proceed`, `fix it`, or `implement`", contracts[role])
-        self.assertIn("UX findings are always new findings requiring an individual user decision", contracts["ux-critic"])
-
-    def test_role_contracts_separate_authoring_acceptance_and_heuristic_ux_audits(self):
-        worker = (ROOT / "roles" / "worker.md").read_text()
-        complex_worker = (ROOT / "roles" / "worker-complex.md").read_text()
-        validator = (ROOT / "roles" / "validator.md").read_text()
-        ux_critic = (ROOT / "roles" / "ux-critic.md").read_text()
-        planner = (ROOT / "roles" / "planner.md").read_text()
-        reviewer = (ROOT / "roles" / "reviewer.md").read_text()
-
-        for contract in (worker, complex_worker):
-            self.assertIn("author or update tests", contract)
-            self.assertIn("focused development tests and checks as `SELF-CHECKS`", contract)
-            self.assertIn("happy path before speculative hardening", contract)
-            self.assertIn("never present self-checks as validator evidence", contract)
-        self.assertIn("predefined deterministic acceptance", validator)
-        self.assertIn("browser/device checks", validator)
-        self.assertIn("`PASS`, `FAIL`, or `BLOCKED`", validator)
-        self.assertIn("heuristic usability, accessibility, platform-fit, and parity", ux_critic)
-        self.assertIn("explicitly requests or authorizes", ux_critic)
-        self.assertIn("primary orchestrator", ux_critic)
-        self.assertIn("Never run automatically after implementation, validation, or review", ux_critic)
-        self.assertIn("target flow and named web/mobile surfaces", ux_critic)
-        self.assertIn("already-running web URL", ux_critic)
-        self.assertIn("already-prepared Appium session and device", ux_critic)
-        self.assertIn("screenshot artifact destination", ux_critic)
-        self.assertIn("physically traverse", ux_critic.casefold())
-        self.assertIn("meaningful checkpoints", ux_critic)
-        self.assertIn("native vision", ux_critic)
-        self.assertIn("STATUS: BLOCKED", ux_critic)
-        self.assertIn("Do not execute automated tests, lint, typecheck, formatters, builds", ux_critic)
-        self.assertIn("mechanical release gate", ux_critic)
-        self.assertIn("close implementation acceptance", ux_critic)
-
-        routing = tomllib.loads((ROOT / "policy" / "routing.toml").read_text())
-        self.assertEqual(routing["roles"]["ux-critic"]["edit"], "deny")
-        self.assertEqual(routing["roles"]["ux-critic"]["bash"], "deny")
-        orchestration = (ROOT / "policy" / "orchestration.md").read_text()
-        self.assertIn("On-demand UX critic authorization and handoff", orchestration)
-        self.assertIn("must never be launched automatically after implementation, validation, or review", orchestration)
-        for contract in (planner, reviewer):
-            self.assertIn("broad mechanical evidence gathering", contract)
-            self.assertIn("only for genuinely independent evidence areas", contract)
-            self.assertIn("otherwise use one focused explorer or targeted direct reads", contract)
-
-    def test_uncertain_user_facing_ui_requires_a_temporary_prototype_and_design_freeze(self):
-        """Unresolved UX decisions must be iterated with the user before production planning or implementation."""
-        policy = (ROOT / "policy" / "orchestration.md").read_text()
-        design_partner = (ROOT / "roles" / "design-partner.md").read_text()
-        planner = (ROOT / "roles" / "planner.md").read_text()
-        workers = [
-            (ROOT / "roles" / "worker.md").read_text(),
-            (ROOT / "roles" / "worker-complex.md").read_text(),
-        ]
-        workflow = (ROOT / "policy" / "workflows" / "feature-workflow-pilot.md").read_text()
-
-        for phrase in (
-            "creates or materially changes user-facing UI behavior",
-            "approved design, explicit interaction specification, or unambiguous established product pattern",
-            "copy edits, straightforward visual fixes",
-            "route the unresolved UX scope to `design-partner`",
-            "reuse the same design-partner task",
-            "explicitly freezes the design",
-            "production planning or implementation",
-            "temporary harness-managed artifact outside production source and version control",
-            "must never silently fall back to a repository path",
-            "return `BLOCKED` with the exact missing prerequisite",
-            "validator owns deterministic acceptance against the frozen design",
-        ):
-            self.assertIn(phrase, policy)
-
-        for phrase in (
-            "target user, primary task, platform",
-            "journey, screens or states, transitions, and interaction rules",
-            "meaningful alternatives with trade-offs and a recommendation",
-            "complete lightweight clickable HTML/CSS/JS bundle",
-            "temporary harness-managed artifact outside production source and version control",
-            "Reuse the same design-partner task",
-            "explicitly freezes the design",
-            "authoritative frozen-design handoff",
-        ):
-            self.assertIn(phrase, design_partner)
-
-        self.assertIn("Resolve the canonical UX readiness gate before planning implementation slices", workflow)
-        self.assertIn("temporary prototype reference", workflow)
-        self.assertIn("frozen design decisions", workflow)
-        self.assertNotIn("prototypes", planner)
-        for worker in workers:
-            self.assertNotIn("prototypes", worker)
-        self.assertNotIn("Planner and design-partner managed outputs become repository artifacts", policy)
-
     def test_generators_reject_unsupported_effort_without_querying_provider_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("harnesses", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles"):
                 shutil.copytree(ROOT / name, repo / name)
-            for profile_name in ("openai", "claude"):
+            for profile_name in ("openai", "claude", "dsh"):
                 profile = repo / "profiles" / f"{profile_name}.toml"
                 lines = profile.read_text().splitlines()
                 for index, line in enumerate(lines):
@@ -433,6 +140,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
                 ("opencode", ["harnesses/opencode/generate.py"]),
                 ("codex", ["harnesses/codex/generate.py", "--profile", "openai"]),
                 ("claude-code", ["harnesses/claude-code/generate.py"]),
+                ("dsh", ["harnesses/dsh/generate.py", "--profile", "dsh"]),
             )
             for name, args in generators:
                 output = root / name
@@ -451,7 +159,7 @@ class ProfileControlPlaneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             repo = root / "repo"
-            for name in ("harnesses", "policy", "profiles", "roles"):
+            for name in ("harnesses", "policy", "profiles"):
                 shutil.copytree(ROOT / name, repo / name)
             profile = repo / "profiles" / "openai.toml"
             lines = profile.read_text().replace(

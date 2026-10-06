@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Claude Code harness configuration from the harness-agnostic policy.
+"""Generate Claude Code subagent definitions from the routing policy.
 
 Claude Code permission degradation notes (documented here because Claude Code
 has no per-subagent equivalent):
@@ -11,13 +11,10 @@ has no per-subagent equivalent):
   inspection commands). Structurally read-only roles with `bash = "deny"`
   (planner, design-partner, and ux-critic) omit Bash entirely. Session-level
   Claude Code permission settings remain the operator's responsibility.
-- Claude Code uses a flat subagent topology. The orchestrator performs the
-  delegation described by `delegates` and passes returned evidence in the
-  handoff; generated subagent files do not expose nested `Agent(<target>)`
-  tools.
-- All `delegates` entries are omitted because Claude Code's generated
-  subagents cannot invoke nested agents. Native vision support means the
-  active Claude profile can inspect images directly.
+- Claude Code uses a flat subagent topology, so a generated subagent file
+  exposes no nested `Agent(<target>)` tool and no delegation field at all.
+- Native vision support means the active Claude profile can inspect images
+  directly.
 """
 
 from __future__ import annotations
@@ -51,11 +48,7 @@ DEFAULT_OUTPUT = ROOT / "build" / "claude-code"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash"]
-VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi"}
-
-MARKER_START = "<!-- agent-orchestration:start -->"
-MARKER_END = "<!-- agent-orchestration:end -->"
-WORKFLOW_NAME = "feature-workflow-pilot"
+VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi", "dsh"}
 
 
 def load_toml(path: Path) -> dict:
@@ -181,27 +174,13 @@ def generate_into(output: Path) -> None:
 
     (output / "agents").mkdir(parents=True)
     (output / "_shared").mkdir(parents=True)
-    workflow_source = ROOT / "policy" / "workflows" / f"{WORKFLOW_NAME}.md"
-    if not workflow_source.is_file():
-        raise SystemExit(f"Missing optional workflow artifact: {workflow_source}")
-    (output / "workflows").mkdir(parents=True)
-    shutil.copy2(workflow_source, output / "workflows" / workflow_source.name)
     (output / "_shared" / "control-plane.md").write_text(generate_control_plane(profile))
 
     for role, config in roles.items():
         require_subagent_mode(role, config)
-        contract_path = ROOT / "roles" / f"{role}.md"
-        if not contract_path.is_file():
-            raise SystemExit(f"Missing role contract: {contract_path}")
-        generated = frontmatter(role, config, models[role], native_vision) + contract_path.read_text()
-        (output / "agents" / f"{role}.md").write_text(generated)
-
-    core = (ROOT / "policy" / "orchestration.md").read_text().rstrip()
-    addendum = (ROOT / "profiles" / profile["addendum"]).read_text().rstrip()
-    shared = "\n\n".join([core, addendum])
-    (output / "_shared" / "orchestration-core.md").write_text(
-        f"{MARKER_START}\n{shared}\n{MARKER_END}\n"
-    )
+        (output / "agents" / f"{role}.md").write_text(
+            frontmatter(role, config, models[role], native_vision)
+        )
 
     (output / "manifest.json").write_text(
         json.dumps(
@@ -209,7 +188,6 @@ def generate_into(output: Path) -> None:
                 "format_version": 1,
                 "roles": sorted(roles),
                 "profiles": [profile["name"]],
-                "workflows": [WORKFLOW_NAME],
                 "control_plane": False,
             },
             indent=2,

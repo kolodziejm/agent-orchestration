@@ -1,0 +1,60 @@
+version = 1
+name = "dsh"
+addendum = "dsh.md"
+harness = "dsh"
+
+[control_plane.primary]
+model = "deepseek-official/deepseek-flash"
+effort = "max"
+
+[control_plane]
+small_model = "deepseek-official/deepseek-flash"
+
+[control_plane.builtins.build]
+model = "deepseek-official/deepseek-flash"
+effort = "high"
+
+[control_plane.builtins.plan]
+model = "deepseek-official/deepseek-flash"
+effort = "max"
+
+[capabilities]
+native_vision = true
+primary_installable = false
+supported_variants = ["low", "high", "max"]
+
+[models.worker]
+model = "deepseek-official/deepseek-flash"
+variant = "high"
+
+[models.worker-complex]
+model = "deepseek-official/deepseek-flash"
+variant = "max"
+
+[models.validator]
+model = "deepseek-official/deepseek-flash"
+variant = "high"
+
+[models.debugger]
+model = "deepseek-official/deepseek-flash"
+variant = "max"
+
+[models.explorer]
+model = "deepseek-official/deepseek-flash"
+variant = "low"
+
+[models.planner]
+model = "deepseek-official/deepseek-flash"
+variant = "max"
+
+[models.design-partner]
+model = "deepseek-official/deepseek-flash"
+variant = "high"
+
+[models.reviewer]
+model = "deepseek-official/deepseek-flash"
+variant = "max"
+
+[models.ux-critic]
+model = "deepseek-official/deepseek-flash"
+variant = "high"
