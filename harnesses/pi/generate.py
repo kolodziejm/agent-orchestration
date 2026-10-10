@@ -21,7 +21,8 @@ if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
 from common import assert_safe_output as shared_assert_safe_output
-from common import assert_safe_rename, validate_capabilities, validate_profile
+from common import assert_safe_rename, managed_instruction_section
+from common import validate_capabilities, validate_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = ROOT / "build" / "pi"
@@ -271,6 +272,7 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
     (output / "_shared" / "control-plane.json").write_text(
         json.dumps(control_plane(profile, allowed_providers, profile_name), indent=2, sort_keys=True) + "\n"
     )
+    (output / "AGENTS.md").write_text(managed_instruction_section())
 
     for role, config in roles.items():
         (output / "agents" / f"{role}.md").write_text(

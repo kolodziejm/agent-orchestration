@@ -55,7 +55,6 @@ class CodexGenerateContractTests(unittest.TestCase):
 
             self.assertEqual(set(path.stem for path in (output / "agents").glob("*.toml")), set(roles))
             self.assertEqual(len(list((output / "agents").glob("*.toml"))), 9)
-            self.assertFalse((output / "AGENTS.md").exists())
             self.assertFalse((output / "workflows").exists())
             self.assertFalse((output / "manifest.json").exists())
 

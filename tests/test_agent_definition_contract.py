@@ -1,11 +1,12 @@
-"""Cross-harness contract: every generated bundle contains agent definitions only.
+"""Cross-harness contract: agent definitions plus one managed policy artifact.
 
 The repository generates one bundle per harness (and per profile where a harness
-has more than one). This module asserts the single invariant the reset defines:
-each bundle carries exactly one definition per routing role, every definition
-carries the model and reasoning effort resolved from its profile, and no bundle
-carries orchestration policy, role-contract bodies, delegation fields, or global
-instruction/workflow artifacts.
+has more than one). This module asserts the invariant the reset defines: each
+bundle carries exactly one definition per routing role, every definition carries
+the model and reasoning effort resolved from its profile, and no bundle carries
+role-contract bodies, delegation fields, or workflow artifacts. The only
+instruction artifact a bundle may carry is the marker-wrapped
+`policy/orchestration.md` at its root; the DeepSeek Harness bundle carries none.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GENERATORS = ROOT / "harnesses"
 ROUTING = ROOT / "policy" / "routing.toml"
+POLICY = ROOT / "policy" / "orchestration.md"
 
 # Every generated target: bundle name, generator, extra arguments, and the
 # profile whose model/effort values must appear in the definitions.
@@ -70,14 +72,27 @@ FORBIDDEN_TOKENS = (
     "APPEND_SYSTEM",
 )
 
-FORBIDDEN_SUFFIXES = (
-    "/AGENTS.md",
-    "/CLAUDE.md",
-    "/APPEND_SYSTEM.md",
-    "/orchestration-core.md",
-    "/adapter.md",
-    "/degradations.md",
+# Instruction and retired artifact names, forbidden at any depth of a bundle.
+FORBIDDEN_NAMES = frozenset(
+    {
+        "AGENTS.md",
+        "CLAUDE.md",
+        "APPEND_SYSTEM.md",
+        "orchestration-core.md",
+        "adapter.md",
+        "degradations.md",
+    }
 )
+
+# The single exception: the root-level policy artifact of each harness that has a
+# global instruction file. DeepSeek Harness is absent on purpose.
+POLICY_ARTIFACT = {
+    "opencode": "AGENTS.md",
+    "codex": "AGENTS.md",
+    "claude-code": "CLAUDE.md",
+    "pi": "AGENTS.md",
+    "omp": "AGENTS.md",
+}
 
 LANE_PATTERN = re.compile(r"^\s{12}- id: (lane-\S+)$", re.MULTILINE)
 
@@ -158,13 +173,15 @@ class AgentDefinitionContractTests(unittest.TestCase):
         )
 
     def test_every_bundle_contains_exactly_one_definition_per_role(self):
-        """This test will fail when a harness emits a retired artifact or drops a role definition."""
+        """This test will fail when a harness emits a retired or second instruction artifact, DSH emits any, or a role definition is dropped."""
         for name, harness, _extra, _profile in TARGETS:
             with self.subTest(target=name):
                 files = self.bundle_files(name)
                 for relative in files:
+                    if relative == POLICY_ARTIFACT.get(harness):
+                        continue
                     self.assertFalse(
-                        relative.endswith(FORBIDDEN_SUFFIXES)
+                        relative.rsplit("/", 1)[-1] in FORBIDDEN_NAMES
                         or relative.startswith("workflows/")
                         or "/workflows/" in relative,
                         f"{name} emitted a retired artifact: {relative}",
@@ -184,6 +201,20 @@ class AgentDefinitionContractTests(unittest.TestCase):
                     name,
                 )
                 self.assertEqual(len(definitions), len(self.roles), name)
+
+    def test_every_bundle_carries_the_exact_policy_as_its_one_instruction_artifact(self):
+        """This test will fail when a bundle's instruction artifact is missing or drifts from policy/orchestration.md."""
+        expected = (
+            "<!-- agent-orchestration:start -->\n"
+            + POLICY.read_text()
+            + "<!-- agent-orchestration:end -->\n"
+        )
+        for name, harness, _extra, _profile in TARGETS:
+            if harness == "dsh":
+                continue
+            with self.subTest(target=name):
+                artifact = self.outputs[name] / POLICY_ARTIFACT[harness]
+                self.assertEqual(artifact.read_text(), expected)
 
     def test_definitions_carry_no_policy_or_delegation_bytes(self):
         """This test will fail when a role body or a delegation field returns to a definition."""
@@ -281,7 +312,7 @@ class AgentDefinitionContractTests(unittest.TestCase):
             )
 
     def test_omp_bundle_drops_append_system_and_spawn_fields(self):
-        """This test will fail when omp regains an instruction file or a spawn field."""
+        """This test will fail when omp regains the retired APPEND_SYSTEM.md or a spawn field."""
         root = self.outputs["omp/hybrid"]
         models = profile_models("hybrid")
         manifest = json.loads((root / "manifest.json").read_text())
@@ -293,14 +324,13 @@ class AgentDefinitionContractTests(unittest.TestCase):
             self.assertEqual(metadata["thinking-level"], expected["variant"])
             self.assertNotIn("task", metadata["tools"])
 
-    def test_claude_code_bundle_stays_definition_only(self):
-        """This test will fail when claude-code regains an instruction artifact."""
+    def test_claude_code_bundle_carries_no_shared_core_or_workflow_claim(self):
+        """This test will fail when claude-code regains the retired shared core or a workflow claim."""
         root = self.outputs["claude-code"]
         manifest = json.loads((root / "manifest.json").read_text())
         self.assertNotIn("workflows", manifest)
         self.assertTrue((root / "_shared" / "control-plane.md").is_file())
         self.assertFalse((root / "_shared" / "orchestration-core.md").exists())
-        self.assertFalse((root / "CLAUDE.md").exists())
 
     def test_dsh_lane_rows_carry_routing_without_persona_or_depth(self):
         """This test will fail when dsh lanes regain persona/depth or lose routing."""

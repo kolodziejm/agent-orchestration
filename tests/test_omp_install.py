@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
@@ -8,6 +10,11 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "harnesses" / "omp" / "install.py"
+MANAGED_SECTION = (
+    "<!-- agent-orchestration:start -->\n"
+    + (ROOT / "policy" / "orchestration.md").read_text()
+    + "<!-- agent-orchestration:end -->\n"
+)
 
 
 def load_installer():
@@ -21,6 +28,9 @@ def bundle(root: Path, profile="hybrid", agents=("planner", "worker"), text="fir
     root.mkdir(parents=True, exist_ok=True)
     files = ["config.yml", *(f"agents/{role}.md" for role in agents)]
     (root / "config.yml").write_text(f"modelRoles:\n  default: {text}\n")
+    (root / "AGENTS.md").write_text(
+        f"<!-- agent-orchestration:start -->\npolicy {text}\n<!-- agent-orchestration:end -->\n"
+    )
     for role in agents:
         path = root / "agents" / f"{role}.md"
         path.parent.mkdir(exist_ok=True)
@@ -110,6 +120,23 @@ class OmpInstallTests(unittest.TestCase):
                 self.installer.install("hybrid", self.target, generated=self.bundle)
         after = {p.relative_to(self.target): p.read_bytes() for p in self.target.rglob("*") if p.is_file()}
         self.assertEqual(after, original)
+
+    def test_install_appends_the_policy_to_a_user_owned_agents_md(self):
+        """This test will fail when installing the policy changes user bytes, refuses a pre-existing file, or a repeat install writes again."""
+        self.target.mkdir(parents=True)
+        agents_md = self.target / "AGENTS.md"
+        user_bytes = b"# My rules\r\n\r\nKeep answers short.\r\n"
+        agents_md.write_bytes(user_bytes)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.installer.install("hybrid", self.target)
+        installed = agents_md.read_bytes()
+        with contextlib.redirect_stdout(io.StringIO()) as second_out:
+            self.installer.install("hybrid", self.target)
+
+        self.assertEqual(installed, user_bytes + b"\n" + MANAGED_SECTION.encode())
+        self.assertEqual(agents_md.read_bytes(), installed)
+        self.assertIn("0 write(s), 0 removal(s)", second_out.getvalue())
 
     def test_previously_installed_append_system_is_removed(self):
         """This test will fail when a retired instruction artifact is left behind."""

@@ -11,10 +11,19 @@ import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 
+HARNESSES_DIR = Path(__file__).resolve().parents[1]
+if str(HARNESSES_DIR) not in sys.path:
+    sys.path.insert(0, str(HARNESSES_DIR))
+
+from common import upsert_managed_section
+
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "harnesses" / "omp" / "generate.py"
 PROFILES = ("hybrid", "openai", "deepseek", "glm")
 MANIFEST_NAME = ".agent-orchestration.omp-manifest.json"
+# User-owned and shared: only its managed section is ever written, so it is never
+# a manifest claim, a collision, or a removal.
+INSTRUCTION_FILE = "AGENTS.md"
 # Frozen cleanup set: an earlier adapter installed this file and the current
 # one does not. The fixed target-relative path is always removed when present
 # (see `install`), independent of any prior manifest, while an installed
@@ -166,6 +175,15 @@ def install(profile: str, target: Path, dry_run: bool = False, generated: Path |
         next_manifest = {"format_version": 1, "profile": profile, "files": sorted(desired)}
         desired[MANIFEST_NAME] = (json.dumps(next_manifest, indent=2, sort_keys=True) + "\n").encode()
         destinations[MANIFEST_NAME] = manifest_path
+        # Merged after the collision checks and the manifest claims on purpose: a
+        # pre-existing instruction file is expected and stays operator-owned.
+        instruction_path = _safe_path(target, INSTRUCTION_FILE)
+        desired[INSTRUCTION_FILE] = upsert_managed_section(
+            instruction_path.read_bytes().decode("utf-8") if _entry(instruction_path) else None,
+            _safe_path(generated, INSTRUCTION_FILE).read_text(encoding="utf-8"),
+            str(instruction_path),
+        ).encode("utf-8")
+        destinations[INSTRUCTION_FILE] = instruction_path
         writes = {name: content for name, content in desired.items()
                   if not _entry(destinations[name]) or destinations[name].read_bytes() != content}
         removals = {name for name in stale if _entry(destinations[name])}

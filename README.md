@@ -4,12 +4,13 @@ Harness-agnostic source of truth for agent and subagent definitions, their
 capability data, and the model/reasoning-effort routing used to generate
 per-harness configuration.
 
-This repository carries no role prompts and installs no global instruction file.
-A generated bundle contains agent or subagent definitions plus the model and
-effort values each harness needs to run them:
+This repository carries no role prompts. A generated bundle contains agent or
+subagent definitions, the model and effort values each harness needs to run them,
+and one short orchestration policy for the harness's global instruction file (every
+harness except DeepSeek Harness):
 
 ```text
-policy/routing.toml + profiles/*.toml
+policy/routing.toml + policy/orchestration.md + profiles/*.toml
                   ↓
            harness generator
                   ↓
@@ -21,6 +22,10 @@ OpenCode / Codex / Claude Code / Pi / OMP / DeepSeek Harness
 - `policy/routing.toml` — the canonical roles and their capability data
   (`description`, `mode`, `edit`, `bash`). It contains no model identifiers and no
   delegation graph between roles.
+- `policy/orchestration.md` — the short orchestration policy for the primary agent
+  and the only source of that text. Generators copy it unchanged between the
+  `<!-- agent-orchestration:start -->` and `<!-- agent-orchestration:end -->` markers;
+  installers merge that managed section into the harness's global instruction file.
 - `profiles/*.toml` — the versioned model and reasoning-effort mapping for one
   execution profile. Each profile declares one `[models.<role>]` entry per role and
   a `[control_plane]` intent for the primary model, the small model, and the
@@ -42,16 +47,18 @@ writing output.
 
 `./scripts/generate` writes every supported harness output into the untracked
 `build/` tree (`build/` and `generated/` are ignored). Agent bodies are empty: a
-bundle carries definitions and model/effort carriers, never a role prompt or a
-global instruction file.
+bundle carries definitions and model/effort carriers, never a role prompt. Its one
+instruction artifact is the marker-wrapped `policy/orchestration.md`: `CLAUDE.md`
+for Claude Code and `AGENTS.md` for OpenCode, Codex, Pi, and OMP. The DeepSeek
+Harness bundle carries no instruction artifact.
 
 | Bundle | Contents |
 | --- | --- |
-| `build/opencode/` | `agents/<role>.md` (description, mode, permissions), `profiles/<profile>/agent-routing.json` (per-role model/variant), `profiles/<profile>/control-plane.json`, `manifest.json` |
-| `build/codex/` | `agents/<role>.toml` (`model`, `model_reasoning_effort`, `sandbox_mode`), `control-plane.toml` |
-| `build/claude-code/` | `agents/<role>.md` with the profile model and effort baked into frontmatter, `_shared/control-plane.md` intent note, `manifest.json` |
-| `build/pi/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `_shared/control-plane.json`, `pi-<profile>` launcher, `manifest.json` |
-| `build/omp/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `config.yml` `modelRoles`, `manifest.json` |
+| `build/opencode/` | `agents/<role>.md` (description, mode, permissions), `profiles/<profile>/agent-routing.json` (per-role model/variant), `profiles/<profile>/control-plane.json`, `AGENTS.md` policy section, `manifest.json` |
+| `build/codex/` | `agents/<role>.toml` (`model`, `model_reasoning_effort`, `sandbox_mode`), `control-plane.toml`, `AGENTS.md` policy section |
+| `build/claude-code/` | `agents/<role>.md` with the profile model and effort baked into frontmatter, `_shared/control-plane.md` intent note, `CLAUDE.md` policy section, `manifest.json` |
+| `build/pi/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `_shared/control-plane.json`, `pi-<profile>` launcher, `AGENTS.md` policy section, `manifest.json` |
+| `build/omp/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `config.yml` `modelRoles`, `AGENTS.md` policy section (not a manifest `files` claim), `manifest.json` |
 | `build/dsh/` | `patch/cordis.patch.yml` (one subagent lane per role carrying provider, model, and effort, with a tool filter for restricted roles), `_shared/control-plane.md`, `manifest.json` |
 
 The Pi launcher selects the profile's primary `--model` and `--thinking` and
@@ -98,6 +105,20 @@ installation reports existing files at managed names as collisions; every
 installer except OMP requires `--adopt` before taking them over, while OMP refuses
 the collision.
 
+The OpenCode, Claude Code, Pi, and OMP installers also keep the orchestration policy
+in a managed section of the harness's global instruction file, between the
+`<!-- agent-orchestration:start -->` and `<!-- agent-orchestration:end -->` markers.
+That file stays operator-owned. A missing file is created with only the managed
+section, an existing section is replaced in place, and a file without markers gets
+the section appended after one blank line; bytes outside the markers are never
+changed. The file is not a managed name: it is never deleted or claimed in a
+manifest, and a pre-existing one is merged without `--adopt` and without an OMP
+collision. The write appears in `--dry-run` output and follows the backup and
+rollback behavior above, so OMP rolls it back in memory and keeps no backup. Two
+cases are refused before any file changes: an instruction file that is a symlink,
+like every other symlinked destination, and one whose markers are malformed
+(anything but none, or exactly one start marker followed by one end marker).
+
 ### OpenCode
 
 ```bash
@@ -107,11 +128,12 @@ the collision.
 
 Merges each profile's `agent-routing.json` and `control-plane.json` into an
 existing `<target>/profiles/<profile>/opencode.json` (default
-`~/.config/opencode`), preserving unrelated configuration, and copies
-`agents/<role>.md`. On a target with no profile config it writes only
-`agents/<role>.md` and the manifest, so the `check-runtime` step below then fails
+`~/.config/opencode`), preserving unrelated configuration, copies
+`agents/<role>.md`, and upserts the policy section into `<target>/AGENTS.md`. On a
+target with no profile config it writes only `agents/<role>.md`, the `AGENTS.md`
+policy section, and the manifest, so the `check-runtime` step below then fails
 with `OpenCode runtime config is missing` until that config exists. It also removes
-the managed instruction files an earlier version registered.
+the legacy instruction files an earlier version registered.
 
 Compare an effective configuration to the selected profile without changing it:
 
@@ -127,9 +149,9 @@ uv run --locked ./scripts/check-runtime --profile openai --target ~/.config/open
 ```
 
 Copies `agents/<role>.md` and the `_shared/control-plane.md` note into `<target>/`
-(default `~/.claude`). As legacy cleanup, it strips the managed instruction section
-an earlier version of this installer wrote into `CLAUDE.md`, preserving
-operator-authored content outside the managed section.
+(default `~/.claude`) and upserts the policy section into `<target>/CLAUDE.md`. A
+managed section an earlier version of this installer wrote there is replaced in
+place, preserving operator-authored content outside the managed section.
 
 ### Pi
 
@@ -142,8 +164,10 @@ The four profiles are `hybrid` (default), `openai`, `deepseek`, and `glm`. The
 default target is `~/.pi/agent` for `hybrid` and `~/.pi/profiles/<profile>` for the
 others; `--target` selects an isolated fixture and `--bin-dir` overrides the
 launcher directory (default `~/.local/bin`). The bundle manifest records every
-managed file, and the installer deletes files a previous manifest claimed. Its
-`format_version: 1` names the internal orchestration bundle schema, not a Pi host
+managed file, and the installer deletes files a previous manifest claimed. The
+policy section is upserted into `AGENTS.md` in the target, the directory the
+launcher exports as `PI_CODING_AGENT_DIR`, and is not a manifest claim. The
+manifest's `format_version: 1` names the internal orchestration bundle schema, not a Pi host
 or runtime version. Install each profile, then exit the current Pi process and
 start the matching launcher, because profile roots are selected only at process
 startup:
@@ -163,7 +187,8 @@ pi-glm       # Z.AI GLM routing at ~/.pi/profiles/glm
 ```
 
 Installs `config.yml` and `agents/<role>.md` into
-`~/.omp/profiles/<profile>/agent` (override with `--target`). It has no adoption or
+`~/.omp/profiles/<profile>/agent` (override with `--target`) and upserts the policy
+section into `AGENTS.md` in the same directory. It has no adoption or
 overwrite mode: a collision at a managed name is refused. An `APPEND_SYSTEM.md` at
 that retired managed name is removed on every install, including a first install
 where no prior manifest claims it, and OMP keeps no on-disk backups. Start OMP with
@@ -193,7 +218,13 @@ python3 harnesses/codex/generate.py --output "$tmp_root/codex" --profile openai
 mkdir -p ~/.codex/agents
 cp "$tmp_root/codex/agents/"*.toml ~/.codex/agents/
 cp "$tmp_root/codex/control-plane.toml" ~/.codex/
+[ -e ~/.codex/AGENTS.md ] || cp "$tmp_root/codex/AGENTS.md" ~/.codex/
 ```
+
+The last line copies the generated `AGENTS.md` policy section only when
+`~/.codex/AGENTS.md` does not exist yet. If you already have one, paste the
+generated section (the two marker lines and everything between them) into it
+yourself, replacing any earlier section between the same markers.
 
 **Manual cleanup when upgrading from an earlier version.** Because no installer
 manages Codex, nothing removes the artifacts an earlier version installed. Delete
@@ -207,7 +238,8 @@ rewrites those files for you.
 - `harnesses/<harness>/generate.py` — renders one harness bundle from `policy/` and
   `profiles/`.
 - `harnesses/<harness>/install.py` — optional installer for that bundle.
-- `harnesses/common.py` — profile contract validation shared by the generators, and
+- `harnesses/common.py` — profile contract validation shared by the generators and
+  the managed policy-section helpers shared by the generators and installers, and
   `harnesses/validate.py` — the source-validation entrypoint run by `scripts/check`.
 - `scripts/` — `generate`, `check`, `check-runtime`, and the per-harness installers.
 - `skills/planned-change-report/` and `skills/completed-change-report/` — optional

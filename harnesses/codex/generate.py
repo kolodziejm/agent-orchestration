@@ -21,7 +21,8 @@ if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
 from common import assert_safe_output as shared_assert_safe_output
-from common import assert_safe_rename, validate_capabilities, validate_profile
+from common import assert_safe_rename, managed_instruction_section
+from common import validate_capabilities, validate_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -155,6 +156,7 @@ def generate_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
 
     (output / "agents").mkdir(parents=True, exist_ok=True)
     (output / "control-plane.toml").write_text(generate_control_plane(profile))
+    (output / "AGENTS.md").write_text(managed_instruction_section())
     for role, role_config in roles.items():
         (output / "agents" / f"{role}.toml").write_text(
             generate_agent(role, role_config, models[role])

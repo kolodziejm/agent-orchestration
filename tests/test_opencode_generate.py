@@ -16,6 +16,11 @@ ROUTING = ROOT / "policy" / "routing.toml"
 PROFILES = ROOT / "profiles"
 GENERATE = ROOT / "harnesses" / "opencode" / "generate.py"
 INSTALL = ROOT / "harnesses" / "opencode" / "install.py"
+MANAGED_SECTION = (
+    "<!-- agent-orchestration:start -->\n"
+    + (ROOT / "policy" / "orchestration.md").read_text()
+    + "<!-- agent-orchestration:end -->\n"
+)
 
 
 def load_install_module():
@@ -287,6 +292,30 @@ class OpenCodeInstallPlanTests(unittest.TestCase):
             deletions = install.desired_state(generated, target, adopt=True)[1]
             self.assertIn(target / "profiles" / "_shared" / "orchestration-core.md", deletions)
             self.assertNotIn(target / "workflows" / "feature-workflow-pilot.md", files)
+
+    def test_install_appends_the_policy_to_a_user_owned_agents_md(self):
+        """This test will fail when installing the policy changes user bytes, needs adoption, or a repeat install writes again."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "fake-home"
+            fake_home.mkdir()
+            target = root / "target"
+            target.mkdir()
+            agents_md = target / "AGENTS.md"
+            user_bytes = b"# My rules\r\n\r\nKeep answers short.\r\n"
+            agents_md.write_bytes(user_bytes)
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    install.install(target, dry_run=False, validate=False)
+                installed = agents_md.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()) as second_out:
+                    install.install(target, dry_run=False, validate=False)
+
+            self.assertEqual(installed, user_bytes + b"\n" + MANAGED_SECTION.encode())
+            self.assertEqual(agents_md.read_bytes(), installed)
+            self.assertIn("already synchronized", second_out.getvalue())
 
     def test_first_install_reports_unmanaged_control_plane_collision_until_adopted(self):
         """This test will fail when first install overwrites runtime control settings without adoption."""

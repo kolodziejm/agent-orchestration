@@ -1,3 +1,4 @@
+import contextlib
 import importlib.util
 import io
 import json
@@ -13,6 +14,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL = ROOT / "harnesses" / "pi" / "install.py"
+MANAGED_SECTION = (
+    "<!-- agent-orchestration:start -->\n"
+    + (ROOT / "policy" / "orchestration.md").read_text()
+    + "<!-- agent-orchestration:end -->\n"
+)
 
 
 def load_install_module():
@@ -147,6 +153,30 @@ class PiInstallTests(unittest.TestCase):
                     manifest = json.loads((target / install.MANIFEST_NAME).read_text())
                     self.assertEqual(manifest["managed_extensions"], [])
                     self.assertEqual(manifest["shared"], ["control-plane.json"])
+
+    def test_install_appends_the_policy_to_a_user_owned_agents_md(self):
+        """This test will fail when installing the policy changes user bytes, needs adoption, or a repeat install writes again."""
+        install = load_install_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_home.mkdir()
+            target = root / "hybrid"
+            target.mkdir()
+            agents_md = target / "AGENTS.md"
+            user_bytes = b"# My rules\r\n\r\nKeep answers short.\r\n"
+            agents_md.write_bytes(user_bytes)
+
+            with mock.patch.object(Path, "home", return_value=fake_home):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    install.install(target, dry_run=False, profile="hybrid")
+                installed = agents_md.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()) as second_out:
+                    install.install(target, dry_run=False, profile="hybrid")
+
+            self.assertEqual(installed, user_bytes + b"\n" + MANAGED_SECTION.encode())
+            self.assertEqual(agents_md.read_bytes(), installed)
+            self.assertIn("already synchronized", second_out.getvalue())
 
     def test_install_removes_previously_managed_policy_artifacts(self):
         """Installing must delete policy files an earlier bundle claimed and keep operator files."""

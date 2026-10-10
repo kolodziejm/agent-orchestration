@@ -13,14 +13,20 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+HARNESSES_DIR = Path(__file__).resolve().parents[1]
+if str(HARNESSES_DIR) not in sys.path:
+    sys.path.insert(0, str(HARNESSES_DIR))
+
+from common import read_text_exact, upsert_managed_section
+
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "claude-code" / "generate.py"
 MANIFEST_NAME = ".agent-orchestration.manifest.json"
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-MARKER_START = "<!-- agent-orchestration:start -->"
-MARKER_END = "<!-- agent-orchestration:end -->"
-MARKER_PATTERN = re.compile(re.escape(MARKER_START) + r".*?" + re.escape(MARKER_END), re.DOTALL)
 CONTROL_PLANE_NOTE = Path("_shared") / "control-plane.md"
+# User-owned and shared: only its managed section is ever written, so it is never
+# a manifest claim, an adoption collision, or a deletion.
+INSTRUCTION_FILE = "CLAUDE.md"
 
 
 def text_diff(current: Path, desired: str, label: str) -> str:
@@ -93,33 +99,6 @@ def assert_safe_destination(path: Path, target: Path) -> None:
         current = current.parent
 
 
-def strip_claude_md(existing: str) -> str:
-    """Remove the marker-delimited managed section, preserving every other byte.
-
-    The adapter no longer installs instruction content into CLAUDE.md, so an
-    existing managed section is stripped instead of rewritten. Files without a
-    marker pair, and files with dangling or duplicated markers, are returned
-    unchanged: the installer never rewrites bytes it does not own.
-    """
-    start_count = existing.count(MARKER_START)
-    end_count = existing.count(MARKER_END)
-    if start_count != 1 or end_count != 1:
-        return existing
-    match = MARKER_PATTERN.search(existing)
-    if match is None or existing.index(MARKER_START) > existing.index(MARKER_END):
-        return existing
-    before = existing[: match.start()]
-    after = existing[match.end() :]
-    # Drop the blank-line separator this adapter wrote before the section and
-    # the newline that terminated it, so repeated installs stay idempotent.
-    if before.endswith("\n\n") and after.startswith("\n"):
-        before = before[:-1]
-        after = after[1:]
-    elif after.startswith("\n"):
-        after = after[1:]
-    return before + after
-
-
 def load_and_preflight_manifests(
     generated: Path, target: Path, adopt: bool = False
 ) -> tuple[dict, dict]:
@@ -139,7 +118,7 @@ def load_and_preflight_manifests(
     roles = set(current_manifest["roles"]) | set(previous_manifest["roles"])
     paths = {
         target / MANIFEST_NAME,
-        target / "CLAUDE.md",
+        target / INSTRUCTION_FILE,
         target / "_shared" / "orchestration-core.md",
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
@@ -181,7 +160,7 @@ def desired_state(
     stale_roles = previous_roles - current_roles
     stale_workflows = previous_workflows - current_workflows
 
-    claude_md_path = target / "CLAUDE.md"
+    claude_md_path = target / INSTRUCTION_FILE
     legacy_core = target / "_shared" / "orchestration-core.md"
 
     for role in current_roles:
@@ -197,11 +176,14 @@ def desired_state(
         deletions.add(target / "workflows" / f"{workflow}.md")
 
     deletions.add(legacy_core)
-    existing_claude_md = claude_md_path.read_text() if claude_md_path.exists() else ""
-    if existing_claude_md:
-        stripped = strip_claude_md(existing_claude_md)
-        if stripped != existing_claude_md:
-            files[claude_md_path] = stripped
+    # Read without newline translation and plan a write only for a real change, so
+    # user bytes outside the managed section round-trip and a repeat install is a no-op.
+    existing_claude_md = read_text_exact(claude_md_path) if claude_md_path.exists() else None
+    merged_claude_md = upsert_managed_section(
+        existing_claude_md, (generated / INSTRUCTION_FILE).read_text(), str(claude_md_path)
+    )
+    if merged_claude_md != existing_claude_md:
+        files[claude_md_path] = merged_claude_md
     control_note_source = generated / CONTROL_PLANE_NOTE
     files[target / CONTROL_PLANE_NOTE] = control_note_source.read_text()
 

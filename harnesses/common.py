@@ -1,10 +1,14 @@
-"""Shared safety and capability checks used by harness integrations."""
+"""Shared safety, capability, and instruction-section helpers for harness integrations."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+
+ORCHESTRATION_POLICY = Path(__file__).resolve().parents[1] / "policy" / "orchestration.md"
+INSTRUCTION_MARKER_START = "<!-- agent-orchestration:start -->"
+INSTRUCTION_MARKER_END = "<!-- agent-orchestration:end -->"
 
 SUPPORTED_EFFORTS = frozenset({"low", "medium", "high", "max", "xhigh"})
 HARNESS_SUPPORTED_EFFORTS = {
@@ -17,6 +21,50 @@ HARNESS_SUPPORTED_EFFORTS = {
     # subagent lane; only the control-plane efforts stay recorded intent.
     "dsh": frozenset({"off", "low", "high", "max"}),
 }
+
+
+def managed_instruction_section() -> str:
+    """Return the instruction artifact a bundle carries: the policy inside the markers."""
+    policy = ORCHESTRATION_POLICY.read_text(encoding="utf-8")
+    return f"{INSTRUCTION_MARKER_START}\n{policy}{INSTRUCTION_MARKER_END}\n"
+
+
+def upsert_managed_section(existing: str | None, section: str, label: str) -> str:
+    """Return a global instruction file's content with ``section`` as its managed section.
+
+    The instruction file is user-owned, so only the bytes from the start marker
+    through the end marker are ever replaced. A missing or empty file becomes the
+    section alone, and a file without markers gets the section appended after one
+    blank line. Anything other than zero markers or one start-before-end pair is
+    refused: the installer cannot tell which of those bytes it owns.
+    """
+    if not existing:
+        return section
+    starts = existing.count(INSTRUCTION_MARKER_START)
+    ends = existing.count(INSTRUCTION_MARKER_END)
+    if starts == 0 and ends == 0:
+        separator = "" if existing.endswith("\n\n") else "\n" if existing.endswith("\n") else "\n\n"
+        return existing + separator + section
+    start = existing.find(INSTRUCTION_MARKER_START)
+    end = existing.find(INSTRUCTION_MARKER_END)
+    if starts != 1 or ends != 1 or start > end:
+        raise SystemExit(
+            f"{label} contains malformed agent-orchestration markers "
+            f"({INSTRUCTION_MARKER_START!r}: {starts}, {INSTRUCTION_MARKER_END!r}: {ends}); "
+            "expected none or exactly one start-before-end pair. Repair the file manually "
+            "before installing; no files were changed."
+        )
+    return (
+        existing[:start]
+        + section.removesuffix("\n")
+        + existing[end + len(INSTRUCTION_MARKER_END) :]
+    )
+
+
+def read_text_exact(path: Path) -> str:
+    """Read text without newline translation, so bytes the caller leaves alone round-trip."""
+    with path.open(newline="") as handle:
+        return handle.read()
 
 
 def _absolute(path: Path) -> Path:

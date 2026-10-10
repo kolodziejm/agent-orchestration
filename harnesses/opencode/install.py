@@ -15,10 +15,19 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+HARNESSES_DIR = Path(__file__).resolve().parents[1]
+if str(HARNESSES_DIR) not in sys.path:
+    sys.path.insert(0, str(HARNESSES_DIR))
+
+from common import read_text_exact, upsert_managed_section
+
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "opencode" / "generate.py"
 MANIFEST_NAME = ".agent-orchestration.manifest.json"
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# User-owned and shared: only its managed section is ever written, so it is never
+# a manifest claim, an adoption collision, or a deletion.
+INSTRUCTION_FILE = "AGENTS.md"
 # These are installer-owned subprocess boundaries. Keep them finite and fixed;
 # callers cannot turn a stalled generator or runtime diagnostic into an
 # unbounded install.
@@ -50,10 +59,11 @@ def text_diff(current: Path, desired: str, label: str) -> str:
 def legacy_instruction_paths(target: Path, profiles: set[str]) -> set[str]:
     """Frozen cleanup set: instruction files an earlier installer registered.
 
-    The adapter no longer installs or registers any global instruction file. The
-    two legacy paths stay listed only so an existing installation is cleaned:
-    they are filtered out of every surviving `instructions` array and unlinked
-    when present on disk.
+    The adapter no longer registers any file in an `instructions` array; the
+    policy now lives in the managed section of the target's `AGENTS.md`. The two
+    legacy paths stay listed only so an existing installation is cleaned: they
+    are filtered out of every surviving `instructions` array and unlinked when
+    present on disk.
     """
     paths = {str(target / "profiles" / "_shared" / "orchestration-core.md")}
     paths.update(str(target / "profiles" / name / "orchestration.md") for name in profiles)
@@ -182,6 +192,7 @@ def load_and_preflight_manifests(
     profiles = set(current_manifest["profiles"]) | set(previous_manifest["profiles"])
     paths = {
         target / MANIFEST_NAME,
+        target / INSTRUCTION_FILE,
     }
     paths.update(target / "agents" / f"{role}.md" for role in roles)
     paths.update(target / "workflows" / f"{workflow}.md" for workflow in current_manifest.get("workflows", []))
@@ -237,6 +248,16 @@ def desired_state(
 
     for legacy in legacy_instructions:
         deletions.add(Path(legacy))
+
+    # Read without newline translation and plan a write only for a real change, so
+    # user bytes outside the managed section round-trip and a repeat install is a no-op.
+    agents_md_path = target / INSTRUCTION_FILE
+    existing_agents_md = read_text_exact(agents_md_path) if agents_md_path.exists() else None
+    merged_agents_md = upsert_managed_section(
+        existing_agents_md, (generated / INSTRUCTION_FILE).read_text(), str(agents_md_path)
+    )
+    if merged_agents_md != existing_agents_md:
+        files[agents_md_path] = merged_agents_md
 
     for name in sorted(current_profiles | previous_profiles):
         profile_dir = generated / "profiles" / name

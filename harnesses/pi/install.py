@@ -16,10 +16,19 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+HARNESSES_DIR = Path(__file__).resolve().parents[1]
+if str(HARNESSES_DIR) not in sys.path:
+    sys.path.insert(0, str(HARNESSES_DIR))
+
+from common import upsert_managed_section
+
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "pi" / "generate.py"
 MANIFEST_NAME = ".agent-orchestration.pi-manifest.json"
 MANAGED_ROOT = Path("agent-orchestration")
+# User-owned and shared: only its managed section is ever written, so it is never
+# a manifest claim, an adoption collision, or a stale-file deletion.
+INSTRUCTION_FILE = "AGENTS.md"
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SAFE_MANAGED_EXTENSION = re.compile(
     r"^extensions/(?:[A-Za-z0-9][A-Za-z0-9._-]*/(?:config|package)\.json|"
@@ -271,6 +280,14 @@ def desired_state(
         files[target / relative] = source.read_text(encoding="utf-8")
     files[target / MANIFEST_NAME] = json.dumps(current, indent=2) + "\n"
 
+    instruction_path = target / INSTRUCTION_FILE
+    assert_safe_destination(instruction_path, target)
+    files[instruction_path] = upsert_managed_section(
+        instruction_path.read_bytes().decode("utf-8") if instruction_path.exists() else None,
+        (generated / INSTRUCTION_FILE).read_text(encoding="utf-8"),
+        str(instruction_path),
+    )
+
     stale = managed_paths(previous, target) - managed_paths(current, target)
     stale -= legacy_operator_paths(previous, target)
     return files, stale - set(files)
@@ -353,10 +370,11 @@ def install(
     profile: str = "hybrid",
     bin_dir: Path | None = None,
 ) -> int:
-    """Synchronize only the generated bundle and its declared launcher.
+    """Synchronize the generated bundle, its declared launcher, and the policy section.
 
     The generated manifest is the only source of target ownership, so operator
-    runtime state is opaque to this transaction.
+    runtime state is opaque to this transaction. The one exception is the managed
+    section of the user-owned `AGENTS.md`, which is merged without a manifest claim.
     """
     target = target.expanduser()
     if target.is_symlink():

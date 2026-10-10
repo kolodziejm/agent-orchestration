@@ -141,7 +141,6 @@ class ClaudeCodeGenerateTests(unittest.TestCase):
 
             self.assertFalse((output / "_shared" / "orchestration-core.md").exists())
             self.assertFalse((output / "workflows").exists())
-            self.assertFalse((output / "CLAUDE.md").exists())
 
     def test_manifest_lists_all_roles_and_no_workflow_claim(self):
         with tempfile.TemporaryDirectory() as directory:

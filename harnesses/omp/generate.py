@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HARNESS_DIR = ROOT / "harnesses"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
-from common import assert_safe_output, validate_profile
+from common import assert_safe_output, managed_instruction_section, validate_profile
 
 DEFAULT_ROOT = ROOT / "build" / "omp"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
@@ -77,6 +77,9 @@ def generate(output: Path, name: str) -> None:
     target = assert_safe_output(output, DEFAULT_ROOT / name, TEMP_ROOT)
     target.mkdir(parents=True, exist_ok=True)
     (target / "config.yml").write_text("\n".join(lines) + "\n")
+    # The instruction section is merged into a user-owned file, so it is a bundle
+    # artifact but never one of the manifest's wholly-owned `files`.
+    (target / "AGENTS.md").write_text(managed_instruction_section())
 
     agent_dir = target / "agents"
     agent_dir.mkdir(exist_ok=True)
