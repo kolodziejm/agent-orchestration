@@ -210,8 +210,11 @@ rewrites those files for you.
 - `harnesses/common.py` — profile contract validation shared by the generators, and
   `harnesses/validate.py` — the source-validation entrypoint run by `scripts/check`.
 - `scripts/` — `generate`, `check`, `check-runtime`, and the per-harness installers.
-- `skills/change-report/` — optional portable Agent Skills package, installed
-  through a harness's own Agent Skills mechanism rather than by this repository.
+- `skills/planned-change-report/` and `skills/completed-change-report/` — optional
+  portable Agent Skills packages that render a visual HTML explanation of a change
+  before and after it is made. A harness may invoke them itself or the user may
+  request them; they are installed through a harness's own Agent Skills mechanism
+  rather than by this repository.
 - `evaluations/` — versioned evaluation configuration validated by `validate.py`.
 
 ## Security
