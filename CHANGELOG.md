@@ -3,6 +3,7 @@
 All notable changes to the agent and subagent definitions, capability data, and model/effort routing are documented here.
 
 ## Unreleased
+- Route the Claude profile's `worker`, `explorer`, and `validator` roles to Haiku (5.5 through the `haiku` alias on the Anthropic API) with one effort step up each: `worker` → `high`, `explorer` and `validator` → `medium`. The other six roles and the control plane stay on Opus.
 - Rewrite the nine role descriptions in `policy/routing.toml` to say what each agent does and when to use it. The description is now the only signal a harness has for choosing an agent, so it no longer uses vocabulary from the removed policy.
 - Replace the `change-report` skill with two visual-first skills, `planned-change-report` and `completed-change-report`. A harness may invoke them on its own for a non-trivial change or the user may request them; the authorization, gate, and mandate rules tied to the removed policy are gone.
 - Stop generating orchestration policy and instruction content. The role contracts (`roles/*.md`), `policy/orchestration.md`, the feature workflow, the routing delegation graph, and every generated global instruction artifact are removed. Each generated bundle now carries only agent and subagent definitions plus their model/effort carriers, and the installers strip previously installed managed instruction artifacts while preserving user bytes (except OMP, which removes the retired `APPEND_SYSTEM.md` name unconditionally even with no prior manifest and keeps no backups).
