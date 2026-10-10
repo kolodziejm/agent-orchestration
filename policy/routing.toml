@@ -1,55 +1,55 @@
 version = 1
 
 [roles.worker]
-description = "Routine implementation worker for sufficiently specified changes"
+description = "Implements well-defined code, test, configuration, or documentation changes. Use for routine implementation work with clear requirements."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.worker-complex]
-description = "Complex implementation worker for difficult but sufficiently specified changes"
+description = "Implements changes that need difficult reasoning, such as algorithms, state machines, concurrency, or coordinated multi-layer changes. Use when the requirements are clear but the implementation is hard."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.validator]
-description = "Independent mechanical validation agent"
+description = "Runs tests, lint, typecheck, builds, and browser or device checks and reports the results without changing files. Use to verify a change independently of its author."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
 
 [roles.debugger]
-description = "Read-only root-cause diagnosis agent"
+description = "Reproduces a failure and finds its root cause without changing files. Use when a test, build, or runtime behavior fails and the cause is unknown."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
 
 [roles.explorer]
-description = "Read-only repository evidence gathering agent"
+description = "Searches and reads the repository to answer questions about how the code works without changing files. Use for code search, tracing execution paths, and gathering evidence."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
 
 [roles.planner]
-description = "Reasoning principal for plans, specifications, ADRs, and OpenSpec"
+description = "Produces implementation plans, specifications, ADRs, and task breakdowns without changing files. Use before work that needs design or decomposition."
 mode = "subagent"
 edit = "deny"
 bash = "deny"
 
 [roles.design-partner]
-description = "Human-in-the-loop product flow designer and prototype author"
+description = "Designs product flows and interaction behavior together with the user and proposes lightweight prototypes. Use when UX decisions are still open before implementation."
 mode = "subagent"
 edit = "deny"
 bash = "deny"
 
 [roles.reviewer]
-description = "Senior read-only reviewer and reasoning principal"
+description = "Reviews a proposed or completed change for correctness, security, regressions, and design without changing files. Use for an independent opinion on a diff or a plan."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
 
 [roles.ux-critic]
-description = "Evidence-based UX, accessibility, platform-fit, and parity auditor"
+description = "Audits a user interface for usability, accessibility, and platform fit and reports findings without changing files. Use when a UX review is requested."
 mode = "subagent"
 edit = "deny"
 bash = "deny"
