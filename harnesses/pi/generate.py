@@ -22,7 +22,7 @@ if str(HARNESSES_DIR) not in sys.path:
 
 from common import assert_safe_output as shared_assert_safe_output
 from common import assert_safe_rename, managed_instruction_section
-from common import validate_capabilities, validate_profile
+from common import validate_capabilities, validate_profile, write_skills
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = ROOT / "build" / "pi"
@@ -298,6 +298,8 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
     launcher_output.write_text(launcher_text)
     launcher_output.chmod(0o755)
 
+    skills = write_skills(output)
+
     # No Pi extension package is generated: the former `git-read.ts` runtime extension
     # is retired and built-in Pi tools now cover repository evidence gathering.
     (output / "manifest.json").write_text(
@@ -305,6 +307,7 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
             {
                 "format_version": BUNDLE_FORMAT_VERSION,
                 "roles": sorted(roles),
+                "skills": skills,
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
                 "managed_extensions": [],

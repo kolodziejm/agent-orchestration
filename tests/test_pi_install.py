@@ -19,6 +19,9 @@ MANAGED_SECTION = (
     + (ROOT / "policy" / "orchestration.md").read_text()
     + "<!-- agent-orchestration:end -->\n"
 )
+REPOSITORY_SKILLS = {
+    path.parent.name: path.read_bytes() for path in sorted((ROOT / "skills").glob("*/SKILL.md"))
+}
 
 
 def load_install_module():
@@ -28,6 +31,232 @@ def load_install_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@contextlib.contextmanager
+def generator_with_extra_skill(install, name: str, content: bytes):
+    """Make the installer's generator emit one skill the repository does not have,
+    as an earlier repository version that still shipped it would."""
+    real_run = subprocess.run
+
+    def run(command, *args, **kwargs):
+        result = real_run(command, *args, **kwargs)
+        bundle = Path(command[command.index("--output") + 1])
+        skill = bundle / "skills" / name / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_bytes(content)
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        manifest["skills"] = sorted([*manifest["skills"], name])
+        (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        return result
+
+    with mock.patch.object(install.subprocess, "run", side_effect=run):
+        yield
+
+
+class PiSkillInstallTests(unittest.TestCase):
+    def setUp(self):
+        self.install = load_install_module()
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        # Resolved, because the installer reports and mutates resolved target paths.
+        self.root = Path(self.temp.name).resolve()
+        self.fake_home = self.root / "home"
+        self.fake_home.mkdir()
+        self.target = self.root / "deepseek"
+        self.backups = self.fake_home / ".local" / "state" / "agent-orchestration" / "backups"
+        self.assertTrue(REPOSITORY_SKILLS, "the repository ships at least one skill")
+
+    def run_install(self, target: Path | None = None, profile: str = "deepseek", **kwargs) -> str:
+        with mock.patch.object(Path, "home", return_value=self.fake_home):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.install.install(target or self.target, profile=profile, **kwargs)
+        return output.getvalue()
+
+    def foreign_skill_files(self) -> dict[Path, bytes]:
+        files = {
+            self.target / "skills" / "operator-skill" / "SKILL.md": b"---\nname: operator-skill\n---\nmine\r\n",
+            self.target / "skills" / "operator-skill" / "scripts" / "run.sh": b"#!/bin/sh\n",
+            self.target / "skills" / "loose-note.md": b"operator note\n",
+        }
+        for path, content in files.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        return files
+
+    def test_every_profile_install_writes_each_skill_into_its_own_target(self):
+        """This test will fail when a Pi profile root is installed without the repository skills."""
+        for profile in ("hybrid", "openai", "deepseek", "glm"):
+            with self.subTest(profile=profile):
+                target = self.root / "profiles" / profile
+                self.run_install(target, profile, dry_run=False)
+                for name, content in REPOSITORY_SKILLS.items():
+                    self.assertEqual((target / "skills" / name / "SKILL.md").read_bytes(), content)
+                manifest = json.loads((target / self.install.MANIFEST_NAME).read_text())
+                self.assertEqual(manifest["skills"], sorted(REPOSITORY_SKILLS))
+
+    def test_install_writes_each_skill_and_leaves_foreign_skills_alone(self):
+        """This test will fail when installation skips or alters a repository skill, or touches a skill it does not own."""
+        foreign = self.foreign_skill_files()
+
+        self.run_install(dry_run=False)
+        second = self.run_install(dry_run=False)
+
+        for name, content in REPOSITORY_SKILLS.items():
+            self.assertEqual((self.target / "skills" / name / "SKILL.md").read_bytes(), content)
+        for path, content in foreign.items():
+            self.assertEqual(path.read_bytes(), content)
+        self.assertEqual(
+            sorted(path.name for path in (self.target / "skills").iterdir()),
+            sorted([*REPOSITORY_SKILLS, "operator-skill", "loose-note.md"]),
+        )
+        self.assertIn("already synchronized", second)
+
+    def test_dry_run_lists_every_skill_write_without_creating_it(self):
+        """This test will fail when a preview hides a skill write or writes it."""
+        report = self.run_install(dry_run=True)
+
+        for name in REPOSITORY_SKILLS:
+            self.assertIn(f"+++ generated:skills/{name}/SKILL.md", report)
+        self.assertIn("DRY RUN", report)
+        self.assertFalse((self.target / "skills").exists())
+
+    def test_skill_dropped_from_a_later_bundle_is_removed_on_reinstall(self):
+        """This test will fail when a deleted or renamed skill stays installed, or its removal reaches another skill."""
+        foreign = self.foreign_skill_files()
+        retired = self.target / "skills" / "retired-skill" / "SKILL.md"
+        with generator_with_extra_skill(self.install, "retired-skill", b"retired skill\n"):
+            self.run_install(dry_run=False)
+        self.assertEqual(retired.read_bytes(), b"retired skill\n")
+        manifest_path = self.target / self.install.MANIFEST_NAME
+        self.assertIn("retired-skill", json.loads(manifest_path.read_text())["skills"])
+
+        preview = self.run_install(dry_run=True)
+        self.assertIn("+++ deleted:skills/retired-skill/SKILL.md", preview)
+        self.assertEqual(retired.read_bytes(), b"retired skill\n")
+
+        self.run_install(dry_run=False)
+
+        self.assertFalse(retired.parent.exists())
+        self.assertEqual(json.loads(manifest_path.read_text())["skills"], sorted(REPOSITORY_SKILLS))
+        for name, content in REPOSITORY_SKILLS.items():
+            self.assertEqual((self.target / "skills" / name / "SKILL.md").read_bytes(), content)
+        for path, content in foreign.items():
+            self.assertEqual(path.read_bytes(), content)
+        backed_up = list(self.backups.rglob("skills/retired-skill/SKILL.md"))
+        self.assertEqual([path.read_bytes() for path in backed_up], [b"retired skill\n"])
+
+    def test_a_removed_skill_directory_holding_operator_files_is_kept(self):
+        """This test will fail when removing a dropped skill deletes files the operator added beside it."""
+        with generator_with_extra_skill(self.install, "retired-skill", b"retired skill\n"):
+            self.run_install(dry_run=False)
+        notes = self.target / "skills" / "retired-skill" / "notes.md"
+        notes.write_bytes(b"operator notes\n")
+
+        self.run_install(dry_run=False)
+
+        self.assertFalse((self.target / "skills" / "retired-skill" / "SKILL.md").exists())
+        self.assertEqual(notes.read_bytes(), b"operator notes\n")
+
+    def test_first_install_reports_an_unmanaged_skill_collision_until_adopted(self):
+        """This test will fail when a first install overwrites an operator's same-named skill without adoption."""
+        name = sorted(REPOSITORY_SKILLS)[0]
+        skill = self.target / "skills" / name / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_bytes(b"operator-written skill\n")
+
+        with self.assertRaisesRegex(SystemExit, "adoption required") as refused:
+            self.run_install(dry_run=False)
+        self.assertIn(str(skill), str(refused.exception))
+        self.assertEqual(skill.read_bytes(), b"operator-written skill\n")
+        self.assertFalse((self.target / self.install.MANIFEST_NAME).exists())
+
+        self.run_install(dry_run=False, adopt=True)
+
+        self.assertEqual(skill.read_bytes(), REPOSITORY_SKILLS[name])
+        backed_up = list(self.backups.rglob(f"skills/{name}/SKILL.md"))
+        self.assertEqual([path.read_bytes() for path in backed_up], [b"operator-written skill\n"])
+
+    def test_upgrade_claims_hand_copied_skills_without_adoption(self):
+        """This test will fail when a target installed before skills were managed refuses or mishandles hand-copied skills."""
+        self.run_install(dry_run=False)
+        manifest_path = self.target / self.install.MANIFEST_NAME
+        earlier = json.loads(manifest_path.read_text())
+        del earlier["skills"]
+        manifest_path.write_text(json.dumps(earlier, indent=2) + "\n")
+        identical, outdated = sorted(REPOSITORY_SKILLS)[0], sorted(REPOSITORY_SKILLS)[-1]
+        outdated_path = self.target / "skills" / outdated / "SKILL.md"
+        outdated_path.write_bytes(b"outdated hand copy\n")
+
+        report = self.run_install(dry_run=False)
+
+        self.assertEqual(json.loads(manifest_path.read_text())["skills"], sorted(REPOSITORY_SKILLS))
+        self.assertEqual(outdated_path.read_bytes(), REPOSITORY_SKILLS[outdated])
+        self.assertEqual(
+            [path.read_bytes() for path in self.backups.rglob(f"skills/{outdated}/SKILL.md")],
+            [b"outdated hand copy\n"],
+        )
+        if identical != outdated:
+            self.assertNotIn(f"generated:skills/{identical}/SKILL.md", report)
+            self.assertEqual(list(self.backups.rglob(f"skills/{identical}/SKILL.md")), [])
+
+    def test_a_symlinked_skills_directory_is_refused_without_writing_through_it(self):
+        """This test will fail when skills are written through a symlink to a directory outside the target."""
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.target.mkdir()
+        (self.target / "skills").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(SystemExit, "Refusing"):
+            self.run_install(dry_run=False, adopt=True)
+
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse((self.target / self.install.MANIFEST_NAME).exists())
+
+    def test_failed_validation_rolls_back_skill_writes_and_removals(self):
+        """This test will fail when a failed install leaves a new skill behind or loses a removed one."""
+        with generator_with_extra_skill(self.install, "retired-skill", b"retired skill\n"):
+            self.run_install(dry_run=False)
+        kept_name = sorted(REPOSITORY_SKILLS)[0]
+        (self.target / "skills" / kept_name / "SKILL.md").write_bytes(b"locally edited skill\n")
+        before = {
+            path.relative_to(self.target): path.read_bytes() if path.is_file() else None
+            for path in self.target.rglob("*")
+        }
+
+        with mock.patch.object(
+            self.install, "validate_installed", side_effect=RuntimeError("forced validation failure")
+        ):
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(RuntimeError, "forced validation failure"):
+                    self.run_install(dry_run=False)
+
+        after = {
+            path.relative_to(self.target): path.read_bytes() if path.is_file() else None
+            for path in self.target.rglob("*")
+        }
+        self.assertEqual(after, before)
+        self.assertEqual(
+            after[Path("skills") / "retired-skill" / "SKILL.md"], b"retired skill\n"
+        )
+
+    def test_post_install_validation_rejects_a_tampered_skill(self):
+        """This test will fail when post-install validation stops covering the installed skill bytes."""
+        self.run_install(dry_run=False)
+        manifest = json.loads((self.target / self.install.MANIFEST_NAME).read_text())
+        files = {
+            path: path.read_text()
+            for path in self.install.managed_paths(manifest, self.target)
+            if path.is_file()
+        }
+        self.install.validate_installed(files, self.target)
+        name = sorted(REPOSITORY_SKILLS)[0]
+        (self.target / "skills" / name / "SKILL.md").write_bytes(
+            REPOSITORY_SKILLS[name].replace(b"\n", b"\r\n")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Mismatched installed Pi artifacts"):
+            self.install.validate_installed(files, self.target)
 
 
 class PiInstallTests(unittest.TestCase):

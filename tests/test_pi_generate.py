@@ -146,7 +146,7 @@ class PiGenerateTests(unittest.TestCase):
     def test_manifest_uses_internal_bundle_schema_without_runtime_identity(self):
         """The manifest version names the internal bundle schema, never a runtime package."""
         expected_keys = {
-            "format_version", "roles", "profiles", "launchers",
+            "format_version", "roles", "skills", "profiles", "launchers",
             "managed_extensions", "shared",
         }
         for profile_name in EXPECTED:

@@ -6,11 +6,11 @@ per-harness configuration.
 
 This repository carries no role prompts. A generated bundle contains agent or
 subagent definitions, the model and effort values each harness needs to run them,
-and one short orchestration policy for the harness's global instruction file (every
-harness except DeepSeek Harness):
+and, for every harness except DeepSeek Harness, one short orchestration policy for
+the harness's global instruction file and the repository's Agent Skills:
 
 ```text
-policy/routing.toml + policy/orchestration.md + profiles/*.toml
+policy/routing.toml + policy/orchestration.md + profiles/*.toml + skills/
                   ↓
            harness generator
                   ↓
@@ -26,6 +26,11 @@ OpenCode / Codex / Claude Code / Pi / OMP / DeepSeek Harness
   and the only source of that text. Generators copy it unchanged between the
   `<!-- agent-orchestration:start -->` and `<!-- agent-orchestration:end -->` markers;
   installers merge that managed section into the harness's global instruction file.
+- `skills/<name>/SKILL.md` — the Agent Skills packages and the only source of their
+  text. Generators discover every `skills/<name>/` directory and copy its `SKILL.md`
+  byte-for-byte; installers install it as a managed file. A skill directory may hold
+  only `SKILL.md` (hidden files are ignored), its name must be lowercase letters,
+  digits, and single hyphens, and generation fails rather than leave a file out.
 - `profiles/*.toml` — the versioned model and reasoning-effort mapping for one
   execution profile. Each profile declares one `[models.<role>]` entry per role and
   a `[control_plane]` intent for the primary model, the small model, and the
@@ -49,16 +54,17 @@ writing output.
 `build/` tree (`build/` and `generated/` are ignored). Agent bodies are empty: a
 bundle carries definitions and model/effort carriers, never a role prompt. Its one
 instruction artifact is the marker-wrapped `policy/orchestration.md`: `CLAUDE.md`
-for Claude Code and `AGENTS.md` for OpenCode, Codex, Pi, and OMP. The DeepSeek
-Harness bundle carries no instruction artifact.
+for Claude Code and `AGENTS.md` for OpenCode, Codex, Pi, and OMP. The same five
+bundles carry each repository skill unchanged at `skills/<name>/SKILL.md`. The
+DeepSeek Harness bundle carries no instruction artifact and no skills.
 
 | Bundle | Contents |
 | --- | --- |
-| `build/opencode/` | `agents/<role>.md` (description, mode, permissions), `profiles/<profile>/agent-routing.json` (per-role model/variant), `profiles/<profile>/control-plane.json`, `AGENTS.md` policy section, `manifest.json` |
-| `build/codex/` | `agents/<role>.toml` (`model`, `model_reasoning_effort`, `sandbox_mode`), `control-plane.toml`, `AGENTS.md` policy section |
-| `build/claude-code/` | `agents/<role>.md` with the profile model and effort baked into frontmatter, `_shared/control-plane.md` intent note, `CLAUDE.md` policy section, `manifest.json` |
-| `build/pi/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `_shared/control-plane.json`, `pi-<profile>` launcher, `AGENTS.md` policy section, `manifest.json` |
-| `build/omp/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `config.yml` `modelRoles`, `AGENTS.md` policy section (not a manifest `files` claim), `manifest.json` |
+| `build/opencode/` | `agents/<role>.md` (description, mode, permissions), `profiles/<profile>/agent-routing.json` (per-role model/variant), `profiles/<profile>/control-plane.json`, `AGENTS.md` policy section, `skills/<name>/SKILL.md`, `manifest.json` |
+| `build/codex/` | `agents/<role>.toml` (`model`, `model_reasoning_effort`, `sandbox_mode`), `control-plane.toml`, `AGENTS.md` policy section, `skills/<name>/SKILL.md` |
+| `build/claude-code/` | `agents/<role>.md` with the profile model and effort baked into frontmatter, `_shared/control-plane.md` intent note, `CLAUDE.md` policy section, `skills/<name>/SKILL.md`, `manifest.json` |
+| `build/pi/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `_shared/control-plane.json`, `pi-<profile>` launcher, `AGENTS.md` policy section, `skills/<name>/SKILL.md`, `manifest.json` |
+| `build/omp/{hybrid,openai,deepseek,glm}/` | `agents/<role>.md`, `config.yml` `modelRoles`, `AGENTS.md` policy section (not a manifest `files` claim), `skills/<name>/SKILL.md` (each a manifest `files` claim), `manifest.json` |
 | `build/dsh/` | `patch/cordis.patch.yml` (one subagent lane per role carrying provider, model, and effort, with a tool filter for restricted roles), `_shared/control-plane.md`, `manifest.json` |
 
 The Pi launcher selects the profile's primary `--model` and `--thinking` and
@@ -119,6 +125,24 @@ cases are refused before any file changes: an instruction file that is a symlink
 like every other symlinked destination, and one whose markers are malformed
 (anything but none, or exactly one start marker followed by one end marker).
 
+The same four installers install each repository skill as
+`<target>/skills/<name>/SKILL.md`, the directory the harness discovers Agent Skills
+in. Unlike the instruction file, a skill is an ordinary managed file: the manifest
+claims it, a reinstall replaces it with the repository bytes, a skill a later version
+drops or renames is deleted, and it follows the collision, `--adopt`, backup,
+rollback, and `--dry-run` behavior above. On a target that already has a manifest
+from before skills were managed, a hand-copied skill at a managed name is taken over
+without `--adopt`, backed up first when its bytes differ, while OMP refuses it until
+you remove the copy.
+
+Only those claimed `SKILL.md` files are ever written or deleted. Other skills in the
+same `skills/` directory, and any other file inside a managed skill's directory, are
+never touched; the directory of a removed skill is removed only when that leaves it
+empty. A `skills` directory or skill directory that is a symlink is refused before
+any file changes. If you copied these skills by hand into a directory several
+harnesses read, such as `~/.agents/skills`, delete those copies after installing so a
+stale duplicate cannot shadow the installed one.
+
 ### OpenCode
 
 ```bash
@@ -129,9 +153,10 @@ like every other symlinked destination, and one whose markers are malformed
 Merges each profile's `agent-routing.json` and `control-plane.json` into an
 existing `<target>/profiles/<profile>/opencode.json` (default
 `~/.config/opencode`), preserving unrelated configuration, copies
-`agents/<role>.md`, and upserts the policy section into `<target>/AGENTS.md`. On a
-target with no profile config it writes only `agents/<role>.md`, the `AGENTS.md`
-policy section, and the manifest, so the `check-runtime` step below then fails
+`agents/<role>.md` and `skills/<name>/SKILL.md`, and upserts the policy section into
+`<target>/AGENTS.md`. On a target with no profile config it writes only
+`agents/<role>.md`, the skills, the `AGENTS.md` policy section, and the manifest, so
+the `check-runtime` step below then fails
 with `OpenCode runtime config is missing` until that config exists. It also removes
 the legacy instruction files an earlier version registered.
 
@@ -148,8 +173,9 @@ uv run --locked ./scripts/check-runtime --profile openai --target ~/.config/open
 ./scripts/install-claude-code
 ```
 
-Copies `agents/<role>.md` and the `_shared/control-plane.md` note into `<target>/`
-(default `~/.claude`) and upserts the policy section into `<target>/CLAUDE.md`. A
+Copies `agents/<role>.md`, `skills/<name>/SKILL.md`, and the
+`_shared/control-plane.md` note into `<target>/` (default `~/.claude`) and upserts
+the policy section into `<target>/CLAUDE.md`. A
 managed section an earlier version of this installer wrote there is replaced in
 place, preserving operator-authored content outside the managed section.
 
@@ -164,7 +190,8 @@ The four profiles are `hybrid` (default), `openai`, `deepseek`, and `glm`. The
 default target is `~/.pi/agent` for `hybrid` and `~/.pi/profiles/<profile>` for the
 others; `--target` selects an isolated fixture and `--bin-dir` overrides the
 launcher directory (default `~/.local/bin`). The bundle manifest records every
-managed file, and the installer deletes files a previous manifest claimed. The
+managed file, and the installer deletes files a previous manifest claimed. Skills
+are installed as `skills/<name>/SKILL.md` in the target of each profile. The
 policy section is upserted into `AGENTS.md` in the target, the directory the
 launcher exports as `PI_CODING_AGENT_DIR`, and is not a manifest claim. The
 manifest's `format_version: 1` names the internal orchestration bundle schema, not a Pi host
@@ -186,10 +213,11 @@ pi-glm       # Z.AI GLM routing at ~/.pi/profiles/glm
 ./scripts/install-omp --profile hybrid
 ```
 
-Installs `config.yml` and `agents/<role>.md` into
+Installs `config.yml`, `agents/<role>.md`, and `skills/<name>/SKILL.md` into
 `~/.omp/profiles/<profile>/agent` (override with `--target`) and upserts the policy
 section into `AGENTS.md` in the same directory. It has no adoption or
-overwrite mode: a collision at a managed name is refused. An `APPEND_SYSTEM.md` at
+overwrite mode: a collision at a managed name, including an existing skill file with
+the same name, is refused. An `APPEND_SYSTEM.md` at
 that retired managed name is removed on every install, including a first install
 where no prior manifest claims it, and OMP keeps no on-disk backups. Start OMP with
 the matching `omp --profile <profile>`.
@@ -202,7 +230,8 @@ the matching `omp --profile <profile>`.
 ```
 
 Manages `cordis.patch.yml`, `.agent-orchestration/`, and the manifest under
-`$DSH_HOME` (default `~/.dsh`). `AGENTS.md` is not generated or installed; as legacy
+`$DSH_HOME` (default `~/.dsh`). Neither `AGENTS.md` nor any skill is generated or
+installed; as legacy
 cleanup, a managed section an earlier version wrote into `AGENTS.md` is stripped
 while operator-authored content outside the managed section is preserved.
 Generate a Windows bundle with `--shell pwsh`.
@@ -219,19 +248,24 @@ mkdir -p ~/.codex/agents
 cp "$tmp_root/codex/agents/"*.toml ~/.codex/agents/
 cp "$tmp_root/codex/control-plane.toml" ~/.codex/
 [ -e ~/.codex/AGENTS.md ] || cp "$tmp_root/codex/AGENTS.md" ~/.codex/
+mkdir -p ~/.codex/skills
+cp -R "$tmp_root/codex/skills/." ~/.codex/skills/
 ```
 
-The last line copies the generated `AGENTS.md` policy section only when
+The `AGENTS.md` line copies the generated policy section only when
 `~/.codex/AGENTS.md` does not exist yet. If you already have one, paste the
 generated section (the two marker lines and everything between them) into it
-yourself, replacing any earlier section between the same markers.
+yourself, replacing any earlier section between the same markers. The last line
+copies each `skills/<name>/SKILL.md` into `~/.codex/skills/`, overwriting a skill of
+the same name and leaving every other skill there alone.
 
 **Manual cleanup when upgrading from an earlier version.** Because no installer
 manages Codex, nothing removes the artifacts an earlier version installed. Delete
 the previously installed policy text from `~/.codex/AGENTS.md` (remove the file too
 if it held only that text) and delete the old role TOML files under
-`~/.codex/agents/` before copying the new bundle. Nothing in this repository
-rewrites those files for you.
+`~/.codex/agents/` before copying the new bundle. A skill this repository later
+drops or renames likewise stays in `~/.codex/skills/` until you delete its directory.
+Nothing in this repository rewrites those files for you.
 
 ## Repository layout
 
@@ -239,14 +273,16 @@ rewrites those files for you.
   `profiles/`.
 - `harnesses/<harness>/install.py` — optional installer for that bundle.
 - `harnesses/common.py` — profile contract validation shared by the generators and
-  the managed policy-section helpers shared by the generators and installers, and
-  `harnesses/validate.py` — the source-validation entrypoint run by `scripts/check`.
+  the managed policy-section and skill helpers shared by the generators and
+  installers, and `harnesses/validate.py` — the source-validation entrypoint run by
+  `scripts/check`.
 - `scripts/` — `generate`, `check`, `check-runtime`, and the per-harness installers.
-- `skills/planned-change-report/` and `skills/completed-change-report/` — optional
-  portable Agent Skills packages that render a visual HTML explanation of a change
-  before and after it is made. A harness may invoke them itself or the user may
-  request them; they are installed through a harness's own Agent Skills mechanism
-  rather than by this repository.
+- `skills/<name>/SKILL.md` — the Agent Skills packages this repository distributes.
+  `planned-change-report` and `completed-change-report` render a visual HTML
+  explanation of a change before and after it is made; a harness may invoke them
+  itself or the user may request them. Every generator except DeepSeek Harness
+  copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers
+  install them into the harness's skills directory, and Codex takes a manual copy.
 - `evaluations/` — versioned evaluation configuration validated by `validate.py`.
 
 ## Security

@@ -22,7 +22,7 @@ if str(HARNESSES_DIR) not in sys.path:
 
 from common import assert_safe_output as shared_assert_safe_output
 from common import assert_safe_rename, managed_instruction_section
-from common import validate_capabilities, validate_profile
+from common import validate_capabilities, validate_profile, write_skills
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -127,11 +127,14 @@ def generate_into(output: Path) -> None:
             "refusing to generate an empty profile set"
         )
 
+    skills = write_skills(output)
+
     (output / "manifest.json").write_text(
         json.dumps(
             {
                 "format_version": 1,
                 "roles": sorted(roles),
+                "skills": skills,
                 "profiles": sorted(profile_names),
                 "control_plane": True,
             },

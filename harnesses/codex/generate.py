@@ -22,7 +22,7 @@ if str(HARNESSES_DIR) not in sys.path:
 
 from common import assert_safe_output as shared_assert_safe_output
 from common import assert_safe_rename, managed_instruction_section
-from common import validate_capabilities, validate_profile
+from common import validate_capabilities, validate_profile, write_skills
 
 ROOT = Path(__file__).resolve().parents[2]
 # Unresolved on purpose: resolving here would make the argparse default
@@ -161,6 +161,8 @@ def generate_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
         (output / "agents" / f"{role}.toml").write_text(
             generate_agent(role, role_config, models[role])
         )
+    # Codex has no installer and no bundle manifest: the operator copies `skills/` by hand.
+    write_skills(output)
 
 
 def assert_safe_output(output: Path) -> Path:

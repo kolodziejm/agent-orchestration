@@ -18,6 +18,7 @@ HARNESS_DIR = ROOT / "harnesses"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 from common import assert_safe_output, managed_instruction_section, validate_profile
+from common import SKILL_FILE, SKILLS_DIR, write_skills
 
 DEFAULT_ROOT = ROOT / "build" / "omp"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
@@ -103,6 +104,10 @@ def generate(output: Path, name: str) -> None:
                  f"tools: {json.dumps(tools)}", "---", ""]
         (agent_dir / f"{role}.md").write_text("\n".join(front))
         manifest["files"].append(f"agents/{role}.md")
+    # Skills are wholly-owned files like the agent definitions, so each one is a
+    # manifest `files` claim the installer writes, replaces, and later removes.
+    manifest["skills"] = write_skills(target)
+    manifest["files"].extend(f"{SKILLS_DIR}/{skill}/{SKILL_FILE}" for skill in manifest["skills"])
     manifest["control_plane"] = {"build": {"installed": False,
         "model": model_selector(cp["builtins"]["build"]["model"], providers, cp["builtins"]["build"]["effort"]),
         "note": "OMP has no native build role equivalent; this is intent only."}}

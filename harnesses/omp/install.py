@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -15,7 +16,7 @@ HARNESSES_DIR = Path(__file__).resolve().parents[1]
 if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
-from common import upsert_managed_section
+from common import remove_empty_skill_directories, upsert_managed_section
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "harnesses" / "omp" / "generate.py"
@@ -29,6 +30,9 @@ INSTRUCTION_FILE = "AGENTS.md"
 # (see `install`), independent of any prior manifest, while an installed
 # manifest may still claim it and a generated manifest may not claim it again.
 LEGACY_MANAGED_FILES = frozenset({"APPEND_SYSTEM.md"})
+# A skill is one wholly-owned file per name. OMP discovers `skills/<name>/SKILL.md`
+# in the profile agent root, the same directory this installer targets.
+SKILL_CLAIM = re.compile(r"^skills/[A-Za-z0-9][A-Za-z0-9._-]*/SKILL\.md$")
 
 
 def _entry(path: Path) -> bool:
@@ -80,7 +84,7 @@ def _read_manifest(path: Path, profile: str) -> list[str] | None:
     required = {"config.yml"}
     valid = lambda item: item in required or item in LEGACY_MANAGED_FILES or (
         item.startswith("agents/") and item.endswith(".md") and item.count("/") == 1
-    )
+    ) or bool(SKILL_CLAIM.fullmatch(item))
     if not required.issubset(files) or not all(valid(item) for item in files):
         raise SystemExit("Unsafe installed OMP manifest file claims")
     for item in files:
@@ -103,7 +107,7 @@ def _bundle(generated: Path, profile: str) -> dict[Path, bytes]:
     required = {"config.yml"}
     valid = lambda item: item in required or (
         item.startswith("agents/") and item.endswith(".md") and item.count("/") == 1
-    )
+    ) or bool(SKILL_CLAIM.fullmatch(item))
     if not required.issubset(files) or not all(valid(item) for item in files):
         raise SystemExit("Generated OMP manifest contains unsafe or incomplete file claims")
     result = {}
@@ -210,6 +214,7 @@ def install(profile: str, target: Path, dry_run: bool = False, generated: Path |
                 else:
                     _atomic_write(path, original[0], original[1])
             raise
+        remove_empty_skill_directories((destinations[name] for name in removals), target)
         return 0
     finally:
         if temporary is not None:

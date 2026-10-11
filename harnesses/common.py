@@ -1,14 +1,25 @@
-"""Shared safety, capability, and instruction-section helpers for harness integrations."""
+"""Shared safety, capability, instruction-section, and skill helpers for harness integrations."""
 
 from __future__ import annotations
 
 import os
+import re
+import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 
 ORCHESTRATION_POLICY = Path(__file__).resolve().parents[1] / "policy" / "orchestration.md"
 INSTRUCTION_MARKER_START = "<!-- agent-orchestration:start -->"
 INSTRUCTION_MARKER_END = "<!-- agent-orchestration:end -->"
+
+SKILLS_ROOT = Path(__file__).resolve().parents[1] / "skills"
+SKILLS_DIR = "skills"
+SKILL_FILE = "SKILL.md"
+# The Agent Skills name rule: lowercase letters, digits, and single hyphens, at most
+# 64 characters. Every installer's own manifest name check accepts this subset.
+SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SKILL_NAME_MAX_LENGTH = 64
 
 SUPPORTED_EFFORTS = frozenset({"low", "medium", "high", "max", "xhigh"})
 HARNESS_SUPPORTED_EFFORTS = {
@@ -65,6 +76,101 @@ def read_text_exact(path: Path) -> str:
     """Read text without newline translation, so bytes the caller leaves alone round-trip."""
     with path.open(newline="") as handle:
         return handle.read()
+
+
+def skill_sources() -> dict[str, bytes]:
+    """Return every repository skill as ``{name: SKILL.md bytes}``, ordered by name.
+
+    ``skills/<name>/SKILL.md`` is the only shape a bundle distributes, so anything
+    else is refused instead of being silently left out of a bundle: a linked or
+    misnamed entry, a directory without ``SKILL.md``, or one carrying further
+    files. Hidden entries such as ``.DS_Store`` are ignored, and a repository
+    without a ``skills/`` directory has no skills.
+    """
+    if SKILLS_ROOT.is_symlink():
+        raise SystemExit(f"Refusing symlinked skills directory: {SKILLS_ROOT}")
+    if not SKILLS_ROOT.is_dir():
+        return {}
+    skills: dict[str, bytes] = {}
+    for directory in sorted(SKILLS_ROOT.iterdir(), key=lambda path: path.name):
+        name = directory.name
+        if name.startswith("."):
+            continue
+        if directory.is_symlink() or not directory.is_dir():
+            raise SystemExit(f"Skill source is not a plain directory: {directory}")
+        if not SKILL_NAME.fullmatch(name) or len(name) > SKILL_NAME_MAX_LENGTH:
+            raise SystemExit(f"Unsafe skill directory name: {name!r}")
+        source = directory / SKILL_FILE
+        if source.is_symlink() or not source.is_file():
+            raise SystemExit(f"Skill {name!r} has no plain {SKILL_FILE}: {source}")
+        extra = sorted(
+            entry.name
+            for entry in directory.iterdir()
+            if entry.name != SKILL_FILE and not entry.name.startswith(".")
+        )
+        if extra:
+            raise SystemExit(
+                f"Skill {name!r} carries files that would not be distributed: {extra}; "
+                f"only {SKILL_FILE} is copied into a bundle"
+            )
+        content = source.read_bytes()
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise SystemExit(f"Skill {name!r} {SKILL_FILE} is not valid UTF-8: {error}") from error
+        skills[name] = content
+    return skills
+
+
+def skill_path(root: Path, name: str) -> Path:
+    """Return the one file a skill occupies below a bundle or an installation target."""
+    return root / SKILLS_DIR / name / SKILL_FILE
+
+
+def write_skills(output: Path) -> list[str]:
+    """Copy every repository skill byte-for-byte into ``output`` and return the names.
+
+    The ``skills/`` subtree of a bundle is wholly generated, so one left behind by an
+    earlier in-place generation is replaced rather than merged; a skill dropped from
+    the repository then never lingers in a bundle. No directory is created when the
+    repository has no skills.
+    """
+    skills = skill_sources()
+    destination = output / SKILLS_DIR
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+        raise SystemExit(f"Refusing skills output that is not a plain directory: {destination}")
+    if destination.exists():
+        shutil.rmtree(destination)
+    for name, content in skills.items():
+        path = skill_path(output, name)
+        path.parent.mkdir(parents=True)
+        path.write_bytes(content)
+    return list(skills)
+
+
+def read_bundle_skill(generated: Path, name: str) -> bytes:
+    """Return the exact bytes of a skill a bundle manifest claims."""
+    source = skill_path(generated, name)
+    if source.is_symlink() or not source.is_file():
+        raise SystemExit(f"Missing or linked generated skill: {source}")
+    return source.read_bytes()
+
+
+def remove_empty_skill_directories(removed: Iterable[Path], target: Path) -> None:
+    """Remove the ``skills/<name>/`` directory a deleted skill file leaves empty.
+
+    Only the direct parent of a removed ``skills/<name>/SKILL.md`` is considered and
+    only ``rmdir`` is used, so a directory that still holds operator files, every
+    other skill, and ``skills/`` itself are left alone.
+    """
+    for path in removed:
+        directory = path.parent
+        if path.name != SKILL_FILE or directory.parent != target / SKILLS_DIR:
+            continue
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
 
 
 def _absolute(path: Path) -> Path:

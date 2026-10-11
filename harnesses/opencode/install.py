@@ -19,7 +19,8 @@ HARNESSES_DIR = Path(__file__).resolve().parents[1]
 if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
-from common import read_text_exact, upsert_managed_section
+from common import read_bundle_skill, read_text_exact, remove_empty_skill_directories
+from common import skill_path, upsert_managed_section
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "opencode" / "generate.py"
@@ -50,7 +51,9 @@ def _run_checked_with_timeout(
         ) from error
 
 
-def text_diff(current: Path, desired: str, label: str) -> str:
+def text_diff(current: Path, desired: str | bytes, label: str) -> str:
+    if isinstance(desired, bytes):
+        desired = desired.decode("utf-8", errors="replace")
     before = current.read_text().splitlines(keepends=True) if current.exists() else []
     after = desired.splitlines(keepends=True)
     return "".join(difflib.unified_diff(before, after, fromfile=str(current), tofile=label))
@@ -95,18 +98,29 @@ def validate_manifest(manifest: dict, label: str) -> None:
     control_plane = manifest.get("control_plane", False)
     if not isinstance(control_plane, bool):
         raise SystemExit(f"Invalid {label} control_plane")
-    workflows = manifest.get("workflows", [])
-    if not isinstance(workflows, list) or not all(isinstance(value, str) for value in workflows):
-        raise SystemExit(f"Invalid {label} workflows")
-    if len(workflows) != len(set(workflows)):
-        raise SystemExit(f"Duplicate names in {label} workflows")
-    for value in workflows:
-        if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
-            raise SystemExit(f"Unsafe name in {label} workflows: {value!r}")
+    # Optional name lists: a manifest written before a key existed claims nothing for it.
+    for key in ("workflows", "skills"):
+        values = manifest.get(key, [])
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            raise SystemExit(f"Invalid {label} {key}")
+        if len(values) != len(set(values)):
+            raise SystemExit(f"Duplicate names in {label} {key}")
+        for value in values:
+            if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
+                raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
 
 
 def _has_entry(path: Path) -> bool:
     return path.exists() or path.is_symlink()
+
+
+def _matches(path: Path, content: str | bytes) -> bool:
+    """Compare an installed file with its desired content; skills are exact bytes."""
+    if not path.exists():
+        return False
+    if isinstance(content, bytes):
+        return path.read_bytes() == content
+    return path.read_text() == content
 
 
 def unmanaged_collisions(
@@ -125,6 +139,11 @@ def unmanaged_collisions(
 
     for role in sorted(roles):
         path = target / "agents" / f"{role}.md"
+        if _has_entry(path):
+            collisions.append(str(path))
+
+    for skill in sorted(current_manifest.get("skills", [])):
+        path = skill_path(target, skill)
         if _has_entry(path):
             collisions.append(str(path))
 
@@ -197,6 +216,11 @@ def load_and_preflight_manifests(
     paths.update(target / "agents" / f"{role}.md" for role in roles)
     paths.update(target / "workflows" / f"{workflow}.md" for workflow in current_manifest.get("workflows", []))
     paths.update(target / "workflows" / f"{workflow}.md" for workflow in previous_manifest.get("workflows", []))
+    paths.update(
+        skill_path(target, skill)
+        for manifest in (current_manifest, previous_manifest)
+        for skill in manifest.get("skills", [])
+    )
     for name in profiles:
         paths.add(target / "profiles" / name / "opencode.json")
         paths.add(target / "profiles" / name / "orchestration.md")
@@ -217,8 +241,8 @@ def load_and_preflight_manifests(
 
 def desired_state(
     generated: Path, target: Path, adopt: bool = False
-) -> tuple[dict[Path, str], set[Path]]:
-    files: dict[Path, str] = {}
+) -> tuple[dict[Path, str | bytes], set[Path]]:
+    files: dict[Path, str | bytes] = {}
     deletions: set[Path] = set()
 
     current_manifest, previous_manifest = load_and_preflight_manifests(generated, target, adopt)
@@ -231,6 +255,8 @@ def desired_state(
     previous_workflows = set(previous_manifest.get("workflows", []))
     stale_roles = previous_roles - current_roles
     stale_workflows = previous_workflows - current_workflows
+    current_skills = set(current_manifest.get("skills", []))
+    stale_skills = set(previous_manifest.get("skills", [])) - current_skills
     legacy_instructions = legacy_instruction_paths(target, current_profiles | previous_profiles)
     previous_control_plane = bool(previous_manifest.get("control_plane", False))
 
@@ -245,6 +271,14 @@ def desired_state(
         files[target / "workflows" / source.name] = source.read_text()
     for workflow in stale_workflows:
         deletions.add(target / "workflows" / f"{workflow}.md")
+
+    # Skills are copied as bytes so the installed file is the repository file exactly.
+    # Only the claimed `skills/<name>/SKILL.md` paths are planned; any other skill in
+    # the same directory is operator-owned and never appears in a write or a deletion.
+    for skill in sorted(current_skills):
+        files[skill_path(target, skill)] = read_bundle_skill(generated, skill)
+    for skill in stale_skills:
+        deletions.add(skill_path(target, skill))
 
     for legacy in legacy_instructions:
         deletions.add(Path(legacy))
@@ -342,9 +376,7 @@ def install(target: Path, dry_run: bool, validate: bool, adopt: bool = False) ->
         )
         files, deletions = desired_state(generated, target, adopt)
         changed = {
-            path: content
-            for path, content in files.items()
-            if not path.exists() or path.read_text() != content
+            path: content for path, content in files.items() if not _matches(path, content)
         }
         deleted = {path for path in deletions if path.exists()}
 
@@ -384,7 +416,10 @@ def install(target: Path, dry_run: bool, validate: bool, adopt: bool = False) ->
         try:
             for path, content in changed.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
+                if isinstance(content, bytes):
+                    path.write_bytes(content)
+                else:
+                    path.write_text(content)
             for path in deleted:
                 path.unlink()
 
@@ -416,6 +451,7 @@ def install(target: Path, dry_run: bool, validate: bool, adopt: bool = False) ->
             print("Installation failed; all changed files were rolled back.", file=sys.stderr)
             raise
 
+        remove_empty_skill_directories(deleted, target)
         print(f"Installed {len(changed)} write(s), {len(deleted)} deletion(s). Backup: {backup_root}")
         return 0
 

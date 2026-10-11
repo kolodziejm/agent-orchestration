@@ -1,4 +1,4 @@
-"""Cross-harness contract: agent definitions plus one managed policy artifact.
+"""Cross-harness contract: agent definitions, one managed policy artifact, and skills.
 
 The repository generates one bundle per harness (and per profile where a harness
 has more than one). This module asserts the invariant the reset defines: each
@@ -6,7 +6,9 @@ bundle carries exactly one definition per routing role, every definition carries
 the model and reasoning effort resolved from its profile, and no bundle carries
 role-contract bodies, delegation fields, or workflow artifacts. The only
 instruction artifact a bundle may carry is the marker-wrapped
-`policy/orchestration.md` at its root; the DeepSeek Harness bundle carries none.
+`policy/orchestration.md` at its root, and the only other prose it may carry is a
+byte-for-byte copy of each repository skill at `skills/<name>/SKILL.md`; the
+DeepSeek Harness bundle carries neither.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATORS = ROOT / "harnesses"
 ROUTING = ROOT / "policy" / "routing.toml"
 POLICY = ROOT / "policy" / "orchestration.md"
+SKILLS = ROOT / "skills"
 
 # Every generated target: bundle name, generator, extra arguments, and the
 # profile whose model/effort values must appear in the definitions.
@@ -72,11 +75,13 @@ FORBIDDEN_TOKENS = (
     "APPEND_SYSTEM",
 )
 
-# Instruction and retired artifact names, forbidden at any depth of a bundle.
+# Instruction, skill, and retired artifact names, forbidden at any depth of a bundle
+# outside the two exceptions below.
 FORBIDDEN_NAMES = frozenset(
     {
         "AGENTS.md",
         "CLAUDE.md",
+        "SKILL.md",
         "APPEND_SYSTEM.md",
         "orchestration-core.md",
         "adapter.md",
@@ -94,12 +99,24 @@ POLICY_ARTIFACT = {
     "omp": "AGENTS.md",
 }
 
+# The second exception: each repository skill, copied to exactly this bundle path by
+# every harness that has an Agent Skills directory. DeepSeek Harness is absent on
+# purpose, so any `SKILL.md` in its bundle stays forbidden.
+SKILL_HARNESSES = frozenset({"opencode", "codex", "claude-code", "pi", "omp"})
+
 LANE_PATTERN = re.compile(r"^\s{12}- id: (lane-\S+)$", re.MULTILINE)
 
 
 def load_toml(path: Path):
     with path.open("rb") as handle:
         return tomllib.load(handle)
+
+
+def repository_skills() -> dict[str, bytes]:
+    """Read the skill sources independently of the generators' own discovery."""
+    return {
+        path.parent.name: path.read_bytes() for path in sorted(SKILLS.glob("*/SKILL.md"))
+    }
 
 
 def profile_models(profile_name: str) -> dict:
@@ -173,12 +190,17 @@ class AgentDefinitionContractTests(unittest.TestCase):
         )
 
     def test_every_bundle_contains_exactly_one_definition_per_role(self):
-        """This test will fail when a harness emits a retired or second instruction artifact, DSH emits any, or a role definition is dropped."""
+        """This test will fail when a harness emits a retired or second instruction artifact or a misplaced skill file, DSH emits any, or a role definition is dropped."""
         for name, harness, _extra, _profile in TARGETS:
             with self.subTest(target=name):
                 files = self.bundle_files(name)
+                skill_files = (
+                    {f"skills/{skill}/SKILL.md" for skill in repository_skills()}
+                    if harness in SKILL_HARNESSES
+                    else set()
+                )
                 for relative in files:
-                    if relative == POLICY_ARTIFACT.get(harness):
+                    if relative == POLICY_ARTIFACT.get(harness) or relative in skill_files:
                         continue
                     self.assertFalse(
                         relative.rsplit("/", 1)[-1] in FORBIDDEN_NAMES
@@ -215,6 +237,35 @@ class AgentDefinitionContractTests(unittest.TestCase):
             with self.subTest(target=name):
                 artifact = self.outputs[name] / POLICY_ARTIFACT[harness]
                 self.assertEqual(artifact.read_text(), expected)
+
+    def test_every_bundle_carries_each_repository_skill_byte_for_byte(self):
+        """This test will fail when a bundle drops, alters, renames, or adds to the repository skills, or DSH gains any."""
+        skills = repository_skills()
+        self.assertTrue(skills, "the repository ships at least one skill")
+        expected = {f"skills/{skill}/SKILL.md": content for skill, content in skills.items()}
+        for name, harness, _extra, _profile in TARGETS:
+            with self.subTest(target=name):
+                root = self.outputs[name]
+                bundled = {
+                    relative: (root / relative).read_bytes()
+                    for relative in self.bundle_files(name)
+                    if relative.startswith("skills/")
+                }
+                if harness not in SKILL_HARNESSES:
+                    self.assertEqual(bundled, {})
+                    self.assertFalse((root / "skills").exists())
+                    continue
+                self.assertEqual(bundled, expected)
+                if harness == "codex":
+                    # Generator-only: there is no bundle manifest to claim them.
+                    continue
+                manifest = json.loads((root / "manifest.json").read_text())
+                self.assertEqual(manifest["skills"], sorted(skills))
+                if harness == "omp":
+                    self.assertEqual(
+                        {claim for claim in manifest["files"] if claim.startswith("skills/")},
+                        set(expected),
+                    )
 
     def test_definitions_carry_no_policy_or_delegation_bytes(self):
         """This test will fail when a role body or a delegation field returns to a definition."""

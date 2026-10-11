@@ -20,7 +20,8 @@ HARNESSES_DIR = Path(__file__).resolve().parents[1]
 if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
-from common import upsert_managed_section
+from common import read_bundle_skill, remove_empty_skill_directories
+from common import skill_path, upsert_managed_section
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "pi" / "generate.py"
@@ -113,7 +114,7 @@ def _atomic_write(path: Path, content: str | bytes, mode: int | None = None) -> 
 def validate_manifest(manifest: dict, label: str) -> None:
     if manifest.get("format_version") != 1:
         raise SystemExit(f"Unsupported {label} format_version")
-    for key in ("roles", "profiles", "workflows", "shared", "launchers"):
+    for key in ("roles", "profiles", "workflows", "shared", "launchers", "skills"):
         values = manifest.get(key, [])
         if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
             raise SystemExit(f"Invalid {label} {key}")
@@ -192,6 +193,9 @@ def managed_paths(manifest: dict, target: Path) -> set[Path]:
         target / MANAGED_ROOT / "_shared" / name
         for name in manifest.get("shared", [])
     )
+    # Only the claimed `skills/<name>/SKILL.md` files are managed; any other skill in
+    # the same directory is operator-owned and never a collision, a write, or stale.
+    paths.update(skill_path(target, name) for name in manifest.get("skills", []))
     paths.add(target / MANIFEST_NAME)
     paths.update(target / relative for relative in manifest.get("managed_extensions", []))
     paths.update(target / relative for relative in manifest.get("managed_files", []))
@@ -271,6 +275,10 @@ def desired_state(
     for name in current.get("shared", []):
         source = generated / "_shared" / name
         files[target / MANAGED_ROOT / "_shared" / name] = source.read_text()
+    # Decoded without newline translation: this installer compares and writes UTF-8
+    # bytes, so the installed skill is the repository file exactly.
+    for name in current.get("skills", []):
+        files[skill_path(target, name)] = read_bundle_skill(generated, name).decode("utf-8")
     for relative in current.get("managed_extensions", []):
         files[target / relative] = (generated / relative).read_text()
     for relative in current.get("managed_files", []):
@@ -323,7 +331,9 @@ def validate_installed(files: dict[Path, str], target: Path) -> None:
         raise RuntimeError(f"Missing installed Pi artifacts: {missing}")
     expected_files = {**bundle_files, **{path: files[path] for path in launchers}}
     mismatched = sorted(
-        str(path) for path, expected in expected_files.items() if path.read_text() != expected
+        str(path)
+        for path, expected in expected_files.items()
+        if path.read_bytes() != expected.encode("utf-8")
     )
     if mismatched:
         raise RuntimeError(f"Mismatched installed Pi artifacts: {mismatched}")
@@ -530,6 +540,7 @@ def install(
             print("Installation failed; all changed files were rolled back.", file=sys.stderr)
             raise
 
+        remove_empty_skill_directories(deleted, target)
         print(
             f"Installed {len(changed)} write(s), {len(deleted)} deletion(s). "
             f"Backup: {backup_root}"
