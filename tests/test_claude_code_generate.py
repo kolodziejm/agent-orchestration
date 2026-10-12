@@ -54,6 +54,8 @@ def expected_tools(config: dict, native_vision: bool, role: str | None = None) -
         tools.remove("Bash")
     if config["edit"] == "allow":
         tools.extend(["Edit", "Write"])
+    if role == "design-partner":
+        tools.append("mcp__plugin_figma_figma")
     return tools
 
 

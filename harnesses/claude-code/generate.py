@@ -49,6 +49,10 @@ DEFAULT_OUTPUT = ROOT / "build" / "claude-code"
 TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 
 BASE_TOOLS = ["Read", "Grep", "Glob", "Bash"]
+# A bare server name grants every tool that server exposes, so no per-tool list is needed.
+EXTRA_TOOLS = {
+    "design-partner": ["mcp__plugin_figma_figma"],
+}
 VALID_HARNESSES = {"opencode", "codex", "claude-code", "pi", "dsh"}
 
 
@@ -83,6 +87,7 @@ def tools_for(config: dict, native_vision: bool, role: str | None = None) -> str
         tools.extend(["Edit", "Write"])
     elif edit != "deny":
         raise SystemExit(f"Claude Code does not support routing edit permission: {edit!r}")
+    tools.extend(EXTRA_TOOLS.get(role, []))
     # Claude Code agent files are subagents without reliable nested-agent
     # delegation. The orchestrator owns all Agent calls and passes evidence
     # in the handoff to each generated role.
