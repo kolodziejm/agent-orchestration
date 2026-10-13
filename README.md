@@ -280,7 +280,9 @@ Nothing in this repository rewrites those files for you.
 - `skills/<name>/SKILL.md` — the Agent Skills packages this repository distributes.
   `planned-change-report` and `completed-change-report` render a visual HTML
   explanation of a change before and after it is made; a harness may invoke them
-  itself or the user may request them. Every generator except DeepSeek Harness
+  itself or the user may request them. `promote-changes-to-prod` ships a reviewed
+  pull request through `develop` and `master` to a Railway deployment and runs only
+  when the user asks for it. Every generator except DeepSeek Harness
   copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers
   install them into the harness's skills directory, and Codex takes a manual copy.
 - `evaluations/` — versioned evaluation configuration validated by `validate.py`.
