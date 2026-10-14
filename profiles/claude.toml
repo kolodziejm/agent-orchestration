@@ -24,7 +24,7 @@ model = "opus"
 effort = "high"
 
 [models.worker]
-model = "haiku"
+model = "sonnet"
 variant = "high"
 
 [models.worker-complex]
@@ -32,7 +32,7 @@ model = "opus"
 variant = "xhigh"
 
 [models.validator]
-model = "haiku"
+model = "sonnet"
 variant = "medium"
 
 [models.debugger]
@@ -40,7 +40,7 @@ model = "opus"
 variant = "high"
 
 [models.explorer]
-model = "haiku"
+model = "sonnet"
 variant = "medium"
 
 [models.planner]
