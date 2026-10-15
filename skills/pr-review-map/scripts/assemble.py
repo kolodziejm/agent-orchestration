@@ -124,7 +124,7 @@ def main() -> int:
     parser.add_argument("--title", required=True)
     parser.add_argument("--lang", default="en")
     parser.add_argument("--strings", type=Path, help="JSON object overriding UI strings key by key")
-    parser.add_argument("--storage-key", help="localStorage namespace for read marks (default: from the title)")
+    parser.add_argument("--storage-key", help="localStorage namespace for read marks and review notes (default: from the title)")
     parser.add_argument("--target", choices=("artifact", "local"), default="artifact")
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--out", required=True, type=Path)
@@ -143,10 +143,11 @@ def main() -> int:
     pr_css = []
     for index, pr in enumerate(graph["prs"]):
         color = pr.get("color") or f"var(--pal-{index % 8 + 1})"
-        prs.append({"key": pr["key"], "name": pr.get("name", pr["key"]), "title": pr.get("title", ""), "color": color})
+        prs.append({"key": pr["key"], "name": pr.get("name", pr["key"]), "title": pr.get("title", ""),
+                    "repo": pr.get("repo", ""), "color": color})
         pr_css.append(f".c-{pr['key']}{{--c:{color}}}")
     storage_key = args.storage_key or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:60] or "review"
-    config = {"lang": args.lang, "storageKey": storage_key, "strings": strings, "prs": prs}
+    config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
 
     toc = [*toc_entries(head), ("graph", strings["graphToc"]), *toc_entries(body)]
     toc_html = "\n".join(f'    <li><a href="#{html.escape(i)}">{t}</a></li>' for i, t in toc)

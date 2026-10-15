@@ -17,6 +17,7 @@ Steps:
 1. Run the scaffold:
    python3 <skill dir>/scripts/build_graph.py --out <scratch dir>/graphs.json \
      --pr <KEY REPO RANGE> --name <KEY NAME> [... one pair per PR] \
+     [--title <KEY "PR title">] [--repo <KEY owner/name> when origin does not name it] \
      [--alias SPEC=PATH for workspace packages / tsconfig paths] \
      [--groups <scratch dir>/groups.json] --overlay <scratch dir>/overlay.json
    Start with an empty overlay ({}). Resolve package aliases from package.json

@@ -104,6 +104,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
         cls.repo = cls.root / "repo"
         cls.repo.mkdir()
         git(cls.repo, "init", "-q", "-b", "main")
+        git(cls.repo, "remote", "add", "origin", "https://reviewer:s3cret-token@git.example.com/acme/demo.git")
         commit_files(cls.repo, {"README.md": "# demo\n", "src/legacy.ts": "export const legacy = 1;\n"}, "base")
         git(cls.repo, "checkout", "-q", "-b", "feat/a")
         commit_files(
@@ -150,6 +151,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
             "--out", str(cls.graph_path),
             "--pr", "A", str(cls.repo), "main...feat/a", "--name", "A", "A #1",
             "--pr", "B", str(cls.repo), "feat/a...feat/b", "--name", "B", "B #2",
+            "--title", "A", "Items service", "--repo", "B", "acme/web",
             "--alias", "@demo/items=src/service.ts",
             "--overlay", str(cls.overlay),
         ]
@@ -234,6 +236,38 @@ class ReviewMapPipelineTests(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(sorted(node["order"] for node in a.values()), list(range(1, len(a) + 1)))
 
+    def test_build_graph_labels_each_pr_with_its_repository_and_no_credentials(self):
+        """This test will fail when a PR loses the repository label review notes cite, --repo stops overriding it, or the remote's host or credentials leak into the graph."""
+        self.assertEqual([(pr["repo"], pr["title"]) for pr in self.graph["prs"]], [("acme/demo", "Items service"), ("acme/web", "B #2")])
+        text = self.graph_path.read_text(encoding="utf-8")
+        for secret in ("s3cret-token", "reviewer", "git.example.com"):
+            self.assertNotIn(secret, text)
+        repo = self.root / "folder-name"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"a.txt": "a\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(repo, {"b.txt": "b\n"}, "feat")
+        git(repo, "remote", "add", "origin", "https://example.invalid/x.git")
+        out = self.root / "graphs-remote.json"
+        cases = {
+            "https://TOKEN1secret@git.example.com": "folder-name",
+            "https://git.example.com/acme/demo.git?private_token=TOKEN2secret#TOKEN3secret": "acme/demo",
+            "https://user:pass/TOKEN4secret@git.example.com/demo.git": "demo",
+            "deploy:TOKEN5secret@git.example.com:acme/demo.git": "acme/demo",
+            "git@git.example.com:acme/demo.git": "acme/demo",
+            "ssh://git@git.example.com:2222/group/acme/demo.git": "acme/demo",
+            "/srv/git/demo.git": "folder-name",
+        }
+        for url, label in cases.items():
+            with self.subTest(url=url):
+                git(repo, "remote", "set-url", "origin", url)
+                run_script("build_graph.py", "--out", str(out), "--pr", "R", str(repo), "main...feat")
+                text = out.read_text(encoding="utf-8")
+                self.assertEqual(json.loads(text)["prs"][0]["repo"], label)
+                for leak in ("secret", "git.example.com", "user", "deploy", "private_token"):
+                    self.assertNotIn(leak, text)
+
     def test_build_graph_is_deterministic(self):
         """This test will fail when two runs over the same branches produce different graphs."""
         again = self.root / "graphs-again.json"
@@ -300,6 +334,12 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 self.assertIn('<li><a href="#graph">Graf czytania</a></li>', page)
                 self.assertIn('<li><a href="#arch">Architecture</a></li>', page)
                 self.assertIn(".c-A{--c:var(--pal-1)}", page)
+                config = embedded_json(page, "review-config")
+                self.assertEqual(config["title"], "Demo <review>")
+                self.assertEqual(config["storageKey"], "demo-review")
+                self.assertEqual([(p["key"], p["repo"]) for p in config["prs"]], [("A", "acme/demo"), ("B", "acme/web")])
+                for element in ('id="nt-panel"', 'id="nt-copy"', 'id="nt-clear"', 'id="nt-list"', 'id="nt-manual-text"'):
+                    self.assertIn(element, page)
                 if target == "artifact":
                     self.assertTrue(page.startswith("<title>"))
                     self.assertNotIn("mermaid.min.js", page)

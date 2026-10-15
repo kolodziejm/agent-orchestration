@@ -14,6 +14,7 @@ that moves never loses authored content.
       "key": "S",
       "name": "S #12680",
       "title": "Service vertical: facility services route",
+      "repo": "acme/web",
       "color": "var(--pal-2)",
       "nodes": [
         {"id": "S1", "label": "services.schema.ts", "path": "libs/x/contract/services.schema.ts",
@@ -39,6 +40,10 @@ PR fields:
 
 - `key` — letters, digits, `_`, `-`; also the narrative class suffix (`c-S`).
 - `name` — short tab label (`S #12680`). `title` is the tab tooltip.
+- `repo` — repository label (`owner/name`) that copied review notes name with the
+  PR. `build_graph.py` takes `--repo KEY owner/name`, else reads it from the
+  `origin` remote URL path (never its host, credentials, query, or fragment), else
+  uses the directory name.
 - `color` — optional CSS colour; by default PR *n* gets palette slot `--pal-n`
   (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.

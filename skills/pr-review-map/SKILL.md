@@ -41,7 +41,11 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    opens a detail panel (path, role, +/−, per-file note, clickable relations) and
    the full-width diff below (side by side or unified, big files collapsed,
    rendered lazily). Prev/next buttons, read checkboxes kept in localStorage, and
-   filters for tests and cross-PR nodes.
+   filters for tests and cross-PR nodes. **Review notes**: click a line number in
+   the diff (Shift+click or the keyboard for a range on the same side) to attach a note;
+   notes show as line markers and in a notes panel (edit, delete, jump to the
+   line), persist in localStorage, and "Copy notes" puts them on the clipboard as
+   Markdown for an agent: PR, repo, file, side, lines, the code, and the note.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -125,6 +129,8 @@ python3 $SKILL/scripts/assemble.py --graph $SCRATCH/graphs.json --diffs $SCRATCH
 python3 $SKILL/scripts/validate.py $SCRATCH/review.html
 ```
 
+Read marks and review notes live in localStorage under `--storage-key` (default:
+derived from the title); keep it unchanged when you regenerate so they survive.
 `assemble.py` fills the template, builds the table of contents, colours each PR,
 and embeds the data as `<script type="application/json">` blocks with `</`
 written as `<\/` and `<!--` as `<!--` (both valid JSON). Never hand-insert

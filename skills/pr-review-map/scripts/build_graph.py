@@ -6,9 +6,9 @@ Usage:
       --pr M /path/monolith 1a2b3c4..feat/m  --name M "Monolith #59132" \\
       --pr S /path/repo main...feat/s        --name S "S #12680" \\
       --pr A /path/repo feat/s...feat/a      --name A "A #12681" \\
-      [--title KEY "longer title"] [--alias '@scope/pkg=libs/pkg/src/index.ts'] \\
-      [--alias '@/=src/'] [--groups groups.json] [--no-default-groups] \\
-      [--overlay overlay.json]
+      [--title KEY "longer title"] [--repo KEY owner/name] \\
+      [--alias '@scope/pkg=libs/pkg/src/index.ts'] [--alias '@/=src/'] \\
+      [--groups groups.json] [--no-default-groups] [--overlay overlay.json]
 
 Give the PRs in merge order (earliest first); an edge from a later PR to a file an
 earlier PR changed becomes a dashed cross-PR edge. Files are read with `git show`
@@ -22,6 +22,9 @@ What the script resolves on its own:
   * test → subject edges by file stem
   * `order`: dependency-first reading order (the viewer reverses it for the
     "from the entry point" mode)
+  * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
+    URL path (never its host, credentials, query, or fragment), else the
+    repository directory name
 
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files) goes in the overlay,
@@ -38,6 +41,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 DEFAULT_GROUPS = [
     {"id": "lockfiles", "label": "lockfiles", "layer": "config",
@@ -83,6 +87,9 @@ JS_IMPORT = re.compile(
 PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.MULTILINE)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
 TEST_MARK = re.compile(r"(\.(spec|test|e2e)$|Tests?$|_test$|^test_)")
+SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+SCP = re.compile(r"(?P<host>[^/:]{2,}):(?P<path>.*)")
+SAFE_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def git(repo: str, *args: str, check: bool = True) -> str | None:
@@ -95,6 +102,33 @@ def git(repo: str, *args: str, check: bool = True) -> str | None:
             raise SystemExit(f"git {' '.join(args)} failed in {repo}: {result.stderr.strip()}")
         return None
     return result.stdout
+
+
+def repo_label(repo: str) -> str:
+    """`owner/name` from the origin URL's path, else the directory name.
+
+    Nothing from the host, userinfo, query, or fragment can reach the label: everything up
+    to the last `@` before the path is dropped (even a password with an unescaped `/`), and
+    a label part that is not a plain name falls back to the directory name.
+    """
+    url = (git(repo, "remote", "get-url", "origin", check=False) or "").strip()
+    path = ""
+    if SCHEME.match(url):
+        split = urlsplit(url)
+        rest = (split.netloc + split.path).rsplit("@", 1)[-1]
+        if split.scheme.lower() != "file" and "/" in rest:
+            path = rest.split("/", 1)[1]
+    else:
+        match = SCP.fullmatch(re.split(r"[?#]", url, maxsplit=1)[0].rsplit("@", 1)[-1])
+        if match:
+            path = match.group("path")
+    parts = [part for part in path.split("/") if part]
+    if parts and parts[-1].endswith(".git"):
+        parts[-1] = parts[-1][: -len(".git")]
+    parts = [part for part in parts if part][-2:]
+    if parts and all(SAFE_PART.fullmatch(part) for part in parts):
+        return "/".join(parts)
+    return Path(repo).resolve().name
 
 
 def tip_of(rng: str) -> str:
@@ -234,6 +268,8 @@ def main() -> int:
     parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), required=True)
     parser.add_argument("--name", action="append", nargs=2, metavar=("KEY", "NAME"), default=[])
     parser.add_argument("--title", action="append", nargs=2, metavar=("KEY", "TITLE"), default=[])
+    parser.add_argument("--repo", action="append", nargs=2, metavar=("KEY", "REPO"), default=[],
+                        help="repository label for copied review notes (default: owner/name from origin)")
     parser.add_argument("--alias", action="append", default=[], metavar="SPEC=PATH",
                         help="map an import specifier (exact) or prefix (ending in /) to a repo path")
     parser.add_argument("--groups", type=Path, help="JSON list of extra group rules, checked before the defaults")
@@ -244,6 +280,7 @@ def main() -> int:
 
     names = dict(args.name)
     titles = dict(args.title)
+    repos = dict(args.repo)
     aliases = []
     for item in args.alias:
         if "=" not in item:
@@ -287,7 +324,8 @@ def main() -> int:
                 node["path"] = group_path(node["files"])
                 if len(node["files"]) > 1:
                     node["label"] = f"{node['label']} ({len(node['files'])})"
-        prs.append({"key": key, "repo": repo, "range": rng, "tip": tip_of(rng), "nodes": nodes, "owner": owner, "edges": {}})
+        prs.append({"key": key, "repo": repo, "label": repos.get(key) or repo_label(repo), "range": rng,
+                    "tip": tip_of(rng), "nodes": nodes, "owner": owner, "edges": {}})
 
     # Unchanged reference files first, so imports and `use` statements resolve to them.
     for extra in overlay.get("extraNodes", []):
@@ -439,7 +477,8 @@ def main() -> int:
         for nk in pr["order"]:
             counts[nodes[nk]["label"]] = counts.get(nodes[nk]["label"], 0) + 1
         entry = {"key": pr["key"], "name": names.get(pr["key"], pr["key"]),
-                 "title": titles.get(pr["key"], names.get(pr["key"], pr["key"])), "nodes": [], "edges": []}
+                 "title": titles.get(pr["key"], names.get(pr["key"], pr["key"])), "repo": pr["label"],
+                 "nodes": [], "edges": []}
         for nk in pr["order"]:
             node = nodes[nk]
             label = node["label"]
