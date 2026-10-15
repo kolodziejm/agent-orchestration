@@ -20,6 +20,13 @@ SKILL_FILE = "SKILL.md"
 # 64 characters. Every installer's own manifest name check accepts this subset.
 SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SKILL_NAME_MAX_LENGTH = 64
+# One component of a path below a skill directory, and of every manifest claim on
+# one: no hidden names, no `.`/`..`, nothing a shell or installer would reinterpret.
+SKILL_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# Generated caches that may appear in a skill directory but are never distributed.
+SKILL_IGNORED_NAMES = frozenset({"__pycache__"})
+# Bundle manifest key listing each supporting file a skill carries besides SKILL.md.
+SKILL_FILES_KEY = "skill_files"
 
 SUPPORTED_EFFORTS = frozenset({"low", "medium", "high", "max", "xhigh"})
 HARNESS_SUPPORTED_EFFORTS = {
@@ -78,20 +85,62 @@ def read_text_exact(path: Path) -> str:
         return handle.read()
 
 
-def skill_sources() -> dict[str, bytes]:
-    """Return every repository skill as ``{name: SKILL.md bytes}``, ordered by name.
+def _skill_package(name: str, directory: Path) -> dict[str, bytes]:
+    """Return one skill directory as ``{path relative to it: bytes}``, ``SKILL.md`` first.
 
-    ``skills/<name>/SKILL.md`` is the only shape a bundle distributes, so anything
-    else is refused instead of being silently left out of a bundle: a linked or
-    misnamed entry, a directory without ``SKILL.md``, or one carrying further
-    files. Hidden entries such as ``.DS_Store`` are ignored, and a repository
-    without a ``skills/`` directory has no skills.
+    Every regular file below the directory is part of the package. Hidden entries
+    (``.DS_Store``) and Python bytecode caches are ignored because they are never
+    authored; anything a bundle could not carry exactly is refused instead.
+    """
+    source = directory / SKILL_FILE
+    if source.is_symlink() or not source.is_file():
+        raise SystemExit(f"Skill {name!r} has no plain {SKILL_FILE}: {source}")
+    files: dict[str, bytes] = {}
+    pending = [directory]
+    while pending:
+        current = pending.pop()
+        for entry in current.iterdir():
+            if entry.name.startswith(".") or entry.name in SKILL_IGNORED_NAMES:
+                continue
+            relative = entry.relative_to(directory).as_posix()
+            if entry.is_symlink():
+                raise SystemExit(f"Skill {name!r} carries a symlink: {relative}")
+            if not SKILL_PATH_PART.fullmatch(entry.name):
+                raise SystemExit(f"Skill {name!r} carries an unsafe file name: {relative!r}")
+            if entry.is_dir():
+                pending.append(entry)
+                continue
+            if not entry.is_file():
+                raise SystemExit(f"Skill {name!r} carries a non-regular file: {relative}")
+            if not is_skill_claim(f"{name}/{relative}"):
+                raise SystemExit(
+                    f"Skill {name!r} carries a nested {SKILL_FILE}: {relative}; "
+                    "a harness could discover it as a second skill"
+                )
+            content = entry.read_bytes()
+            try:
+                content.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise SystemExit(f"Skill {name!r} file {relative} is not valid UTF-8: {error}") from error
+            files[relative] = content
+    return {SKILL_FILE: files.pop(SKILL_FILE), **dict(sorted(files.items()))}
+
+
+def skill_sources() -> dict[str, dict[str, bytes]]:
+    """Return every repository skill as ``{name: {relative path: bytes}}``, ordered by name.
+
+    A skill is its ``skills/<name>/`` directory: ``SKILL.md`` plus any supporting
+    files (scripts, references, assets) at any depth below it. Anything a bundle
+    cannot carry whole is refused instead of being silently left out: a linked or
+    misnamed entry, a directory without ``SKILL.md``, a non-UTF-8 file, or a nested
+    ``SKILL.md``. Hidden entries such as ``.DS_Store`` and ``__pycache__`` are
+    ignored, and a repository without a ``skills/`` directory has no skills.
     """
     if SKILLS_ROOT.is_symlink():
         raise SystemExit(f"Refusing symlinked skills directory: {SKILLS_ROOT}")
     if not SKILLS_ROOT.is_dir():
         return {}
-    skills: dict[str, bytes] = {}
+    skills: dict[str, dict[str, bytes]] = {}
     for directory in sorted(SKILLS_ROOT.iterdir(), key=lambda path: path.name):
         name = directory.name
         if name.startswith("."):
@@ -100,40 +149,42 @@ def skill_sources() -> dict[str, bytes]:
             raise SystemExit(f"Skill source is not a plain directory: {directory}")
         if not SKILL_NAME.fullmatch(name) or len(name) > SKILL_NAME_MAX_LENGTH:
             raise SystemExit(f"Unsafe skill directory name: {name!r}")
-        source = directory / SKILL_FILE
-        if source.is_symlink() or not source.is_file():
-            raise SystemExit(f"Skill {name!r} has no plain {SKILL_FILE}: {source}")
-        extra = sorted(
-            entry.name
-            for entry in directory.iterdir()
-            if entry.name != SKILL_FILE and not entry.name.startswith(".")
-        )
-        if extra:
-            raise SystemExit(
-                f"Skill {name!r} carries files that would not be distributed: {extra}; "
-                f"only {SKILL_FILE} is copied into a bundle"
-            )
-        content = source.read_bytes()
-        try:
-            content.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise SystemExit(f"Skill {name!r} {SKILL_FILE} is not valid UTF-8: {error}") from error
-        skills[name] = content
+        skills[name] = _skill_package(name, directory)
     return skills
 
 
+def is_skill_claim(relative: str) -> bool:
+    """Whether a path relative to ``skills/`` is a file a skill may own.
+
+    That is ``<name>/SKILL.md`` or a supporting file at any depth below
+    ``<name>/``, every component a plain name. A ``SKILL.md`` anywhere else is not
+    a claim: a harness that searches recursively would load it as another skill.
+    """
+    parts = relative.split("/")
+    if len(parts) < 2 or not all(SKILL_PATH_PART.fullmatch(part) for part in parts):
+        return False
+    return parts[1:] == [SKILL_FILE] or SKILL_FILE not in parts[1:]
+
+
 def skill_path(root: Path, name: str) -> Path:
-    """Return the one file a skill occupies below a bundle or an installation target."""
+    """Return the ``SKILL.md`` of a skill below a bundle or an installation target."""
     return root / SKILLS_DIR / name / SKILL_FILE
 
 
-def write_skills(output: Path) -> list[str]:
-    """Copy every repository skill byte-for-byte into ``output`` and return the names.
+def skill_file_path(root: Path, relative: str) -> Path:
+    """Return one skill file, given relative to ``skills/``, below a bundle or a target."""
+    return root.joinpath(SKILLS_DIR, *relative.split("/"))
 
-    The ``skills/`` subtree of a bundle is wholly generated, so one left behind by an
-    earlier in-place generation is replaced rather than merged; a skill dropped from
-    the repository then never lingers in a bundle. No directory is created when the
-    repository has no skills.
+
+def write_skills(output: Path) -> tuple[list[str], list[str]]:
+    """Copy every repository skill byte-for-byte into ``output``.
+
+    Returns the skill names and, separately, every supporting file as a path
+    relative to ``skills/`` (``<name>/scripts/run.py``); each skill's ``SKILL.md``
+    is implied by its name. The ``skills/`` subtree of a bundle is wholly
+    generated, so one left behind by an earlier in-place generation is replaced
+    rather than merged; a skill or file dropped from the repository then never
+    lingers in a bundle. No directory is created when the repository has no skills.
     """
     skills = skill_sources()
     destination = output / SKILLS_DIR
@@ -141,36 +192,88 @@ def write_skills(output: Path) -> list[str]:
         raise SystemExit(f"Refusing skills output that is not a plain directory: {destination}")
     if destination.exists():
         shutil.rmtree(destination)
-    for name, content in skills.items():
-        path = skill_path(output, name)
-        path.parent.mkdir(parents=True)
-        path.write_bytes(content)
-    return list(skills)
+    supporting: list[str] = []
+    for name, files in skills.items():
+        for relative, content in files.items():
+            path = skill_file_path(output, f"{name}/{relative}")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+            if relative != SKILL_FILE:
+                supporting.append(f"{name}/{relative}")
+    return list(skills), supporting
 
 
-def read_bundle_skill(generated: Path, name: str) -> bytes:
-    """Return the exact bytes of a skill a bundle manifest claims."""
-    source = skill_path(generated, name)
-    if source.is_symlink() or not source.is_file():
-        raise SystemExit(f"Missing or linked generated skill: {source}")
+def validate_skill_files(manifest: dict, label: str) -> None:
+    """Refuse a manifest ``skill_files`` list that is not supporting files of its skills.
+
+    The key is optional: a manifest written before skills carried supporting files
+    claims only each skill's ``SKILL.md``.
+    """
+    values = manifest.get(SKILL_FILES_KEY, [])
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise SystemExit(f"Invalid {label} {SKILL_FILES_KEY}")
+    if len(values) != len(set(values)):
+        raise SystemExit(f"Duplicate paths in {label} {SKILL_FILES_KEY}")
+    skills = set(manifest.get("skills", []))
+    for value in values:
+        name, _, rest = value.partition("/")
+        if name not in skills or rest == SKILL_FILE or not is_skill_claim(value):
+            raise SystemExit(f"Unsafe path in {label} {SKILL_FILES_KEY}: {value!r}")
+
+
+def claimed_skill_files(manifest: dict) -> list[str]:
+    """Return every path relative to ``skills/`` that a manifest claims.
+
+    Each listed skill owns its ``SKILL.md`` and the supporting files under
+    ``skill_files``; nothing else below ``skills/`` is ever claimed.
+    """
+    return [
+        *(f"{name}/{SKILL_FILE}" for name in manifest.get("skills", [])),
+        *manifest.get(SKILL_FILES_KEY, []),
+    ]
+
+
+def read_bundle_skill_file(generated: Path, relative: str) -> bytes:
+    """Return the exact bytes of a skill file a bundle manifest claims."""
+    source = skill_file_path(generated, relative)
+    current = source
+    while current != generated and current != current.parent:
+        if current.is_symlink():
+            raise SystemExit(f"Missing or linked generated skill file: {source}")
+        current = current.parent
+    if not source.is_file():
+        raise SystemExit(f"Missing or linked generated skill file: {source}")
     return source.read_bytes()
 
 
-def remove_empty_skill_directories(removed: Iterable[Path], target: Path) -> None:
-    """Remove the ``skills/<name>/`` directory a deleted skill file leaves empty.
+def read_bundle_skill(generated: Path, name: str) -> bytes:
+    """Return the exact bytes of the ``SKILL.md`` of a skill a bundle manifest claims."""
+    return read_bundle_skill_file(generated, f"{name}/{SKILL_FILE}")
 
-    Only the direct parent of a removed ``skills/<name>/SKILL.md`` is considered and
-    only ``rmdir`` is used, so a directory that still holds operator files, every
-    other skill, and ``skills/`` itself are left alone.
+
+def remove_empty_skill_directories(removed: Iterable[Path], target: Path) -> None:
+    """Remove the directories a deleted skill file leaves empty, up to ``skills/<name>/``.
+
+    For each removed path below ``skills/<name>/``, its directory and then each
+    parent up to and including ``skills/<name>/`` is removed with ``rmdir`` until one
+    is not empty. A directory that still holds operator files, every other skill,
+    and ``skills/`` itself are left alone.
     """
+    skills_root = target / SKILLS_DIR
     for path in removed:
-        directory = path.parent
-        if path.name != SKILL_FILE or directory.parent != target / SKILLS_DIR:
-            continue
         try:
-            directory.rmdir()
-        except OSError:
-            pass
+            relative = path.relative_to(skills_root)
+        except ValueError:
+            continue
+        if len(relative.parts) < 2:
+            continue
+        directory = path.parent
+        while directory != skills_root:
+            try:
+                directory.rmdir()
+            except OSError:
+                break
+            directory = directory.parent
 
 
 def _absolute(path: Path) -> Path:

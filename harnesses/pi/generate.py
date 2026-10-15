@@ -298,7 +298,7 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
     launcher_output.write_text(launcher_text)
     launcher_output.chmod(0o755)
 
-    skills = write_skills(output)
+    skills, skill_files = write_skills(output)
 
     # No Pi extension package is generated: the former `git-read.ts` runtime extension
     # is retired and built-in Pi tools now cover repository evidence gathering.
@@ -308,6 +308,7 @@ def generate_into(output: Path, profile_name: str = "hybrid") -> None:
                 "format_version": BUNDLE_FORMAT_VERSION,
                 "roles": sorted(roles),
                 "skills": skills,
+                "skill_files": skill_files,
                 "profiles": [profile_name],
                 "launchers": [launcher.name],
                 "managed_extensions": [],

@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,27 @@ REPOSITORY_SKILLS = {
 }
 
 
+def repository_skill_files() -> dict[str, bytes]:
+    """Every supporting file a repository skill carries, relative to `skills/`, in
+    bundle order: by skill name, then by path inside the skill. Hidden entries and
+    bytecode caches are never distributed."""
+    files: dict[str, bytes] = {}
+    for name in REPOSITORY_SKILLS:
+        directory = ROOT / "skills" / name
+        for path in sorted(directory.rglob("*"), key=lambda item: item.relative_to(directory).as_posix()):
+            relative = path.relative_to(directory)
+            if (
+                path.is_file()
+                and relative.as_posix() != "SKILL.md"
+                and not any(part.startswith(".") or part == "__pycache__" for part in relative.parts)
+            ):
+                files[f"{name}/{relative.as_posix()}"] = path.read_bytes()
+    return files
+
+
+REPOSITORY_SKILL_FILES = repository_skill_files()
+
+
 def load_installer():
     spec = importlib.util.spec_from_file_location("omp_install", INSTALL)
     module = importlib.util.module_from_spec(spec)
@@ -27,17 +49,26 @@ def load_installer():
     return module
 
 
-def bundle(root: Path, profile="hybrid", agents=("planner", "worker"), text="first", skills=()):
+def bundle(
+    root: Path, profile="hybrid", agents=("planner", "worker"), text="first", skills=(), skill_files=()
+):
     root.mkdir(parents=True, exist_ok=True)
+    if (root / "skills").exists():
+        shutil.rmtree(root / "skills")
     files = [
         "config.yml",
         *(f"agents/{role}.md" for role in agents),
         *(f"skills/{skill}/SKILL.md" for skill in skills),
+        *(f"skills/{relative}" for relative in skill_files),
     ]
     for skill in skills:
         path = root / "skills" / skill / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(f"skill {skill} {text}\r\n".encode())
+    for relative in skill_files:
+        path = root / "skills" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"file {relative} {text}\n".encode())
     (root / "config.yml").write_text(f"modelRoles:\n  default: {text}\n")
     (root / "AGENTS.md").write_text(
         f"<!-- agent-orchestration:start -->\npolicy {text}\n<!-- agent-orchestration:end -->\n"
@@ -231,8 +262,15 @@ class OmpInstallTests(unittest.TestCase):
         claims = json.loads((self.target / self.installer.MANIFEST_NAME).read_text())["files"]
         self.assertEqual(
             [claim for claim in claims if claim.startswith("skills/")],
-            [f"skills/{name}/SKILL.md" for name in sorted(REPOSITORY_SKILLS)],
+            sorted(
+                [
+                    *(f"skills/{name}/SKILL.md" for name in REPOSITORY_SKILLS),
+                    *(f"skills/{relative}" for relative in REPOSITORY_SKILL_FILES),
+                ]
+            ),
         )
+        for relative, content in REPOSITORY_SKILL_FILES.items():
+            self.assertEqual((self.target / "skills" / relative).read_bytes(), content)
         self.assertIn("0 write(s), 0 removal(s)", second_out.getvalue())
 
     def test_dry_run_lists_every_skill_write_and_removal_without_changing_the_target(self):
@@ -337,11 +375,55 @@ class OmpInstallTests(unittest.TestCase):
 
         self.assertEqual(self.tree(), original)
 
-    def test_skill_claims_outside_the_one_owned_file_shape_fail_closed(self):
-        """This test will fail when a manifest can claim a skill path other than skills/<name>/SKILL.md."""
+    def test_supporting_skill_files_are_installed_replaced_and_removed_with_their_skill(self):
+        """This test will fail when OMP skips a supporting skill file, leaves a dropped one or its emptied directories behind, or overwrites an operator file at a new claim."""
+        bundle(
+            self.bundle,
+            skills=("kept",),
+            skill_files=("kept/scripts/run.py", "kept/assets/deep/viewer.html"),
+        )
+        self.installer.install("hybrid", self.target, generated=self.bundle)
+        self.assertEqual(
+            (self.target / "skills/kept/assets/deep/viewer.html").read_bytes(),
+            b"file kept/assets/deep/viewer.html first\n",
+        )
+        claims = json.loads((self.target / self.installer.MANIFEST_NAME).read_text())["files"]
+        self.assertIn("skills/kept/scripts/run.py", claims)
+        self.assertIn("skills/kept/assets/deep/viewer.html", claims)
+        operator = self.target / "skills" / "kept" / "scripts" / "operator.py"
+        operator.write_bytes(b"operator\n")
+
+        bundle(self.bundle, skills=("kept",), skill_files=("kept/scripts/run.py",), text="second")
+        self.installer.install("hybrid", self.target, generated=self.bundle)
+
+        self.assertFalse((self.target / "skills" / "kept" / "assets").exists())
+        self.assertEqual(
+            (self.target / "skills/kept/scripts/run.py").read_bytes(),
+            b"file kept/scripts/run.py second\n",
+        )
+        self.assertEqual(operator.read_bytes(), b"operator\n")
+
+        collision = self.target / "skills" / "kept" / "references" / "notes.md"
+        collision.parent.mkdir()
+        collision.write_bytes(b"operator notes\n")
+        before = self.tree()
+        bundle(
+            self.bundle,
+            skills=("kept",),
+            skill_files=("kept/scripts/run.py", "kept/references/notes.md"),
+            text="third",
+        )
+        with self.assertRaisesRegex(SystemExit, "collision") as refused:
+            self.installer.install("hybrid", self.target, generated=self.bundle)
+        self.assertIn("skills/kept/references/notes.md", str(refused.exception))
+        self.assertEqual(self.tree(), before)
+
+    def test_skill_claims_outside_the_skill_file_shape_fail_closed(self):
+        """This test will fail when a manifest can claim a skill path other than a SKILL.md or a supporting file below it."""
         for claim in (
-            "skills/kept/notes.md",
             "skills/kept/nested/SKILL.md",
+            "skills/kept/.env",
+            "skills/kept/my notes.md",
             "skills/SKILL.md",
             "skills/.hidden/SKILL.md",
             "skills/../agents/SKILL.md",
@@ -361,7 +443,7 @@ class OmpInstallTests(unittest.TestCase):
         self.installer.install("hybrid", self.target, generated=self.bundle)
         manifest_path = self.target / self.installer.MANIFEST_NAME
         installed = manifest_path.read_text()
-        for claim in ("skills/kept/notes.md", "skills/../agents/SKILL.md"):
+        for claim in ("skills/kept/nested/SKILL.md", "skills/../agents/SKILL.md"):
             with self.subTest(installed=claim):
                 data = json.loads(installed)
                 data["files"].append(claim)

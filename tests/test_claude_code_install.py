@@ -22,6 +22,27 @@ REPOSITORY_SKILLS = {
 }
 
 
+def repository_skill_files() -> dict[str, bytes]:
+    """Every supporting file a repository skill carries, relative to `skills/`, in
+    bundle order: by skill name, then by path inside the skill. Hidden entries and
+    bytecode caches are never distributed."""
+    files: dict[str, bytes] = {}
+    for name in REPOSITORY_SKILLS:
+        directory = ROOT / "skills" / name
+        for path in sorted(directory.rglob("*"), key=lambda item: item.relative_to(directory).as_posix()):
+            relative = path.relative_to(directory)
+            if (
+                path.is_file()
+                and relative.as_posix() != "SKILL.md"
+                and not any(part.startswith(".") or part == "__pycache__" for part in relative.parts)
+            ):
+                files[f"{name}/{relative.as_posix()}"] = path.read_bytes()
+    return files
+
+
+REPOSITORY_SKILL_FILES = repository_skill_files()
+
+
 def load_install_module():
     import importlib.util
 
@@ -34,9 +55,10 @@ def load_install_module():
 
 
 @contextlib.contextmanager
-def generator_with_extra_skill(install, name: str, content: bytes):
+def generator_with_extra_skill(install, name: str, content: bytes, files: dict[str, bytes] | None = None):
     """Make the installer's generator emit one skill the repository does not have,
-    as an earlier repository version that still shipped it would."""
+    with optional supporting files, as an earlier repository version that still
+    shipped it would."""
     real_run = subprocess.run
 
     def run(command, *args, **kwargs):
@@ -45,8 +67,16 @@ def generator_with_extra_skill(install, name: str, content: bytes):
         skill = bundle / "skills" / name / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_bytes(content)
+        for relative, data in (files or {}).items():
+            supporting = skill.parent / relative
+            supporting.parent.mkdir(parents=True, exist_ok=True)
+            supporting.write_bytes(data)
         manifest = json.loads((bundle / "manifest.json").read_text())
         manifest["skills"] = sorted([*manifest["skills"], name])
+        manifest["skill_files"] = [
+            *manifest.get("skill_files", []),
+            *(f"{name}/{relative}" for relative in sorted(files or {})),
+        ]
         (bundle / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         return result
 
@@ -99,8 +129,11 @@ class ClaudeCodeSkillInstallTests(unittest.TestCase):
             sorted(path.name for path in (self.target / "skills").iterdir()),
             sorted([*REPOSITORY_SKILLS, "operator-skill", "loose-note.md"]),
         )
+        for relative, content in REPOSITORY_SKILL_FILES.items():
+            self.assertEqual((self.target / "skills" / relative).read_bytes(), content)
         manifest = json.loads((self.target / self.install.MANIFEST_NAME).read_text())
         self.assertEqual(manifest["skills"], sorted(REPOSITORY_SKILLS))
+        self.assertEqual(manifest["skill_files"], list(REPOSITORY_SKILL_FILES))
         self.assertIn("already synchronized", second)
 
     def test_dry_run_lists_every_skill_write_without_creating_it(self):
@@ -136,6 +169,62 @@ class ClaudeCodeSkillInstallTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), content)
         backed_up = list(self.backups.rglob("skills/retired-skill/SKILL.md"))
         self.assertEqual([path.read_bytes() for path in backed_up], [b"retired skill\n"])
+
+    def test_supporting_skill_files_are_installed_and_removed_with_their_skill(self):
+        """This test will fail when a supporting skill file is skipped, outlives its dropped skill, leaves an emptied directory, or its removal reaches an operator file."""
+        supporting = {"scripts/run.py": b"print('run')\r\n", "assets/deep/viewer.html": b"<p>view</p>\n"}
+        with generator_with_extra_skill(self.install, "retired-skill", b"retired skill\n", supporting):
+            self.run_install(dry_run=False)
+        skill_dir = self.target / "skills" / "retired-skill"
+        for relative, content in supporting.items():
+            self.assertEqual((skill_dir / relative).read_bytes(), content)
+        manifest_path = self.target / self.install.MANIFEST_NAME
+        self.assertIn(
+            "retired-skill/assets/deep/viewer.html",
+            json.loads(manifest_path.read_text())["skill_files"],
+        )
+        operator = skill_dir / "scripts" / "operator.py"
+        operator.write_bytes(b"operator\n")
+
+        preview = self.run_install(dry_run=True)
+        self.assertIn("deleted:skills/retired-skill/scripts/run.py", preview)
+        self.assertIn("deleted:skills/retired-skill/assets/deep/viewer.html", preview)
+
+        self.run_install(dry_run=False)
+
+        self.assertFalse((skill_dir / "SKILL.md").exists())
+        self.assertFalse((skill_dir / "scripts" / "run.py").exists())
+        self.assertFalse((skill_dir / "assets").exists())
+        self.assertEqual(operator.read_bytes(), b"operator\n")
+        self.assertEqual(json.loads(manifest_path.read_text())["skill_files"], list(REPOSITORY_SKILL_FILES))
+        backed_up = list(self.backups.rglob("skills/retired-skill/scripts/run.py"))
+        self.assertEqual([path.read_bytes() for path in backed_up], [b"print('run')\r\n"])
+
+    def test_first_install_reports_a_supporting_skill_file_collision_until_adopted(self):
+        """This test will fail when a first install overwrites an operator file at a supporting skill path without adoption, or trusts an unsafe manifest claim."""
+        collision = self.target / "skills" / "extra-skill" / "scripts" / "run.py"
+        collision.parent.mkdir(parents=True)
+        collision.write_bytes(b"operator script\n")
+        with generator_with_extra_skill(
+            self.install, "extra-skill", b"extra\n", {"scripts/run.py": b"bundled\n"}
+        ):
+            with self.assertRaises(SystemExit) as refused:
+                self.run_install(dry_run=False)
+            self.assertIn(str(collision), str(refused.exception))
+            self.assertEqual(collision.read_bytes(), b"operator script\n")
+
+            self.run_install(dry_run=False, adopt=True)
+        self.assertEqual(collision.read_bytes(), b"bundled\n")
+
+        manifest_path = self.target / self.install.MANIFEST_NAME
+        tampered = json.loads(manifest_path.read_text())
+        tampered["skill_files"].append("extra-skill/../../agents/worker.md")
+        manifest_path.write_text(json.dumps(tampered, indent=2) + "\n")
+        before = manifest_path.read_bytes()
+        with self.assertRaisesRegex(SystemExit, "skill_files"):
+            self.run_install(dry_run=False)
+        self.assertEqual(manifest_path.read_bytes(), before)
+        self.assertEqual(collision.read_bytes(), b"bundled\n")
 
     def test_a_removed_skill_directory_holding_operator_files_is_kept(self):
         """This test will fail when removing a dropped skill deletes files the operator added beside it."""
@@ -175,6 +264,7 @@ class ClaudeCodeSkillInstallTests(unittest.TestCase):
         manifest_path = self.target / self.install.MANIFEST_NAME
         earlier = json.loads(manifest_path.read_text())
         del earlier["skills"]
+        earlier.pop("skill_files", None)
         manifest_path.write_text(json.dumps(earlier, indent=2) + "\n")
         identical, outdated = sorted(REPOSITORY_SKILLS)[0], sorted(REPOSITORY_SKILLS)[-1]
         outdated_path = self.target / "skills" / outdated / "SKILL.md"

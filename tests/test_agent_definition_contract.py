@@ -6,9 +6,9 @@ bundle carries exactly one definition per routing role, every definition carries
 the model and reasoning effort resolved from its profile, and no bundle carries
 role-contract bodies, delegation fields, or workflow artifacts. The only
 instruction artifact a bundle may carry is the marker-wrapped
-`policy/orchestration.md` at its root, and the only other prose it may carry is a
-byte-for-byte copy of each repository skill at `skills/<name>/SKILL.md`; the
-DeepSeek Harness bundle carries neither.
+`policy/orchestration.md` at its root, and the only other content it may carry is a
+byte-for-byte copy of each repository skill directory at `skills/<name>/` (its
+`SKILL.md` and supporting files); the DeepSeek Harness bundle carries neither.
 """
 
 from __future__ import annotations
@@ -99,9 +99,9 @@ POLICY_ARTIFACT = {
     "omp": "AGENTS.md",
 }
 
-# The second exception: each repository skill, copied to exactly this bundle path by
-# every harness that has an Agent Skills directory. DeepSeek Harness is absent on
-# purpose, so any `SKILL.md` in its bundle stays forbidden.
+# The second exception: each repository skill file, copied to exactly its path below
+# `skills/` by every harness that has an Agent Skills directory. DeepSeek Harness is
+# absent on purpose, so any `SKILL.md` in its bundle stays forbidden.
 SKILL_HARNESSES = frozenset({"opencode", "codex", "claude-code", "pi", "omp"})
 
 LANE_PATTERN = re.compile(r"^\s{12}- id: (lane-\S+)$", re.MULTILINE)
@@ -117,6 +117,26 @@ def repository_skills() -> dict[str, bytes]:
     return {
         path.parent.name: path.read_bytes() for path in sorted(SKILLS.glob("*/SKILL.md"))
     }
+
+
+def repository_skill_files() -> dict[str, bytes]:
+    """Every file of every repository skill, relative to `skills/`, in bundle order.
+
+    Hidden entries and bytecode caches are never distributed, so they are skipped.
+    """
+    files: dict[str, bytes] = {}
+    for name in repository_skills():
+        directory = SKILLS / name
+        files[f"{name}/SKILL.md"] = (directory / "SKILL.md").read_bytes()
+        for path in sorted(directory.rglob("*"), key=lambda item: item.relative_to(directory).as_posix()):
+            relative = path.relative_to(directory)
+            if (
+                path.is_file()
+                and relative.as_posix() != "SKILL.md"
+                and not any(part.startswith(".") or part == "__pycache__" for part in relative.parts)
+            ):
+                files[f"{name}/{relative.as_posix()}"] = path.read_bytes()
+    return files
 
 
 def profile_models(profile_name: str) -> dict:
@@ -195,7 +215,7 @@ class AgentDefinitionContractTests(unittest.TestCase):
             with self.subTest(target=name):
                 files = self.bundle_files(name)
                 skill_files = (
-                    {f"skills/{skill}/SKILL.md" for skill in repository_skills()}
+                    {f"skills/{relative}" for relative in repository_skill_files()}
                     if harness in SKILL_HARNESSES
                     else set()
                 )
@@ -239,10 +259,14 @@ class AgentDefinitionContractTests(unittest.TestCase):
                 self.assertEqual(artifact.read_text(), expected)
 
     def test_every_bundle_carries_each_repository_skill_byte_for_byte(self):
-        """This test will fail when a bundle drops, alters, renames, or adds to the repository skills, or DSH gains any."""
+        """This test will fail when a bundle drops, alters, renames, or adds to the repository skill files, or DSH gains any."""
         skills = repository_skills()
         self.assertTrue(skills, "the repository ships at least one skill")
-        expected = {f"skills/{skill}/SKILL.md": content for skill, content in skills.items()}
+        skill_files = repository_skill_files()
+        expected = {f"skills/{relative}": content for relative, content in skill_files.items()}
+        supporting = [
+            relative for relative in skill_files if relative.split("/", 1)[1] != "SKILL.md"
+        ]
         for name, harness, _extra, _profile in TARGETS:
             with self.subTest(target=name):
                 root = self.outputs[name]
@@ -261,6 +285,8 @@ class AgentDefinitionContractTests(unittest.TestCase):
                     continue
                 manifest = json.loads((root / "manifest.json").read_text())
                 self.assertEqual(manifest["skills"], sorted(skills))
+                if harness != "omp":
+                    self.assertEqual(manifest["skill_files"], supporting)
                 if harness == "omp":
                     self.assertEqual(
                         {claim for claim in manifest["files"] if claim.startswith("skills/")},
