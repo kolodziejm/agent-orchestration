@@ -45,7 +45,7 @@ for (let i = html.indexOf('{', start); i < html.length; i++) {
   if (html[i] === '{') depth++;
   else if (html[i] === '}' && --depth === 0) { end = i + 1; break; }
 }
-const run = new Function('data', 'var ON={},omode,all={},LATE=' + late + ';\n' + html.slice(start, end) + `
+const run = new Function('data', 'var ON={},SUBJ={},LINKED={},omode,all={},LATE=' + late + ';\n' + html.slice(start, end) + `
   data.prs.forEach(function(p){p.nodes.forEach(function(n){all[n.id]=Object.assign({pr:p.key},n);});});
   var out={};
   ['bottom','top'].forEach(function(m){omode=m;out[m]={};data.prs.forEach(function(p){computeOrder(p);out[m][p.key]=ON;});});
@@ -226,6 +226,27 @@ class ReviewMapPipelineTests(unittest.TestCase):
         cls.ordering_path = cls.root / "graphs-ordering.json"
         run_script("build_graph.py", "--out", str(cls.ordering_path), "--pr", "O", str(repo), "main...feat")
         cls.ordering = json.loads(cls.ordering_path.read_text(encoding="utf-8"))
+        # Two service -> controller chains whose layer/path tie-break alone would read both services, then both
+        # controllers; the flow tie-break keeps each controller next to its service.
+        repo = cls.root / "flow"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(
+            repo,
+            {
+                "src/logic/billing.service.ts": "export const bill = 1;\n",
+                "src/logic/visit.service.ts": "export const visit = 1;\n",
+                "src/rest/billing.controller.ts": "import { bill } from '../logic/billing.service';\nexport const b = bill;\n",
+                "src/rest/billing.controller.spec.ts": "import { b } from './billing.controller';\n",
+                "src/rest/visit.controller.ts": "import { visit } from '../logic/visit.service';\nexport const v = visit;\n",
+            },
+            "feat",
+        )
+        cls.flow_path = cls.root / "graphs-flow.json"
+        run_script("build_graph.py", "--out", str(cls.flow_path), "--pr", "F", str(repo), "main...feat")
+        cls.flow = json.loads(cls.flow_path.read_text(encoding="utf-8"))
 
     @classmethod
     def tearDownClass(cls):
@@ -366,13 +387,35 @@ class ReviewMapPipelineTests(unittest.TestCase):
             ],
         )
 
+    def test_reading_order_keeps_connected_files_adjacent(self):
+        """This test will fail when the reading order stops preferring, among the files ready to read, the one connected to the file placed last, and falls back to layer and path alone (both services, then both controllers)."""
+        pr = self.flow["prs"][0]
+        order = [node["path"] for node in sorted(pr["nodes"], key=lambda node: node["order"])]
+        self.assertEqual(
+            order,
+            [
+                "src/logic/billing.service.ts", "src/rest/billing.controller.ts", "src/rest/billing.controller.spec.ts",
+                "src/logic/visit.service.ts", "src/rest/visit.controller.ts",
+            ],
+        )
+
     @unittest.skipUnless(NODE, "node is required to run the viewer's ordering code")
     def test_viewer_order_matches_the_stored_order_and_numbers_every_step(self):
-        """This test will fail when the viewer's "from dependencies" order drifts from build_graph.py's stored order, or "from the entry point" skips, repeats, or misplaces a step."""
+        """This test will fail when the viewer's "from dependencies" order drifts from build_graph.py's stored order, the viewer stops applying the flow tie-break itself (a stored order without it must come out the same), or "from the entry point" skips, repeats, or misplaces a step."""
         script = self.root / "viewer-order.js"
         script.write_text(VIEWER_ORDER, encoding="utf-8")
         orders = {}
-        for name, path, graph in (("fixture", self.graph_path, self.graph), ("ordering", self.ordering_path, self.ordering)):
+        # The same flow graph with its stored order rewritten to the layer/path-only order: the viewer must apply the
+        # flow rule itself and arrive at build_graph.py's order, not just copy the stored numbers.
+        stale = json.loads(json.dumps(self.flow))
+        by_path = {node["path"]: node for node in stale["prs"][0]["nodes"]}
+        for position, path in enumerate(("src/logic/billing.service.ts", "src/logic/visit.service.ts", "src/rest/billing.controller.ts",
+                                          "src/rest/billing.controller.spec.ts", "src/rest/visit.controller.ts"), 1):
+            by_path[path]["order"] = position
+        stale_path = self.root / "graphs-flow-stale.json"
+        stale_path.write_text(json.dumps(stale), encoding="utf-8")
+        for name, path, graph in (("fixture", self.graph_path, self.graph), ("ordering", self.ordering_path, self.ordering),
+                                  ("flow", self.flow_path, self.flow)):
             result = subprocess.run(
                 ["node", str(script), str(SKILL / "assets" / "viewer.html"), str(path)],
                 capture_output=True, text=True, check=True,
@@ -385,6 +428,19 @@ class ReviewMapPipelineTests(unittest.TestCase):
                     top = orders[name]["top"][pr["key"]]
                     self.assertEqual(set(top), set(stored))
                     self.assertEqual(sorted(top.values()), list(range(1, len(stored) + 1)))
+        result = subprocess.run(
+            ["node", str(script), str(SKILL / "assets" / "viewer.html"), str(stale_path)], capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(json.loads(result.stdout)["bottom"]["F"], {node["id"]: node["order"] for node in self.flow["prs"][0]["nodes"]})
+        flow_ids = {node["id"]: node["path"] for node in self.flow["prs"][0]["nodes"]}
+        flow_top = orders["flow"]["top"]["F"]
+        self.assertEqual(
+            [flow_ids[i] for i in sorted(flow_top, key=flow_top.get)],
+            [
+                "src/rest/visit.controller.ts", "src/logic/visit.service.ts", "src/rest/billing.controller.ts",
+                "src/rest/billing.controller.spec.ts", "src/logic/billing.service.ts",
+            ],
+        )
         top = orders["ordering"]["top"]["O"]
         by_id = {node["id"]: node["path"] for node in self.ordering["prs"][0]["nodes"]}
         self.assertEqual(

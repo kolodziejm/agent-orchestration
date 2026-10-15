@@ -294,10 +294,11 @@ Nothing in this repository rewrites those files for you.
   itself or the user may request them. `promote-changes-to-prod` ships a reviewed
   pull request through `develop` and `master` to a Railway deployment and runs only
   when the user asks for it. `pr-review-map` builds an interactive HTML review map
-  for one large pull request or a stack of dependent ones: a per-PR reading graph
-  of the changed files and their real dependencies with a side-by-side diff viewer
-  and review notes on lines, files, or whole PRs that copy as Markdown for an
-  agent, plus architecture, rules, risks, and verification; it carries its viewer
+  for one large pull request or a stack of dependent ones: a per-PR reading list
+  of the changed files with their real dependencies drawn as arcs, links across
+  the stack, an optional map, and each file's neighbourhood and side-by-side diff
+  beside it, review notes on lines, files, or whole PRs that copy as Markdown for
+  an agent, plus architecture, rules, risks, and verification; it carries its viewer
   template, Python scripts, and subagent prompts as supporting files and is covered
   by `tests/test_pr_review_map.py`. Every generator except DeepSeek Harness
   copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers

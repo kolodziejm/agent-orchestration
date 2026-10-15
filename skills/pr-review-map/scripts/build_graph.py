@@ -21,8 +21,8 @@ What the script resolves on its own:
   * JS/TS imports (relative, `.js`→`.ts`, `--alias`), Python imports, PHP `use`
   * test → subject edges by file name with the test marker removed
     (`panel-test.tsx`, `panel.spec.ts`, `test_panel.py`, `panel_spec.rb` → `panel`)
-  * `order`: dependency-first reading order (the viewer reverses it for the
-    "from the entry point" mode)
+  * `order`: dependency-first reading order that keeps connected files adjacent
+    (the viewer reverses it for the "from the entry point" mode)
   * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
     URL path (never its host, credentials, query, or fragment), else the
     repository directory name
@@ -292,6 +292,66 @@ def php_targets(namespace: str, candidates: set[str]) -> list[str]:
     return [best] if best is not None and best_len >= min(2, len(parts)) else []
 
 
+def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_cycle=None) -> list[str]:
+    """Dependency-first reading order of one PR's nodes; `edges` are its same-PR (from, to, kind).
+
+    Core files (not tests, not docs/config/i18n) that share a non-test edge with another core
+    file come first, topologically sorted; core files with no such edge (edges to tests, late
+    files, and other PRs do not count) follow, so an unrelated file never opens either reading
+    mode. Among the files ready to be read next, the one connected (by such an edge, either
+    direction) to the most recently placed file wins, so a chain such as types -> service ->
+    controller reads as a run instead of interleaving with unrelated files; then (PRIO, path).
+    Each test goes right after the core file it tests (its `test` edge first, else its other
+    edges; the last such file wins), a test with no core target after all core files, then
+    docs/config/i18n. The viewer's computeOrder() applies the same rule (its final tie-break is
+    this stored order) and reverses only the connected part for "from the entry point".
+    """
+
+    def rank(nk: str, default: int = 5) -> tuple[int, str, str]:
+        return (PRIO.get(nodes[nk]["layer"], default), nodes[nk]["path"], nk)
+
+    core = {nk for nk in nodes if nodes[nk]["layer"] != "test" and nodes[nk]["layer"] not in LATE}
+    deps: dict[str, set[str]] = {nk: set() for nk in core}
+    near: dict[str, set[str]] = {nk: set() for nk in core}
+    for frm, to, kind in edges:
+        if frm in core and to in core and kind != "test" and frm != to:
+            deps[frm].add(to)
+            near[frm].add(to)
+            near[to].add(frm)
+    linked = {nk for nk in core if near[nk]}
+    order: list[str] = []
+    placed: dict[str, int] = {}
+    remaining = set(linked)
+
+    def flow(nk: str) -> tuple:
+        last = max((placed[m] for m in near[nk] if m in placed), default=-1)
+        return (-last, *rank(nk))
+
+    while remaining:
+        ready = [nk for nk in remaining if not deps[nk] & remaining]
+        if not ready:
+            ready = list(remaining)
+            if on_cycle:
+                on_cycle(sorted(remaining)[:3])
+        pick = min(ready, key=flow)
+        placed[pick] = len(order)
+        order.append(pick)
+        remaining.discard(pick)
+    order += sorted(core - linked, key=rank)
+    tests = sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: (nodes[nk]["path"], nk))
+    attached = []
+    for test in tests:
+        targets = [(to, kind) for frm, to, kind in edges if frm == test and to in core]
+        attached.append((test, [to for to, kind in targets if kind == "test"] or [to for to, _kind in targets]))
+    for test, subjects in [p for p in attached if p[1]] + [p for p in attached if not p[1]]:
+        anchor = max((order.index(t) for t in subjects), default=len(order) - 1)
+        while anchor + 1 < len(order) and nodes[order[anchor + 1]]["layer"] == "test":
+            anchor += 1
+        order.insert(anchor + 1, test)
+    order += sorted((nk for nk in nodes if nodes[nk]["layer"] in LATE), key=lambda nk: rank(nk, 9))
+    return order
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), required=True)
@@ -464,49 +524,12 @@ def main() -> int:
         i, frm = ref(edge["from"])
         prs[i]["edges"].pop((frm, ref(edge["to"])), None)
 
-    # Reading order, dependency-first. Core files (not tests, not docs/config/i18n) that share a
-    # non-test edge with another core file of the same PR come first, topologically sorted; core
-    # files with no such edge (edges to tests, late files, and other PRs do not count) follow, so an
-    # unrelated file never opens either reading mode. Each test goes right after the core file it
-    # tests (its `test` edge first, else its other edges; the last such file wins), a test with no
-    # core target after all core files, then docs/config/i18n. Ties break on (PRIO, path). The
-    # viewer's computeOrder() builds the same sequence and reverses only the connected part.
     ids: dict[tuple[int, str], str] = {}
     for index, pr in enumerate(prs):
         nodes = pr["nodes"]
-
-        def rank(nk: str, default: int = 5) -> tuple[int, str]:
-            return (PRIO.get(nodes[nk]["layer"], default), nodes[nk]["path"])
-
-        core = {nk for nk in nodes if nodes[nk]["layer"] != "test" and nodes[nk]["layer"] not in LATE}
-        deps: dict[str, set[str]] = {nk: set() for nk in core}
-        linked: set[str] = set()
-        for (frm, (ti, to)), kind in pr["edges"].items():
-            if ti == index and frm in core and to in core and kind != "test" and frm != to:
-                deps[frm].add(to)
-                linked.update((frm, to))
-        order: list[str] = []
-        remaining = set(linked)
-        while remaining:
-            ready = [nk for nk in remaining if all(d not in remaining for d in deps[nk])]
-            if not ready:
-                ready = list(remaining)
-                warnings.append(f"{pr['key']}: dependency cycle broken near {sorted(remaining)[:3]}")
-            ready.sort(key=rank)
-            order.append(ready[0])
-            remaining.discard(ready[0])
-        order += sorted(core - linked, key=rank)
-        tests = sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: nodes[nk]["path"])
-        placed = []
-        for test in tests:
-            targets = [(to, kind) for (frm, (ti, to)), kind in pr["edges"].items() if frm == test and ti == index and to in core]
-            placed.append((test, [to for to, kind in targets if kind == "test"] or [to for to, _kind in targets]))
-        for test, subjects in [p for p in placed if p[1]] + [p for p in placed if not p[1]]:
-            anchor = max((order.index(t) for t in subjects), default=len(order) - 1)
-            while anchor + 1 < len(order) and nodes[order[anchor + 1]]["layer"] == "test":
-                anchor += 1
-            order.insert(anchor + 1, test)
-        order += sorted((nk for nk in nodes if nodes[nk]["layer"] in LATE), key=lambda nk: rank(nk, 9))
+        same_pr = [(frm, to, kind) for (frm, (ti, to)), kind in pr["edges"].items() if ti == index]
+        order = reading_order(nodes, same_pr, lambda near: warnings.append(
+            f"{pr['key']}: dependency cycle broken near {near}"))
         for position, nk in enumerate(order, 1):
             ids[(index, nk)] = f"{pr['key']}{position}"
             nodes[nk]["order"] = position

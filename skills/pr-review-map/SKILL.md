@@ -33,18 +33,27 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    files; translations, catalogs, deploy config, docs, and lockfiles collapse into
    one node each. Edges are real dependencies: resolved imports, PHP `use`, DI and
    routing bindings, test → subject, code → config it reads, HTTP calls across
-   services, and dashed ghost nodes for files of earlier PRs. Dependencies sit
-   left, entry points right. A numbered reading order with a path overlay runs
-   either "from the entry point" (default: reverse dependency order, each test
-   right after its subject, docs/config/i18n last) or "from dependencies"; in
-   both, files with no edge to another file of the PR read after the connected
-   ones, and step numbers stay fixed when the test filter hides tests.
-   Clicking a file highlights its dependencies (blue) and dependents (orange) and
-   opens a detail panel (path, role, +/−, per-file note, clickable relations) and
-   the full-width diff below (side by side or unified, big files collapsed,
-   rendered lazily). Prev/next buttons, read checkboxes kept in localStorage, and
-   filters for tests and cross-PR nodes. **Review notes**: on a line range (click
-   a line number; Shift+click or the keyboard for a range on the same side), a
+   services, and links to files of earlier PRs. The default view is a step list
+   pinned beside the detail panel and diff: one row per file in reading order
+   (read checkbox, step number, layer colour, note-kind chips, and "→A"/"←B"
+   chips for files of PR A it uses or PR B files that use it, which open that
+   file on its tab), each test indented under its subject, and a lane drawing
+   every dependency as an arc between two rows (above 60 rows only nearby arcs and
+   the selected file's). Files of earlier PRs the PR uses head the list, grouped
+   by PR. The order runs "from the entry point" (default, reverse dependency
+   order) or "from dependencies"; in both, a file connected to the one just read
+   comes next when the dependencies allow, tests follow their subject, files with
+   no edge to another file of the PR come after the connected ones, docs/config/
+   i18n last, and step numbers stay fixed when the test filter hides tests.
+   Selecting a file (click, ↑/↓ and Enter, prev/next) shows its path, role, +/−,
+   per-file note, and neighbourhood (dependencies in blue | file | dependents in
+   orange, other PRs' files in their colour, previous and next step), then its
+   diff (side by side or unified, big files collapsed, rendered lazily). A Map
+   toggle adds the whole graph: entry points right, tests under their subject,
+   earlier-PR files in a left band, unlinked files and docs/config/i18n on a
+   shelf, full-size labels that scroll. Read marks and the chosen view persist in
+   localStorage. **Review notes**: on a line range (click a line number;
+   Shift+click or the keyboard for a range on the same side), a
    whole file ("Note on file" in its diff header), or a whole PR (the button by
    the tabs), each an issue, question, suggestion, or OK. Notes show as coloured
    markers and in a notes panel (kind filter, edit, delete, jump), persist in
@@ -135,8 +144,9 @@ python3 $SKILL/scripts/assemble.py --graph $SCRATCH/graphs.json --diffs $SCRATCH
 python3 $SKILL/scripts/validate.py $SCRATCH/review.html
 ```
 
-Read marks and review notes live in localStorage under `--storage-key` (default:
-derived from the title); keep it unchanged when you regenerate so they survive.
+Read marks (by PR and file path) and review notes live in localStorage under
+`--storage-key` (default: derived from the title); keep it unchanged when you
+regenerate so they survive.
 `assemble.py` fills the template, builds the table of contents, colours each PR,
 and embeds the data as `<script type="application/json">` blocks with `</`
 written as `<\/` and `<!--` as `<!--` (both valid JSON). Never hand-insert

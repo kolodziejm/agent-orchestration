@@ -70,8 +70,10 @@ Node fields:
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
-`kind`, and `external` (`true` when `to` is in another PR; drawn as a dashed ghost
-node with that PR's colour). An edge reads "`from` depends on `to`".
+`kind`, and `external` (`true` when `to` is in another PR; listed in that PR's
+colour in the header group of the step list and in the map's left band). An edge
+reads "`from` depends on `to`". The viewer derives the reverse direction ("used by
+PR B") from every PR's edges, so a later PR's dependency needs no extra field.
 
 ### Layers
 
@@ -81,7 +83,8 @@ HTTP clients) · `rest` (controllers, handlers, routes) · `ui` · `wiring` (ent
 points, DI, routing config, barrels) · `test` · `config` (package manifests,
 lockfiles, deploy config) · `i18n` · `docs`.
 
-Tests are drawn dashed. `docs`, `config`, and `i18n` always read last.
+Tests are indented under their subject in the step list and drawn dashed on the
+map. `docs`, `config`, and `i18n` always read last.
 
 ### Edge kinds
 
@@ -100,18 +103,26 @@ Tests are drawn dashed. `docs`, `config`, and `i18n` always read last.
 splits the core nodes (not tests, not `docs`/`config`/`i18n`) into connected ones,
 which share a non-`test` edge with another core node of the same PR, and isolated
 ones; edges to tests, to late nodes, and to other PRs do not connect a node. It
-topologically sorts the connected nodes, breaking ties by layer
-(`contract < domain = data < logic < infra < rest < ui < wiring`) then path, appends
-the isolated nodes by the same tie-break, inserts each test right after the core
+topologically sorts the connected nodes. When several are ready to be read, the
+flow rule picks the one that shares such an edge (either direction) with the most
+recently placed node, so a run like types → service → controller stays together
+instead of interleaving with unrelated files; remaining ties break by layer
+(`contract < domain = data < logic < infra < rest < ui < wiring`), then path. It
+appends the isolated nodes by layer and path, inserts each test right after the core
 file it tests (its `test` edge first, else its other edges; the last such file
 wins; a test with no core target goes after all core nodes), and puts `docs`,
-`config`, `i18n` last. The viewer's default mode, "Od punktu wejścia" / "From the
-entry point", reverses only the connected part: isolated nodes, the placement of
-tests, and the late layers stay as in the stored order, so an unrelated file (a
-collapsed import change, say) never opens either mode. The viewer numbers the
-steps on the whole PR, tests included; the test filter hides tests without
-renumbering the rest, and the path overlay and prev/next skip hidden steps. Do not
-author a second reading order anywhere else.
+`config`, `i18n` last. The viewer recomputes the order with the same rule, using
+the stored `order` as its last tie-break (for build_graph.py output that encodes
+the layer and path tie-break), so it reproduces the stored order exactly; on a
+hand-written graph the stored order decides only between equally connected files.
+The viewer's default mode, "Od punktu wejścia" / "From the entry point", reverses
+only the connected part: isolated nodes, the placement of tests, and the late
+layers stay as in the stored order, so an unrelated file (a collapsed import
+change, say) never opens either mode. Reversing keeps every adjacent pair
+adjacent, so the flow rule holds in both modes. The viewer numbers the steps on
+the whole PR, tests included; the test filter hides tests without renumbering the
+rest, and prev/next skip hidden steps. Do not author a second reading order
+anywhere else.
 
 A file is a test when its path is under a test directory (`__tests__`, `__mocks__`,
 `test`, `tests`, `e2e`, `spec`) or its name carries its language's marker as its own
