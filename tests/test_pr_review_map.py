@@ -469,7 +469,8 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 self.assertEqual(config["storageKey"], "demo-review")
                 self.assertEqual([(p["key"], p["repo"]) for p in config["prs"]], [("A", "acme/demo"), ("B", "acme/web")])
                 self.assertEqual([(p["base"], p["tip"]) for p in config["prs"]], [(p["base"], p["tip"]) for p in self.graph["prs"]])
-                for element in ('id="nt-panel"', 'id="nt-copy"', 'id="nt-clear"', 'id="nt-list"', 'id="nt-manual-text"'):
+                for element in ('id="nt-panel"', 'id="nt-copy"', 'id="nt-clear"', 'id="nt-list"', 'id="nt-manual-text"',
+                                'id="nt-filter"', 'id="nt-pr-add"', 'id="nt-pred"'):
                     self.assertIn(element, page)
                 if target == "artifact":
                     self.assertTrue(page.startswith("<title>"))

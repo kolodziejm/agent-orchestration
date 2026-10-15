@@ -43,13 +43,15 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    opens a detail panel (path, role, +/−, per-file note, clickable relations) and
    the full-width diff below (side by side or unified, big files collapsed,
    rendered lazily). Prev/next buttons, read checkboxes kept in localStorage, and
-   filters for tests and cross-PR nodes. **Review notes**: click a line number in
-   the diff (Shift+click or the keyboard for a range on the same side) to attach a note;
-   notes show as line markers and in a notes panel (edit, delete, jump to the
-   line), persist in localStorage, and "Copy notes" puts them on the clipboard as
-   Markdown for an agent: per PR its repo and base/tip commits, per note a
-   `path:start-end` reference with its side (new = PR tip, old = base), the code,
-   and the note.
+   filters for tests and cross-PR nodes. **Review notes**: on a line range (click
+   a line number; Shift+click or the keyboard for a range on the same side), a
+   whole file ("Note on file" in its diff header), or a whole PR (the button by
+   the tabs), each an issue, question, suggestion, or OK. Notes show as coloured
+   markers and in a notes panel (kind filter, edit, delete, jump), persist in
+   localStorage, and "Copy notes" puts the shown ones on the clipboard as Markdown
+   for an agent: what each kind asks for (fix, answer, consider, nothing), the
+   PRs with repo and base/tip commits, then the notes by kind, PR, file, and line,
+   each with a `path:start-end` (or bare `path`) reference, side, code, and text.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
