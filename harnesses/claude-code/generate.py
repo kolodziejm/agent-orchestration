@@ -189,7 +189,7 @@ def generate_into(output: Path) -> None:
             frontmatter(role, config, models[role], native_vision)
         )
 
-    skills = write_skills(output)
+    skills, skill_files = write_skills(output)
 
     (output / "manifest.json").write_text(
         json.dumps(
@@ -197,6 +197,7 @@ def generate_into(output: Path) -> None:
                 "format_version": 1,
                 "roles": sorted(roles),
                 "skills": skills,
+                "skill_files": skill_files,
                 "profiles": [profile["name"]],
                 "control_plane": False,
             },

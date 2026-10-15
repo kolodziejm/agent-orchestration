@@ -104,10 +104,12 @@ def generate(output: Path, name: str) -> None:
                  f"tools: {json.dumps(tools)}", "---", ""]
         (agent_dir / f"{role}.md").write_text("\n".join(front))
         manifest["files"].append(f"agents/{role}.md")
-    # Skills are wholly-owned files like the agent definitions, so each one is a
-    # manifest `files` claim the installer writes, replaces, and later removes.
-    manifest["skills"] = write_skills(target)
+    # Skill files are wholly owned like the agent definitions, so each SKILL.md and
+    # each supporting file is a manifest `files` claim the installer writes,
+    # replaces, and later removes.
+    manifest["skills"], skill_files = write_skills(target)
     manifest["files"].extend(f"{SKILLS_DIR}/{skill}/{SKILL_FILE}" for skill in manifest["skills"])
+    manifest["files"].extend(f"{SKILLS_DIR}/{relative}" for relative in skill_files)
     manifest["control_plane"] = {"build": {"installed": False,
         "model": model_selector(cp["builtins"]["build"]["model"], providers, cp["builtins"]["build"]["effort"]),
         "note": "OMP has no native build role equivalent; this is intent only."}}

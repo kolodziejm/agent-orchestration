@@ -17,8 +17,9 @@ HARNESSES_DIR = Path(__file__).resolve().parents[1]
 if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
-from common import read_bundle_skill, read_text_exact, remove_empty_skill_directories
-from common import skill_path, upsert_managed_section
+from common import claimed_skill_files, read_bundle_skill_file, read_text_exact
+from common import remove_empty_skill_directories, skill_file_path, upsert_managed_section
+from common import validate_skill_files
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "claude-code" / "generate.py"
@@ -63,6 +64,7 @@ def validate_manifest(manifest: dict, label: str) -> None:
         for value in values:
             if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
+    validate_skill_files(manifest, label)
 
 
 def _has_entry(path: Path) -> bool:
@@ -91,9 +93,9 @@ def unmanaged_collisions(current_manifest: dict, target: Path) -> list[str]:
         if _has_entry(target / "workflows" / f"{workflow}.md")
     )
     collisions.extend(
-        str(skill_path(target, skill))
-        for skill in sorted(current_manifest.get("skills", []))
-        if _has_entry(skill_path(target, skill))
+        str(skill_file_path(target, relative))
+        for relative in sorted(claimed_skill_files(current_manifest))
+        if _has_entry(skill_file_path(target, relative))
     )
     control_note = target / CONTROL_PLANE_NOTE
     if _has_entry(control_note):
@@ -150,9 +152,9 @@ def load_and_preflight_manifests(
         for workflow in previous_manifest.get("workflows", [])
     )
     paths.update(
-        skill_path(target, skill)
+        skill_file_path(target, relative)
         for manifest in (current_manifest, previous_manifest)
-        for skill in manifest.get("skills", [])
+        for relative in claimed_skill_files(manifest)
     )
     paths.add(target / CONTROL_PLANE_NOTE)
     for path in paths:
@@ -183,8 +185,8 @@ def desired_state(
     previous_workflows = set(previous_manifest.get("workflows", []))
     stale_roles = previous_roles - current_roles
     stale_workflows = previous_workflows - current_workflows
-    current_skills = set(current_manifest.get("skills", []))
-    stale_skills = set(previous_manifest.get("skills", [])) - current_skills
+    current_skill_files = set(claimed_skill_files(current_manifest))
+    stale_skill_files = set(claimed_skill_files(previous_manifest)) - current_skill_files
 
     claude_md_path = target / INSTRUCTION_FILE
     legacy_core = target / "_shared" / "orchestration-core.md"
@@ -201,13 +203,14 @@ def desired_state(
     for workflow in stale_workflows:
         deletions.add(target / "workflows" / f"{workflow}.md")
 
-    # Skills are copied as bytes so the installed file is the repository file exactly.
-    # Only the claimed `skills/<name>/SKILL.md` paths are planned; any other skill in
-    # the same directory is operator-owned and never appears in a write or a deletion.
-    for skill in sorted(current_skills):
-        files[skill_path(target, skill)] = read_bundle_skill(generated, skill)
-    for skill in stale_skills:
-        deletions.add(skill_path(target, skill))
+    # Skill files are copied as bytes so each installed file is the repository file
+    # exactly. Only the claimed paths (each skill's SKILL.md and supporting files) are
+    # planned; any other skill or file in the same directories is operator-owned and
+    # never appears in a write or a deletion.
+    for relative in sorted(current_skill_files):
+        files[skill_file_path(target, relative)] = read_bundle_skill_file(generated, relative)
+    for relative in stale_skill_files:
+        deletions.add(skill_file_path(target, relative))
 
     deletions.add(legacy_core)
     # Read without newline translation and plan a write only for a real change, so

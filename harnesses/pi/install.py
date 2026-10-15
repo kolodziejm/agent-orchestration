@@ -20,8 +20,8 @@ HARNESSES_DIR = Path(__file__).resolve().parents[1]
 if str(HARNESSES_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESSES_DIR))
 
-from common import read_bundle_skill, remove_empty_skill_directories
-from common import skill_path, upsert_managed_section
+from common import claimed_skill_files, read_bundle_skill_file, remove_empty_skill_directories
+from common import skill_file_path, upsert_managed_section, validate_skill_files
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATE = ROOT / "harnesses" / "pi" / "generate.py"
@@ -123,6 +123,7 @@ def validate_manifest(manifest: dict, label: str) -> None:
         for value in values:
             if not SAFE_NAME.fullmatch(value) or value in {".", ".."}:
                 raise SystemExit(f"Unsafe name in {label} {key}: {value!r}")
+    validate_skill_files(manifest, label)
     extensions = manifest.get("managed_extensions", [])
     legacy_extensions = (
         {
@@ -193,9 +194,10 @@ def managed_paths(manifest: dict, target: Path) -> set[Path]:
         target / MANAGED_ROOT / "_shared" / name
         for name in manifest.get("shared", [])
     )
-    # Only the claimed `skills/<name>/SKILL.md` files are managed; any other skill in
-    # the same directory is operator-owned and never a collision, a write, or stale.
-    paths.update(skill_path(target, name) for name in manifest.get("skills", []))
+    # Only the claimed skill files (each SKILL.md and its supporting files) are
+    # managed; any other skill or file in the same directories is operator-owned and
+    # never a collision, a write, or stale.
+    paths.update(skill_file_path(target, relative) for relative in claimed_skill_files(manifest))
     paths.add(target / MANIFEST_NAME)
     paths.update(target / relative for relative in manifest.get("managed_extensions", []))
     paths.update(target / relative for relative in manifest.get("managed_files", []))
@@ -276,9 +278,11 @@ def desired_state(
         source = generated / "_shared" / name
         files[target / MANAGED_ROOT / "_shared" / name] = source.read_text()
     # Decoded without newline translation: this installer compares and writes UTF-8
-    # bytes, so the installed skill is the repository file exactly.
-    for name in current.get("skills", []):
-        files[skill_path(target, name)] = read_bundle_skill(generated, name).decode("utf-8")
+    # bytes, so each installed skill file is the repository file exactly.
+    for relative in claimed_skill_files(current):
+        files[skill_file_path(target, relative)] = read_bundle_skill_file(
+            generated, relative
+        ).decode("utf-8")
     for relative in current.get("managed_extensions", []):
         files[target / relative] = (generated / relative).read_text()
     for relative in current.get("managed_files", []):

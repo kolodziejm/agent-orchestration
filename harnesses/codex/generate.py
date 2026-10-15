@@ -161,7 +161,8 @@ def generate_into(output: Path, profile_name: str = DEFAULT_PROFILE) -> None:
         (output / "agents" / f"{role}.toml").write_text(
             generate_agent(role, role_config, models[role])
         )
-    # Codex has no installer and no bundle manifest: the operator copies `skills/` by hand.
+    # Codex has no installer and no bundle manifest: the operator copies `skills/` by hand,
+    # supporting files included.
     write_skills(output)
 
 
