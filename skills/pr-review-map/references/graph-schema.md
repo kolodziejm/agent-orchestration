@@ -96,13 +96,34 @@ Tests are drawn dashed. `docs`, `config`, and `i18n` always read last.
 
 ### Reading order
 
-`order` is dependency-first ("Od zależności" / "From dependencies"): build_graph.py
-runs a topological sort over non-test nodes, breaking ties by layer
-(`contract < domain = data < logic < infra < rest < ui < wiring`) then path, inserts
-each test right after the last file it tests, and moves `docs`, `config`, `i18n`
-to the end. The viewer's default mode, "Od punktu wejścia" / "From the entry point",
-reverses the core sequence, re-attaches each test right after its subject, and
-keeps the late layers last. Do not author a second reading order anywhere else.
+`order` is dependency-first ("Od zależności" / "From dependencies"). build_graph.py
+splits the core nodes (not tests, not `docs`/`config`/`i18n`) into connected ones,
+which share a non-`test` edge with another core node of the same PR, and isolated
+ones; edges to tests, to late nodes, and to other PRs do not connect a node. It
+topologically sorts the connected nodes, breaking ties by layer
+(`contract < domain = data < logic < infra < rest < ui < wiring`) then path, appends
+the isolated nodes by the same tie-break, inserts each test right after the core
+file it tests (its `test` edge first, else its other edges; the last such file
+wins; a test with no core target goes after all core nodes), and puts `docs`,
+`config`, `i18n` last. The viewer's default mode, "Od punktu wejścia" / "From the
+entry point", reverses only the connected part: isolated nodes, the placement of
+tests, and the late layers stay as in the stored order, so an unrelated file (a
+collapsed import change, say) never opens either mode. The viewer numbers the
+steps on the whole PR, tests included; the test filter hides tests without
+renumbering the rest, and the path overlay and prev/next skip hidden steps. Do not
+author a second reading order anywhere else.
+
+A file is a test when its path is under a test directory (`__tests__`, `__mocks__`,
+`test`, `tests`, `e2e`, `spec`) or its name carries its language's marker as its own
+segment: `.test.`/`.spec.`/`.e2e.` anywhere; a `-test`/`_test`/`-spec`/`_spec`/`-e2e`/
+`_e2e` suffix in JS/TS, Vue, and Svelte; `_spec.rb`; `_test` in Go, Python, Ruby, and
+Elixir; `test_*.py`/`test_*.rb`; `*Test(s)` in PHP, Java, Kotlin, C#, or Swift; or
+`conftest.py`. `test-utils.ts`, `contest.ts`, `api-spec.yaml`, `pod_spec.go`,
+`openapi_spec.py`, and `build_spec.rs` are not tests. The JS suffix also catches a
+feature file such as `ab-test.tsx`; set its `layer` in the overlay.
+Its subject is the changed file whose name equals the test's name with those
+markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`), the
+nearest by path when several match.
 
 ## overlay.json
 

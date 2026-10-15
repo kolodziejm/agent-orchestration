@@ -36,7 +36,9 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    services, and dashed ghost nodes for files of earlier PRs. Dependencies sit
    left, entry points right. A numbered reading order with a path overlay runs
    either "from the entry point" (default: reverse dependency order, each test
-   right after its subject, docs/config/i18n last) or "from dependencies".
+   right after its subject, docs/config/i18n last) or "from dependencies"; in
+   both, files with no edge to another file of the PR read after the connected
+   ones, and step numbers stay fixed when the test filter hides tests.
    Clicking a file highlights its dependencies (blue) and dependents (orange) and
    opens a detail panel (path, role, +/−, per-file note, clickable relations) and
    the full-width diff below (side by side or unified, big files collapsed,

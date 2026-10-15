@@ -31,6 +31,27 @@ ENV = {
     "GIT_COMMITTER_EMAIL": "test@example.com",
 }
 TRICKY = "const html = '</script><!-- not a comment -->';\n"
+# Runs the viewer's own computeOrder(), cut out of assets/viewer.html, over a graphs.json in both modes and
+# prints {mode: {prKey: {nodeId: step}}}.
+VIEWER_ORDER = r"""
+const fs = require('fs');
+const [template, graphFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+const late = html.match(/var LATE=(\{[^}]*\});/)[1];
+const start = html.indexOf('function computeOrder(p){');
+if (start < 0) throw new Error('computeOrder not found in the viewer');
+let depth = 0, end = -1;
+for (let i = html.indexOf('{', start); i < html.length; i++) {
+  if (html[i] === '{') depth++;
+  else if (html[i] === '}' && --depth === 0) { end = i + 1; break; }
+}
+const run = new Function('data', 'var ON={},omode,all={},LATE=' + late + ';\n' + html.slice(start, end) + `
+  data.prs.forEach(function(p){p.nodes.forEach(function(n){all[n.id]=Object.assign({pr:p.key},n);});});
+  var out={};
+  ['bottom','top'].forEach(function(m){omode=m;out[m]={};data.prs.forEach(function(p){computeOrder(p);out[m][p.key]=ON;});});
+  return out;`);
+process.stdout.write(JSON.stringify(run(JSON.parse(fs.readFileSync(graphFile, 'utf8')))));
+"""
 
 
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -176,6 +197,35 @@ class ReviewMapPipelineTests(unittest.TestCase):
             "<footer>As of today.</footer>\n",
             encoding="utf-8",
         )
+        repo = cls.root / "ordering"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(
+            repo,
+            {
+                "src/types.ts": "export type T = number;\n",
+                "src/service.ts": "import type { T } from './types';\nexport const one = (): T => 1;\n",
+                "src/index.ts": "export { one } from './service';\n",
+                "src/mobile-state-panel.tsx": "import { one } from './service';\nexport const Panel = () => one();\n",
+                "src/mobile-state-panel-test.tsx": "import { types } from './types';\nimport { Panel } from './mobile-state-panel';\n",
+                "src/zeta.rb": "module Zeta; end\n",
+                "spec_support/zeta_spec.rb": "describe Zeta do; end\n",
+                "src/test-utils.ts": "export const helper = 1;\n",
+                "src/contest.ts": "export const contest = 1;\n",
+                "cluster/pod_spec.go": "package cluster\n",
+                "src/openapi_spec.py": "SPEC = {}\n",
+                "src/build_spec.rs": "pub struct BuildSpec;\n",
+                "app/main.ts": "console.log('boot');\n",
+                "api/openapi-spec.yaml": "openapi: 3.0.0\n",
+                "docs/guide.md": "# guide\n",
+            },
+            "feat",
+        )
+        cls.ordering_path = cls.root / "graphs-ordering.json"
+        run_script("build_graph.py", "--out", str(cls.ordering_path), "--pr", "O", str(repo), "main...feat")
+        cls.ordering = json.loads(cls.ordering_path.read_text(encoding="utf-8"))
 
     @classmethod
     def tearDownClass(cls):
@@ -289,6 +339,64 @@ class ReviewMapPipelineTests(unittest.TestCase):
         run_script("build_graph.py", "--out", str(out), "--pr", "A", str(repo), "main...feat", "--pr", "X", str(repo), "main..feat")
         moved = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual([pr["base"] for pr in moved["prs"]], [fork, moved_main])
+
+    def test_isolated_files_follow_connected_ones_and_tests_are_found_by_name(self):
+        """This test will fail when a file with no same-PR edge opens the reading order, a language's test marker is missed or applied to another language (pod_spec.go, openapi_spec.py, build_spec.rs), a test-like name such as test-utils.ts or contest.ts becomes a test, or a test is not placed after its name-matched subject."""
+        pr = self.ordering["prs"][0]
+        nodes = {node["path"]: node for node in pr["nodes"]}
+        by_id = {node["id"]: node["path"] for node in pr["nodes"]}
+        layers = {path: node["layer"] for path, node in nodes.items()}
+        self.assertEqual(layers["src/mobile-state-panel-test.tsx"], "test")
+        self.assertEqual(layers["spec_support/zeta_spec.rb"], "test")
+        for path in ("src/test-utils.ts", "src/contest.ts", "api/openapi-spec.yaml", "cluster/pod_spec.go",
+                     "src/openapi_spec.py", "src/build_spec.rs"):
+            self.assertNotEqual(layers[path], "test", path)
+        edges = {(by_id[e["from"]], by_id[e["to"]]): e["kind"] for e in pr["edges"]}
+        self.assertEqual(edges[("src/mobile-state-panel-test.tsx", "src/mobile-state-panel.tsx")], "test")
+        self.assertEqual(edges[("spec_support/zeta_spec.rb", "src/zeta.rb")], "test")
+        order = [node["path"] for node in sorted(pr["nodes"], key=lambda node: node["order"])]
+        self.assertEqual(
+            order,
+            [
+                "src/types.ts", "src/service.ts", "src/mobile-state-panel.tsx", "src/mobile-state-panel-test.tsx",
+                "src/index.ts",
+                "cluster/pod_spec.go", "src/build_spec.rs", "src/contest.ts", "src/openapi_spec.py", "src/test-utils.ts",
+                "src/zeta.rb", "spec_support/zeta_spec.rb", "app/main.ts",
+                "api/openapi-spec.yaml", "docs/guide.md",
+            ],
+        )
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's ordering code")
+    def test_viewer_order_matches_the_stored_order_and_numbers_every_step(self):
+        """This test will fail when the viewer's "from dependencies" order drifts from build_graph.py's stored order, or "from the entry point" skips, repeats, or misplaces a step."""
+        script = self.root / "viewer-order.js"
+        script.write_text(VIEWER_ORDER, encoding="utf-8")
+        orders = {}
+        for name, path, graph in (("fixture", self.graph_path, self.graph), ("ordering", self.ordering_path, self.ordering)):
+            result = subprocess.run(
+                ["node", str(script), str(SKILL / "assets" / "viewer.html"), str(path)],
+                capture_output=True, text=True, check=True,
+            )
+            orders[name] = json.loads(result.stdout)
+            for pr in graph["prs"]:
+                with self.subTest(graph=name, pr=pr["key"]):
+                    stored = {node["id"]: node["order"] for node in pr["nodes"]}
+                    self.assertEqual(orders[name]["bottom"][pr["key"]], stored)
+                    top = orders[name]["top"][pr["key"]]
+                    self.assertEqual(set(top), set(stored))
+                    self.assertEqual(sorted(top.values()), list(range(1, len(stored) + 1)))
+        top = orders["ordering"]["top"]["O"]
+        by_id = {node["id"]: node["path"] for node in self.ordering["prs"][0]["nodes"]}
+        self.assertEqual(
+            [by_id[i] for i in sorted(top, key=top.get)],
+            [
+                "src/index.ts", "src/mobile-state-panel.tsx", "src/mobile-state-panel-test.tsx", "src/service.ts",
+                "src/types.ts",
+                "cluster/pod_spec.go", "src/build_spec.rs", "src/contest.ts", "src/openapi_spec.py", "src/test-utils.ts",
+                "src/zeta.rb", "spec_support/zeta_spec.rb", "app/main.ts",
+                "api/openapi-spec.yaml", "docs/guide.md",
+            ],
+        )
 
     def test_build_graph_is_deterministic(self):
         """This test will fail when two runs over the same branches produce different graphs."""

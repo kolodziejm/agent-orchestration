@@ -664,23 +664,28 @@ details.nt-panel{margin:0}
     return {p:p,nodes:nodes,ext:ext.map(function(i){return Object.assign({ext:true},all[i]);}),edges:edges};
   }
   function ordered(g){return g.nodes.slice().sort(function(a,b){return ON[a.id]-ON[b.id];});}
-  /* "bottom": dependency order as stored. "top": entry points first (reverse), each test right after the
-     file it tests, docs/config/i18n last. */
-  function computeOrder(g){
+  /* Step numbers for one whole PR (tests included), so hiding tests leaves gaps instead of renumbering.
+     Core files (not tests, not docs/config/i18n) with a non-test edge to another core file of this PR come
+     first: in stored dependency order for "bottom", reversed for "top". Core files with no such edge follow
+     in stored order in both modes. Each test goes right after the core file it tests (its kind:test subject
+     first, else its other edges; the one read last wins), a test with no core target after all core files,
+     then docs/config/i18n. For "bottom" this reproduces build_graph.py's stored order. */
+  function computeOrder(p){
     ON={};
-    if(omode==='bottom'){g.nodes.slice().sort(function(a,b){return a.order-b.order;}).forEach(function(n,i){ON[n.id]=i+1;});return;}
-    var core=g.nodes.filter(function(n){return n.layer!=='test'&&!LATE[n.layer];});
-    var seq=core.slice().sort(function(a,b){return b.order-a.order;}).map(function(n){return n.id;});
+    var nodes=p.nodes.map(function(n){return all[n.id];}),byOrder=function(a,b){return a.order-b.order;},core={},linked={};
+    nodes.forEach(function(n){if(n.layer!=='test'&&!LATE[n.layer])core[n.id]=1;});
+    p.edges.forEach(function(e){if(e.kind!=='test'&&e.from!==e.to&&core[e.from]&&core[e.to])linked[e.from]=linked[e.to]=1;});
+    var conn=nodes.filter(function(n){return core[n.id]&&linked[n.id];}).sort(byOrder);if(omode!=='bottom')conn.reverse();
+    var seq=conn.concat(nodes.filter(function(n){return core[n.id]&&!linked[n.id];}).sort(byOrder)).map(function(n){return n.id;});
     var idx={};seq.forEach(function(id,i){idx[id]=i;});var attach={};
-    g.nodes.filter(function(n){return n.layer==='test';}).sort(function(a,b){return a.order-b.order;}).forEach(function(t){
-      var tg=g.edges.filter(function(e){return e.from===t.id&&idx[e.to]!=null;}),pref=tg.filter(function(e){return e.kind==='test';});
-      var cand=(pref.length?pref:tg).map(function(e){return e.to;});
-      var best=cand.sort(function(x,y){return idx[y]-idx[x];})[0];
+    nodes.filter(function(n){return n.layer==='test';}).sort(byOrder).forEach(function(t){
+      var tg=p.edges.filter(function(e){return e.from===t.id&&idx[e.to]!=null;}),pref=tg.filter(function(e){return e.kind==='test';});
+      var best=(pref.length?pref:tg).map(function(e){return e.to;}).sort(function(x,y){return idx[y]-idx[x];})[0];
       (attach[best||'__end']=attach[best||'__end']||[]).push(t.id);
     });
     var full=[];seq.forEach(function(id){full.push(id);(attach[id]||[]).forEach(function(t){full.push(t);});});
     (attach.__end||[]).forEach(function(t){full.push(t);});
-    g.nodes.filter(function(n){return LATE[n.layer];}).sort(function(a,b){return a.order-b.order;}).forEach(function(n){full.push(n.id);});
+    nodes.filter(function(n){return LATE[n.layer];}).sort(byOrder).forEach(function(n){full.push(n.id);});
     full.forEach(function(id,i){ON[id]=i+1;});
   }
 
@@ -688,7 +693,7 @@ details.nt-panel{margin:0}
     if(!cur)return;
     [].forEach.call(tabs.children,function(b){b.setAttribute('aria-selected',b.dataset.k===cur?'true':'false');});
     [].forEach.call(obtns,function(b){b.setAttribute('aria-pressed',b.dataset.o===omode?'true':'false');});
-    var g=graph();computeOrder(g);var list=g.nodes.concat(g.ext),byId={};list.forEach(function(n){byId[n.id]=n;});
+    var g=graph();computeOrder(g.p);var list=g.nodes.concat(g.ext),byId={};list.forEach(function(n){byId[n.id]=n;});
     var out={},inc={};list.forEach(function(n){out[n.id]=[];inc[n.id]=[];});
     g.edges.forEach(function(e){out[e.from].push(e.to);inc[e.to].push(e.from);});
     var depth={},vis={};

@@ -19,7 +19,8 @@ What the script resolves on its own:
     translation catalogs, deploy config, and docs collapse into one group node each
   * a first-guess layer per file (refine it in the overlay)
   * JS/TS imports (relative, `.js`→`.ts`, `--alias`), Python imports, PHP `use`
-  * test → subject edges by file stem
+  * test → subject edges by file name with the test marker removed
+    (`panel-test.tsx`, `panel.spec.ts`, `test_panel.py`, `panel_spec.rb` → `panel`)
   * `order`: dependency-first reading order (the viewer reverses it for the
     "from the entry point" mode)
   * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
@@ -58,9 +59,17 @@ DEFAULT_GROUPS = [
      "pattern": r"\.(md|mdx|rst|adoc|txt)$|(^|/)docs?/"},
 ]
 
-# First-guess layer for a single file, checked in order.
+# First-guess layer for a single file, checked in order. A test is a file under a test directory or
+# one whose name carries its language's marker as its own name segment: `.test.`/`.spec.`/`.e2e.`
+# anywhere; a `-test`/`_test`/`-spec`/`_spec`/`-e2e`/`_e2e` suffix in JS/TS, Vue, and Svelte
+# (`mobile-state-panel-test.tsx`); `_spec.rb`; `_test` in Go, Python, Ruby, and Elixir;
+# `test_*.py`/`test_*.rb`; `*Test(s)` in PHP/JVM/.NET/Swift; `conftest.py`. So `test-utils.ts`,
+# `contest.ts`, `api-spec.yaml`, `pod_spec.go`, `openapi_spec.py`, and `build_spec.rs` are not tests.
+# The JS suffix also tags a feature file such as `ab-test.tsx`; fix that one with an overlay `layer`.
 LAYER_RULES = [
-    ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec)/|\.(spec|test|e2e)\.[^/]+$|(^|/)test_[^/]+\.py$|_test\.(go|py|rb)$|Tests?\.(php|java|kt|cs|swift)$|(^|/)conftest\.py$"),
+    ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec)/|\.(spec|test|e2e)\.[^/]+$"
+             r"|[-_](spec|test|e2e)\.([cm]?[jt]sx?|vue|svelte)$|_spec\.rb$|_test\.(go|py|rb|exs)$"
+             r"|(^|/)test_[^/]+\.(py|rb)$|Tests?\.(php|java|kt|cs|swift)$|(^|/)conftest\.py$"),
     ("wiring", r"(^|/)([\w-]*-)?(services|routing|routes|di|container|bundles)(\.[\w-]+)?\.(ya?ml|xml)$"),
     ("config", r"(^|/)(package\.json|tsconfig[^/]*\.json|jsconfig\.json|pyproject\.toml|setup\.(cfg|py)|composer\.json|go\.mod|Cargo\.toml|Gemfile|requirements[^/]*\.txt|project\.json|nx\.json|turbo\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|(^|/)\.[^/]*rc(\.[a-z]+)?$|\.(ya?ml|toml|ini|cfg|env)$"),
     ("data", r"(^|/)(migrations?|db|database|prisma|seeds?|fixtures)/|\.(sql|prisma)$"),
@@ -88,7 +97,9 @@ JS_IMPORT = re.compile(
 )
 PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.MULTILINE)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
-TEST_MARK = re.compile(r"(\.(spec|test|e2e)$|Tests?$|_test$|^test_)")
+# Stripped (repeatedly) from a test's stem to find its subject: `panel-test` -> `panel`,
+# `app.e2e-spec` -> `app`, `test_service` -> `service`, `UserTest` -> `User`.
+TEST_MARK = re.compile(r"([.\-_](spec|test|e2e)$|Tests?$|^test_)")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 SCP = re.compile(r"(?P<host>[^/:]{2,}):(?P<path>.*)")
 SAFE_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -453,35 +464,49 @@ def main() -> int:
         i, frm = ref(edge["from"])
         prs[i]["edges"].pop((frm, ref(edge["to"])), None)
 
+    # Reading order, dependency-first. Core files (not tests, not docs/config/i18n) that share a
+    # non-test edge with another core file of the same PR come first, topologically sorted; core
+    # files with no such edge (edges to tests, late files, and other PRs do not count) follow, so an
+    # unrelated file never opens either reading mode. Each test goes right after the core file it
+    # tests (its `test` edge first, else its other edges; the last such file wins), a test with no
+    # core target after all core files, then docs/config/i18n. Ties break on (PRIO, path). The
+    # viewer's computeOrder() builds the same sequence and reverses only the connected part.
     ids: dict[tuple[int, str], str] = {}
     for index, pr in enumerate(prs):
         nodes = pr["nodes"]
-        deps: dict[str, set[str]] = {nk: set() for nk in nodes}
-        for (frm, (ti, to)), _kind in pr["edges"].items():
-            if ti == index and frm in deps and to in deps:
+
+        def rank(nk: str, default: int = 5) -> tuple[int, str]:
+            return (PRIO.get(nodes[nk]["layer"], default), nodes[nk]["path"])
+
+        core = {nk for nk in nodes if nodes[nk]["layer"] != "test" and nodes[nk]["layer"] not in LATE}
+        deps: dict[str, set[str]] = {nk: set() for nk in core}
+        linked: set[str] = set()
+        for (frm, (ti, to)), kind in pr["edges"].items():
+            if ti == index and frm in core and to in core and kind != "test" and frm != to:
                 deps[frm].add(to)
-        core = [nk for nk in nodes if nodes[nk]["layer"] != "test"]
+                linked.update((frm, to))
         order: list[str] = []
-        remaining = set(core)
+        remaining = set(linked)
         while remaining:
             ready = [nk for nk in remaining if all(d not in remaining for d in deps[nk])]
             if not ready:
                 ready = list(remaining)
                 warnings.append(f"{pr['key']}: dependency cycle broken near {sorted(remaining)[:3]}")
-            ready.sort(key=lambda nk: (PRIO.get(nodes[nk]["layer"], 5), nodes[nk]["path"]))
+            ready.sort(key=rank)
             order.append(ready[0])
             remaining.discard(ready[0])
-        for test in sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: nodes[nk]["path"]):
-            targets = [to for (frm, (ti, to)), kind in pr["edges"].items() if frm == test and ti == index and to in order]
-            preferred = [to for (frm, (ti, to)), kind in pr["edges"].items()
-                         if frm == test and ti == index and kind == "test" and to in order]
-            anchor = max((order.index(t) for t in (preferred or targets)), default=len(order) - 1)
+        order += sorted(core - linked, key=rank)
+        tests = sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: nodes[nk]["path"])
+        placed = []
+        for test in tests:
+            targets = [(to, kind) for (frm, (ti, to)), kind in pr["edges"].items() if frm == test and ti == index and to in core]
+            placed.append((test, [to for to, kind in targets if kind == "test"] or [to for to, _kind in targets]))
+        for test, subjects in [p for p in placed if p[1]] + [p for p in placed if not p[1]]:
+            anchor = max((order.index(t) for t in subjects), default=len(order) - 1)
             while anchor + 1 < len(order) and nodes[order[anchor + 1]]["layer"] == "test":
                 anchor += 1
             order.insert(anchor + 1, test)
-        late = sorted((nk for nk in order if nodes[nk]["layer"] in LATE),
-                      key=lambda nk: (PRIO.get(nodes[nk]["layer"], 9), nodes[nk]["path"]))
-        order = [nk for nk in order if nodes[nk]["layer"] not in LATE] + late
+        order += sorted((nk for nk in nodes if nodes[nk]["layer"] in LATE), key=lambda nk: rank(nk, 9))
         for position, nk in enumerate(order, 1):
             ids[(index, nk)] = f"{pr['key']}{position}"
             nodes[nk]["order"] = position
