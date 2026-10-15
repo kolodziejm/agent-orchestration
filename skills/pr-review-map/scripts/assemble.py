@@ -144,7 +144,7 @@ def main() -> int:
     for index, pr in enumerate(graph["prs"]):
         color = pr.get("color") or f"var(--pal-{index % 8 + 1})"
         prs.append({"key": pr["key"], "name": pr.get("name", pr["key"]), "title": pr.get("title", ""),
-                    "repo": pr.get("repo", ""), "color": color})
+                    "repo": pr.get("repo", ""), "base": pr.get("base", ""), "tip": pr.get("tip", ""), "color": color})
         pr_css.append(f".c-{pr['key']}{{--c:{color}}}")
     storage_key = args.storage_key or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:60] or "review"
     config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}

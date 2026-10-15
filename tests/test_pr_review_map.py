@@ -268,6 +268,28 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 for leak in ("secret", "git.example.com", "user", "deploy", "private_token"):
                     self.assertNotIn(leak, text)
 
+    def test_build_graph_records_the_commits_each_diff_compares(self):
+        """This test will fail when a PR loses the base or tip SHA its review-note line numbers refer to, or a three-dot range stops using the merge base."""
+        short = {ref: git(self.repo, "rev-parse", "--short", ref).strip() for ref in ("main", "feat/a", "feat/b")}
+        self.assertEqual(
+            [(pr["key"], pr["base"], pr["tip"]) for pr in self.graph["prs"]],
+            [("A", short["main"], short["feat/a"]), ("B", short["feat/a"], short["feat/b"])],
+        )
+        repo = self.root / "moved"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"a.txt": "a\n"}, "base")
+        fork = git(repo, "rev-parse", "--short", "HEAD").strip()
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(repo, {"b.txt": "b\n"}, "feat")
+        git(repo, "checkout", "-q", "main")
+        commit_files(repo, {"c.txt": "c\n"}, "main moves on")
+        moved_main = git(repo, "rev-parse", "--short", "main").strip()
+        out = self.root / "graphs-moved.json"
+        run_script("build_graph.py", "--out", str(out), "--pr", "A", str(repo), "main...feat", "--pr", "X", str(repo), "main..feat")
+        moved = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual([pr["base"] for pr in moved["prs"]], [fork, moved_main])
+
     def test_build_graph_is_deterministic(self):
         """This test will fail when two runs over the same branches produce different graphs."""
         again = self.root / "graphs-again.json"
@@ -338,6 +360,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 self.assertEqual(config["title"], "Demo <review>")
                 self.assertEqual(config["storageKey"], "demo-review")
                 self.assertEqual([(p["key"], p["repo"]) for p in config["prs"]], [("A", "acme/demo"), ("B", "acme/web")])
+                self.assertEqual([(p["base"], p["tip"]) for p in config["prs"]], [(p["base"], p["tip"]) for p in self.graph["prs"]])
                 for element in ('id="nt-panel"', 'id="nt-copy"', 'id="nt-clear"', 'id="nt-list"', 'id="nt-manual-text"'):
                     self.assertIn(element, page)
                 if target == "artifact":

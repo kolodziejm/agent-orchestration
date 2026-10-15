@@ -15,6 +15,8 @@ that moves never loses authored content.
       "name": "S #12680",
       "title": "Service vertical: facility services route",
       "repo": "acme/web",
+      "base": "1a2b3c4",
+      "tip": "c9e7133",
       "color": "var(--pal-2)",
       "nodes": [
         {"id": "S1", "label": "services.schema.ts", "path": "libs/x/contract/services.schema.ts",
@@ -44,6 +46,9 @@ PR fields:
   PR. `build_graph.py` takes `--repo KEY owner/name`, else reads it from the
   `origin` remote URL path (never its host, credentials, query, or fragment), else
   uses the directory name.
+- `base`, `tip` — short SHAs of the two versions the PR's diff compares (for
+  `A...B` the base is the merge base), written by `build_graph.py` and left out
+  when git cannot resolve them. Copied review notes name them per PR.
 - `color` — optional CSS colour; by default PR *n* gets palette slot `--pal-n`
   (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.

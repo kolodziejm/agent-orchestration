@@ -25,6 +25,8 @@ What the script resolves on its own:
   * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
     URL path (never its host, credentials, query, or fragment), else the
     repository directory name
+  * each PR's `base` and `tip`: short SHAs of the two versions its diff compares
+    (the merge base for `A...B`), so copied review notes can name them
 
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files) goes in the overlay,
@@ -137,6 +139,22 @@ def tip_of(rng: str) -> str:
     if ".." in rng:
         return rng.split("..", 1)[1] or "HEAD"
     raise SystemExit(f"range {rng!r} must be base...tip or base..tip")
+
+
+def range_commits(repo: str, rng: str) -> dict[str, str]:
+    """Short SHAs of the two versions the diff compares: `base` (the merge base for
+    `A...B`, `A` for `A..B`) and `tip`. A commit git cannot resolve is left out."""
+
+    def short(rev: str) -> str:
+        out = git(repo, "rev-parse", "--verify", "--quiet", "--short", f"{rev}^{{commit}}", check=False)
+        return (out or "").strip()
+
+    tip = tip_of(rng)
+    base = rng.split("..." if "..." in rng else "..", 1)[0] or "HEAD"
+    if "..." in rng:
+        base = (git(repo, "merge-base", base, tip, check=False) or "").strip()
+    commits = {"base": short(base) if base else "", "tip": short(tip)}
+    return {name: sha for name, sha in commits.items() if sha}
 
 
 def numstat(repo: str, rng: str) -> dict[str, tuple[int, int]]:
@@ -478,7 +496,7 @@ def main() -> int:
             counts[nodes[nk]["label"]] = counts.get(nodes[nk]["label"], 0) + 1
         entry = {"key": pr["key"], "name": names.get(pr["key"], pr["key"]),
                  "title": titles.get(pr["key"], names.get(pr["key"], pr["key"])), "repo": pr["label"],
-                 "nodes": [], "edges": []}
+                 **range_commits(pr["repo"], pr["range"]), "nodes": [], "edges": []}
         for nk in pr["order"]:
             node = nodes[nk]
             label = node["label"]

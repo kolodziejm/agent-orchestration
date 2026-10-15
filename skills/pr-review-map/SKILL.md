@@ -45,7 +45,9 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    the diff (Shift+click or the keyboard for a range on the same side) to attach a note;
    notes show as line markers and in a notes panel (edit, delete, jump to the
    line), persist in localStorage, and "Copy notes" puts them on the clipboard as
-   Markdown for an agent: PR, repo, file, side, lines, the code, and the note.
+   Markdown for an agent: per PR its repo and base/tip commits, per note a
+   `path:start-end` reference with its side (new = PR tip, old = base), the code,
+   and the note.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
