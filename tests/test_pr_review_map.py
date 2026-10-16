@@ -689,7 +689,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's highlighting code")
     def test_single_file_components_are_highlighted_per_block_and_common_files_are_mapped(self):
-        """This test will fail when gen_diffs.py stops naming the block a Vue/Svelte hunk starts in on its @@ line as a short tag with its lang (also for a tag past git's 80-byte cut, with a ">" in an attribute, or spread over lines), the viewer highlights a hunk in the middle of a <template>, <script lang="ts">, or <style lang="scss"> block (or Svelte markup after </script>) in another block's language, a common file type loses its highlight.js language, or a file named after an Object.prototype property gets one."""
+        """This test will fail when the viewer reads a removed "-- comment" or an added "++i" inside a hunk as a file header (and shifts the line numbers), when gen_diffs.py stops naming the block a Vue/Svelte hunk starts in on its @@ line as a short tag with its lang (also for a tag past git's 80-byte cut, with a ">" in an attribute, or spread over lines), the viewer highlights a hunk in the middle of a <template>, <script lang="ts">, or <style lang="scss"> block (or Svelte markup after </script>) in another block's language, a common file type loses its highlight.js language, or a file named after an Object.prototype property gets one."""
         repo = self.root / "sfc"
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
@@ -728,6 +728,9 @@ class ReviewMapPipelineTests(unittest.TestCase):
                  "Makefile": "makefile", "schema.graphql": "graphql", "Card.vue": "xml", "infra/main.tf": None, "LICENSE": None, "c": None,
                  "src/x.constructor": None, "constructor": None, "src/__proto__": None, "a.toString": None, "b.hasOwnProperty": None,
                  "lib/valueOf": None}
+        # A removed SQL comment and an added "++i" look like file headers ("--- ", "+++") but sit inside a hunk.
+        by_path["q.sql"] = ("--- a/q.sql\n+++ b/q.sql\n@@ -1,4 +1,4 @@\n select 1;\n--- old comment\n+++i;\n select 2;\n select 3;\n"
+                            "@@ -9 +9 @@\n--- x\n+-- y")
         cases = self.root / "langs.json"
         cases.write_text(json.dumps({"paths": list(paths), "diffs": by_path}), encoding="utf-8")
         script = self.root / "viewer-langs.js"
@@ -738,6 +741,10 @@ class ReviewMapPipelineTests(unittest.TestCase):
         # A name that is an Object.prototype property is no language and no fence hint (it used to stop the page).
         self.assertEqual({p: out["fences"][p] for p in ("src/x.constructor", "constructor", "src/__proto__", "a.toString")},
                          {"src/x.constructor": "", "constructor": "", "src/__proto__": "", "a.toString": ""})
+        self.assertEqual([(side, line, text) for side, line, text, _lang in out["rows"]["q.sql"]], [
+            ("old", 1, "select 1;"), ("new", 1, "select 1;"), ("old", 2, "-- old comment"), ("new", 2, "++i;"),
+            ("old", 3, "select 2;"), ("new", 3, "select 2;"), ("old", 4, "select 3;"), ("new", 4, "select 3;"),
+            ("old", 9, "-- x"), ("new", 9, "-- y")])
         langs = {(path, side, text): lang for path, rows in out["rows"].items() for side, _line, text, lang in rows}
         for path, text, lang in (
             ("Card.vue", '<li class="r5">{{ n5 }}</li>', "xml"), ("Card.vue", '<li class="r5 on">{{ n5 }}</li>', "xml"),
@@ -888,7 +895,7 @@ class NoteStateTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's note-state code")
     def test_notes_on_changed_code_move_go_stale_or_lose_their_file(self):
-        """This test will fail when a note on code that moved (exactly, with white space changed, or slightly edited) is not moved to its code's new lines on the same side, when an in-place edit, an ambiguous match, or a weak fuzzy match does not leave it stale, when a note on a file the PR no longer changes is not "gone", or when file and PR notes stop being current."""
+        """This test will fail when a note on code that moved (exactly, with white space changed, or slightly edited) is not moved to its code's new lines on the same side, when an in-place edit, an ambiguous match, a weak fuzzy match, or a snapshot with under 6 characters besides white space ("}", a blank line) does not leave it stale, when a note on a file the PR no longer changes is not "gone", or when file and PR notes stop being current."""
         svc = ["import { a } from './a';", "", "export function listItems(offset: number, limit: number) {",
                "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
         moved = ["import { a } from './a';", "// one", "// two", "", "export function listItems(offset: number, limit: number) {",
@@ -929,6 +936,9 @@ class NoteStateTests(unittest.TestCase):
             line("wk.ts", "new", 3, 4, svc[2:4]),         # only a loosely similar function elsewhere: stale
             line("tu.ts", "new", 2, 2, ["export const PAGE = 20;"]),  # edited in place, best fuzzy match is its own line: stale
             {"id": "f3", "scope": "file", "pr": "P", "path": "del.ts"},  # a file note on a file the PR deletes: current
+            line("svc.ts", "new", 2, 2, ["}"]),           # "}" moved off its line: too little to relocate, stale
+            line("svc.ts", "new", 3, 3, [""]),            # a blank line: stale, not moved to another blank line
+            line("svc.ts", "new", 5, 6, ["}", "}"]),      # two "}" lines are still too little: stale
         ]
         script = Path(tempfile.mkdtemp()) / "note-state.js"
         script.write_text(NOTE_STATE, encoding="utf-8")
@@ -942,6 +952,7 @@ class NoteStateTests(unittest.TestCase):
             {"st": "moved", "a": 4, "b": 5, "how": "fuzzy"}, {"st": "stale"}, {"st": "stale"}, {"st": "stale"}, {"st": "gone"},
             {"st": "moved", "a": 11, "b": 11, "how": "exact"}, {"st": "moved", "a": 1, "b": 1, "how": "exact"},
             {"st": "ok"}, {"st": "gone"}, {"st": "ok"}, {"st": "ok"}, {"st": "stale"}, {"st": "stale"}, {"st": "ok"},
+            {"st": "stale"}, {"st": "stale"}, {"st": "stale"},
         ])
 
 
@@ -1055,9 +1066,10 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(set(new) - set(old), {"src/d.ts"})
         self.assertEqual(set(old) - set(new), {"src/c.ts"})
         previous = json.loads((self.scratch / "previous.json").read_text(encoding="utf-8"))
-        self.assertEqual(previous, {"tips": {"A": self.tip1[:len(previous["tips"]["A"])]}, "files": {"A": old}})
+        self.assertEqual(previous, {"generation": 0, "tips": {"A": self.tip1[:len(previous["tips"]["A"])]}, "files": {"A": old}})
         config = embedded_json((self.scratch / "review.html").read_text(encoding="utf-8"), "review-config")
-        self.assertEqual(config["previous"], previous)
+        self.assertEqual((config["previous"], config["generation"]), (previous, 1))
+        self.assertEqual(embedded_json(self.page_v1, "review-config")["generation"], 0)
         # A binary file's fingerprint follows its blob, whose diff text is the same for every version.
         repo = self.root / "binary"
         repo.mkdir()
@@ -1127,6 +1139,103 @@ class ReviewMapRefreshTests(unittest.TestCase):
         narrative.write_text(good, encoding="utf-8")
         run_script("refresh.py", str(self.scratch), "--assemble-only")
         self.assertEqual((self.scratch / "review.html").read_bytes(), page)
+
+    def test_a_manifest_or_command_line_cannot_smuggle_git_options_or_write_elsewhere(self):
+        """This test will fail when a range, key, or name from review-map.json or the command line can reach git or argparse as an option (git diff --output= writes a file), when refresh.py writes an output outside its directory without --allow-outside, or when a title that starts with "-" no longer reaches assemble.py."""
+        evil = self.root / "evil"
+        pwned = self.root / "PWNED"
+        shutil.copytree(self.scratch, evil)
+        good = json.loads((evil / "review-map.json").read_text(encoding="utf-8"))
+
+        def attempt(change, *extra):
+            data = json.loads(json.dumps(good))
+            change(data)
+            (evil / "review-map.json").write_text(json.dumps(data), encoding="utf-8")
+            return run_script("refresh.py", str(evil), *extra, check=False)
+
+        def set_range(value):
+            return lambda d: [pr.update(range=value) for name in ("build_graph", "gen_diffs") for pr in d[name]["prs"]]
+
+        for name, change, message in (
+            ("output option", set_range(f"--output={pwned} x..HEAD"), "must be base...tip or base..tip"),
+            ("dash tip", set_range("main...--output=x"), "must be base...tip or base..tip"),
+            ("dash key", lambda d: [pr.update(key="-A") for n in ("build_graph", "gen_diffs") for pr in d[n]["prs"]], "PR key"),
+            ("dash repo", lambda d: [pr.update(repo="--upload-pack=x") for n in ("build_graph", "gen_diffs") for pr in d[n]["prs"]], "repository path"),
+            ("dash name", lambda d: d["build_graph"].update(names=[["A", "--overlay=/etc/passwd"]]), "does not start with '-'"),
+            ("graph outside", lambda d: d["build_graph"].update(out=str(self.root / "g.json")), "would write outside"),
+            ("page outside", lambda d: d["assemble"].update(out=str(self.root / "page.html")), "would write outside"),
+        ):
+            with self.subTest(case=name):
+                result = attempt(change)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(pwned.exists())
+        allowed = attempt(lambda d: d["assemble"].update(out=str(self.root / "page.html"), title="--draft"), "--assemble-only", "--allow-outside")
+        self.assertEqual(allowed.returncode, 0, allowed.stdout + allowed.stderr)
+        self.assertIn("<title>--draft</title>", (self.root / "page.html").read_text(encoding="utf-8"))
+        for script, args in (("build_graph.py", ["--out", str(self.root / "x.json")]),
+                             ("gen_diffs.py", ["--graph", str(self.scratch / "graphs.json"), "--out", str(self.root / "x.json")])):
+            with self.subTest(script=script):
+                result = run_script(script, *args, "--pr", "A", str(self.repo), f"--output={pwned} x..HEAD", "--no-manifest", check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("must be base...tip or base..tip", result.stderr)
+                self.assertFalse(pwned.exists())
+
+    def test_each_refresh_that_changes_something_counts_one_generation_up(self):
+        """This test will fail when a later refresh does not record the replaced build's generation in previous.json or the page's own generation one above it, which the viewer needs to tell older pages from newer ones."""
+        repo, scratch = self.root / "gen-repo", self.root / "gen-scratch"
+        shutil.copytree(self.repo, repo)
+        shutil.copytree(self.scratch, scratch)
+        data = json.loads((scratch / "review-map.json").read_text(encoding="utf-8"))
+        for name in ("build_graph", "gen_diffs"):
+            for pr in data[name]["prs"]:
+                pr["repo"] = str(repo.resolve())
+        (scratch / "review-map.json").write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(embedded_json((scratch / "review.html").read_text(encoding="utf-8"), "review-config")["generation"], 1)
+        commit_files(repo, {"src/d.ts": "export const d = 5;\n"}, "fix: round 2")
+        run_script("refresh.py", str(scratch))
+        self.assertEqual(json.loads((scratch / "previous.json").read_text(encoding="utf-8"))["generation"], 1)
+        self.assertEqual(embedded_json((scratch / "review.html").read_text(encoding="utf-8"), "review-config")["generation"], 2)
+
+    def test_fingerprints_see_mode_changes_renames_and_copies(self):
+        """This test will fail when a mode change or a pure rename leaves no trace in the fingerprint (every such file would hash to the same empty body), or when an ordinary new text file stops matching the fingerprint refresh.py computes from an old diffs.json body."""
+        flag, sys.dont_write_bytecode = sys.dont_write_bytecode, True  # no __pycache__ in the skill
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import gen_diffs
+        finally:
+            sys.path.remove(str(SCRIPTS))
+            sys.dont_write_bytecode = flag
+        repo = self.root / "modes"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"a.sh": "echo a\n", "b.txt": "same content for a rename\n", "c.txt": "other content here\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        (repo / "a.sh").chmod(0o755)
+        git(repo, "mv", "b.txt", "b2.txt")
+        git(repo, "mv", "c.txt", "c2.txt")
+        commit_files(repo, {"new.txt": "fresh\n"}, "modes and renames")
+        diff = git(repo, "-c", "core.fileMode=true", "diff", "--full-index", "-M", "main...feat")
+        files = {path: (body, fp) for path, body, _binary, fp in gen_diffs.split_files(diff)}
+        self.assertEqual(set(files), {"a.sh", "b2.txt", "c2.txt", "new.txt"})
+        self.assertEqual([files[p][0] for p in ("a.sh", "b2.txt", "c2.txt")], ["", "", ""])
+        self.assertEqual(len({files[p][1] for p in ("a.sh", "b2.txt", "c2.txt")}), 3)
+        self.assertNotEqual(files["a.sh"][1], gen_diffs.fingerprint(""))
+        self.assertEqual(files["new.txt"][1], gen_diffs.fingerprint(files["new.txt"][0]))
+
+    def test_assemble_refuses_a_pr_colour_that_is_not_a_colour(self):
+        """This test will fail when a PR colour from graphs.json can carry CSS or markup into the page's <style>."""
+        graph = json.loads((self.scratch / "graphs.json").read_text(encoding="utf-8"))
+        for color, ok in (("red}</style><script>alert(1)</script>", False), ("url(https://x.test/a)", False), ("var(--pal-9)", False),
+                          ("#1f7ae0", True), ("teal", True), ("var(--pal-3)", True)):
+            with self.subTest(color=color):
+                graph["prs"][0]["color"] = color
+                path = self.root / "colour.json"
+                path.write_text(json.dumps(graph), encoding="utf-8")
+                result = run_script("assemble.py", "--graph", str(path), "--diffs", str(self.scratch / "diffs.json"), "--narrative",
+                                    str(self.scratch / "narrative.html"), "--title", "c", "--out", str(self.root / "colour.html"),
+                                    "--no-manifest", check=False)
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

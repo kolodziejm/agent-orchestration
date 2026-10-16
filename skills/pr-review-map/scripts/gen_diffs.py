@@ -120,8 +120,8 @@ def old_lines(repo: str, rng: str, path: str | None) -> list[str] | None:
     if not path:
         return None
     left, _sep, right = rng.partition("...") if "..." in rng else rng.partition("..")
-    base = git(repo, "merge-base", left or "HEAD", right or "HEAD").strip() if "..." in rng else left or "HEAD"
-    return git(repo, "show", f"{base}:{path}").split("\n")
+    base = git(repo, "merge-base", "--end-of-options", left or "HEAD", right or "HEAD").strip() if "..." in rng else left or "HEAD"
+    return git(repo, "show", "--end-of-options", f"{base}:{path}").split("\n")
 
 
 def normalise_sfc(body: str, preimage) -> str:
@@ -154,21 +154,31 @@ def normalise_sfc(body: str, preimage) -> str:
     return "\n".join(lines)
 
 
-def fingerprint(body: str, index: str = "") -> str:
+def fingerprint(body: str, headers: list[str] | tuple = ()) -> str:
     """Twelve hex digits that change exactly when a file's change does.
 
     The input is the file's diff body (headers stripped, before --max-lines cuts it)
     with each @@ line reduced to "@@": line numbers and the context name shift when
-    lines above a hunk move, and that alone is no new change to read. A binary file
-    adds its `index` line (blob ids, --full-index), since its body ("Binary files ...
-    differ") is the same for every version. refresh.py fingerprints a diffs.json entry
-    written before `fp` existed the same way, from its stored body; a binary or
-    truncated one cannot match (no blob ids, a cut body), so it shows as changed once.
+    lines above a hunk move, and that alone is no new change to read. `headers` adds
+    the git header lines that say what else changed: a mode change (old/new mode, and
+    the mode of a new or deleted file unless it is the usual 100644; the body already
+    shows that a file is new or deleted), rename and copy sources and targets,
+    similarity, and for a binary file its `index` line (blob ids, --full-index), since
+    its body ("Binary files ... differ") is the same for every version. A pure rename
+    or mode change has an empty body, so without them every such file would get the
+    same fingerprint. refresh.py fingerprints a diffs.json entry written before `fp`
+    existed from its stored body alone, which matches for a plain text file; a binary,
+    renamed, mode-changed, or truncated one cannot match (headers gone, a cut body), so
+    it shows as changed once.
     """
     lines = ["@@" if line.startswith("@@") else line for line in body.split("\n")]
-    if index:
-        lines.append(index)
+    lines.extend(headers)
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:12]
+
+
+# Header lines that belong in a file's fingerprint (see fingerprint()); `index` is added for binary files only.
+FP_HEADERS = ("old mode", "new mode", "new file mode", "deleted file mode", "rename from ", "rename to ", "copy from ",
+              "copy to ", "similarity index", "dissimilarity index")
 
 
 def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
@@ -184,9 +194,12 @@ def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
         path = None
         binary = False
         index = ""
+        headers = []
         for line in lines:
             if line.startswith("@@"):
                 break
+            if line.startswith(FP_HEADERS) and not line.endswith(" file mode 100644"):
+                headers.append(line)
             if line.startswith("index "):
                 index = line
             elif line.startswith("rename to "):
@@ -203,7 +216,7 @@ def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
         body = "\n".join(
             line for line in lines if not line.startswith(HEADER_PREFIXES)
         ).rstrip("\n")
-        files.append((path, body, binary, fingerprint(body, index if binary else "")))
+        files.append((path, body, binary, fingerprint(body, headers + ([index] if binary and index else []))))
     return files
 
 
@@ -247,6 +260,7 @@ def main() -> int:
     prs = {pr["key"]: pr for pr in graph["prs"]}
     ranges = {}
     for key, repo, rng in args.pr:
+        manifest.check_pr(key, repo, rng)
         if key not in prs:
             raise SystemExit(f"--pr {key}: no PR with that key in {args.graph}")
         if ".." not in rng:
@@ -262,14 +276,15 @@ def main() -> int:
     for key, pr in prs.items():
         repo, rng = ranges[key]
         diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "--full-index", "-M",
-                   f"-U{args.context}", rng)
+                   f"-U{args.context}", "--end-of-options", rng, "--")
         for path, body, binary, fp in split_files(diff):
             node_id = assign(path, pr["nodes"])
             if node_id is None:
                 unassigned.append(f"{key}:{path}")
                 continue
             if path.lower().endswith(SFC_EXT):
-                old = next((line[6:].rstrip("\t") for line in body.split("\n") if line.startswith("--- a/")), None)
+                head = body.split("\n@@", 1)[0].split("\n")  # the file header lines before the first hunk
+                old = next((line[6:].rstrip("\t") for line in head if line.startswith("--- a/")), None)
                 body = normalise_sfc(body, lambda old=old, repo=repo, rng=rng: old_lines(repo, rng, old))
             entry: dict = {"path": path, "diff": body, "fp": fp}
             lines = body.split("\n")

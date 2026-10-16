@@ -445,12 +445,35 @@ details.nt-panel{margin:0}
   function own(o,k){return o&&Object.prototype.hasOwnProperty.call(o,k)?o[k]:null;}
   var PR=Object.create(null);(CFG.prs||[]).forEach(function(p){PR[p.key]=p;});
   function prName(k){return PR[k]?PR[k].name:k;}
-  function prColor(k){return PR[k]?PR[k].color:'var(--accent)';}
+  /* A PR's colour lands in CSS: only a palette slot, a hex colour, or a colour name (assemble.py checks it too). */
+  var COLOR_OK=/^(var\(--pal-[1-8]\)|#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20})$/;
+  function prColor(k){var c=PR[k]&&PR[k].color;return typeof c==='string'&&COLOR_OK.test(c)?c:'var(--accent)';}
   function layerOf(l){return [own(S.layers,l)||l||'?',own(LAYER_COLORS,l)||'#888'];}
   var KEY='review-map:'+(CFG.storageKey||CFG.title||document.title||location.pathname||'review')+':';
   function load(k,d){try{var v=localStorage.getItem(KEY+k);return v==null?d:v;}catch(e){return d;}}
   function save(k,v){try{localStorage.setItem(KEY+k,v);}catch(e){}}
-  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  /* A graph node's `note` is HTML from the overlay, which may quote the code under review. It is parsed inert (a
+     <template> runs no script and loads nothing) and rebuilt from text plus code, b/strong, i/em, br, kbd, sub, sup,
+     and links to http(s) or "#" addresses; other elements keep only their text, attributes are dropped, and script,
+     style, and template elements are dropped whole. Everything else the viewer puts in HTML strings goes through esc(). */
+  var NOTE_TAGS={CODE:1,B:1,STRONG:1,I:1,EM:1,BR:1,KBD:1,SUB:1,SUP:1,A:1};
+  function safeHtml(html){
+    var t=document.createElement('template'),out=document.createElement('div');t.innerHTML=String(html);
+    (function walk(src,dst){
+      [].forEach.call(src.childNodes,function(c){
+        if(c.nodeType===3){dst.appendChild(document.createTextNode(c.nodeValue));return;}
+        if(c.nodeType!==1)return;
+        var tag=String(c.tagName).toUpperCase();
+        if(tag==='SCRIPT'||tag==='STYLE'||tag==='TEMPLATE')return;
+        if(!NOTE_TAGS[tag]||c.namespaceURI!=='http://www.w3.org/1999/xhtml'){walk(c,dst);return;}
+        var e=document.createElement(tag.toLowerCase()),h=tag==='A'?String(c.getAttribute('href')||''):'';
+        if(/^(https?:\/\/|#)/i.test(h)){e.setAttribute('href',h);if(h[0]!=='#'){e.setAttribute('rel','noopener noreferrer');e.setAttribute('target','_blank');}}
+        walk(c,e);dst.appendChild(e);
+      });
+    })(t.content,out);
+    return out.innerHTML;
+  }
   var plural=null;try{plural=new Intl.PluralRules(CFG.lang||'en');}catch(e){}
   function filesWord(n){var f=S.files||{};var c=plural?plural.select(n):(n===1?'one':'other');return f[c]||f.other||'';}
   function stepLabel(n){return n.ext?n.id:S.step+' '+n.order;}
@@ -564,17 +587,19 @@ details.nt-panel{margin:0}
       });
     });
   }
+  /* A file's hunks. Each @@ line says how many old and new lines its hunk holds; lines are read as its body until both
+     counts are used up, so a removed "-- comment" (diff line "--- comment") or an added "++i" stays a code line, and
+     anything outside a hunk (the "---"/"+++" file header) is skipped. A "\ No newline" marker counts as neither. */
   function parse(diff){
-    var hunks=[],h=null,ol=0,nl=0;
-    diff.split('\n').forEach(function(line){
-      if(line.startsWith('---')||line.startsWith('+++'))return;
-      var m=line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)/);
-      if(m){h={head:line,rows:[]};hunks.push(h);ol=+m[1];nl=+m[2];return;}
-      if(!h||line.startsWith('\\'))return;
+    var hunks=[],h=null,ol=0,nl=0,ro=0,rn=0;
+    String(diff).split('\n').forEach(function(line){
+      var m=line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/);
+      if(m&&!(ro>0||rn>0)){h={head:line,rows:[]};hunks.push(h);ol=+m[1];nl=+m[3];ro=m[2]==null?1:+m[2];rn=m[4]==null?1:+m[4];return;}
+      if(!h||!(ro>0||rn>0)||line[0]==='\\')return;
       var c=line[0],t=line.slice(1);
-      if(c==='-')h.rows.push({t:'del',o:ol++,s:t});
-      else if(c==='+')h.rows.push({t:'add',n:nl++,s:t});
-      else h.rows.push({t:'ctx',o:ol++,n:nl++,s:t});
+      if(c==='-'&&ro>0){h.rows.push({t:'del',o:ol++,s:t});ro--;}
+      else if(c==='+'&&rn>0){h.rows.push({t:'add',n:nl++,s:t});rn--;}
+      else{h.rows.push({t:'ctx',o:ol++,n:nl++,s:c===' '?t:line});ro--;rn--;}
     });
     return hunks;
   }
@@ -614,7 +639,7 @@ details.nt-panel{margin:0}
     if(f.truncated)html+='<div class="df-note">'+esc(S.truncated.replace('{n}',f.truncated))+'</div>';
     return html;
   }
-  function stat(d){var a=0,r=0;d.split('\n').forEach(function(x){if(x.startsWith('+')&&!x.startsWith('+++'))a++;else if(x.startsWith('-')&&!x.startsWith('---'))r++;});return [a,r];}
+  function stat(d){var a=0,r=0;parse(d).forEach(function(h){h.rows.forEach(function(x){if(x.t==='add')a++;else if(x.t==='del')r++;});});return [a,r];}
   function showDiff(id,node){
     last=[id,node];
     var files=DIFFS[id]||[],box=document.getElementById('dv-files');
@@ -710,15 +735,16 @@ details.nt-panel{margin:0}
   function bare(s){return String(s).replace(/\s+/g,'');}
   function grams(s){var g=Object.create(null),n=0;for(var i=0;i+1<s.length;i++){var k=s.substr(i,2);g[k]=(g[k]||0)+1;n++;}return {g:g,n:n};}
   function dice(a,b){var m=0;for(var k in a.g)if(b.g[k])m+=Math.min(a.g[k],b.g[k]);return a.n+b.n?2*m/(a.n+b.n):1;}
-  /* Where the snapshot lines `snap` sit among `rows`: a window of as many consecutive rows that equals them exactly,
+  /* Where the snapshot lines `snap` sit among `rows`, when they hold at least MIN_SIG characters besides white space
+     (a note on "}" or a blank line could land on any other one): a window of as many consecutive rows that equals them exactly,
      else with white space ignored, else the window most like them (character-bigram Dice over the text without
      white space, the snapshot at least 12 characters) when it scores at least FUZZ and every window that does not
      overlap it scores less than its score minus FUZZ_GAP. {i, how} for a unique match, {amb: true} when the first
      tier that matches matches more than once, null for none. Deterministic: the same rows and snapshot give the same
      answer. */
-  var FUZZ=0.8,FUZZ_GAP=0.05;
+  var FUZZ=0.8,FUZZ_GAP=0.05,MIN_SIG=6;
   function locate(rows,snap){
-    var L=snap.length,W=rows.length-L+1,i,k,t;if(!L||W<1)return null;
+    var L=snap.length,W=rows.length-L+1,i,k,t;if(!L||W<1||bare(snap.join('')).length<MIN_SIG)return null;
     for(t=0;t<2;t++){
       var f=t?bare:String,want=snap.map(f),hits=[];
       for(i=0;i<W;i++){for(k=0;k<L&&f(rows[i+k].s)===want[k];k++);if(k===L)hits.push(i);}
@@ -1232,11 +1258,13 @@ details.nt-panel{margin:0}
   }
   function isDone(id){var n=all[id],m=n&&marks[n.pr];return !!(m&&Object.prototype.hasOwnProperty.call(m,n.path));}
   function saveDone(){save('read',JSON.stringify(marks));save('readfp',JSON.stringify(rfp));save('wasread',JSON.stringify(was));}
-  /* Changes since the previous build (CFG.previous, written by refresh.py: {tips: {KEY: sha}, files: {KEY: {path:
-     fingerprint}}}). A file is new when its PR did not change it then and changed when its fingerprint (the diff
-     entry's fp, from gen_diffs.py) differs. CHG[id] is "new" when every file of a node is new, "changed" when any is
-     new or changed; REMOVED lists the files the previous build had and this one does not, PRs gone from the stack
-     included. Without CFG.previous nothing is flagged. */
+  /* Changes since the previous build (CFG.previous, written by refresh.py: {generation, tips: {KEY: sha}, files:
+     {KEY: {path: fingerprint}}}). A file is new when its PR did not change it then and changed when its fingerprint
+     (the diff entry's fp, from gen_diffs.py) differs; a file without a fingerprint (diffs.json from before them) is
+     never flagged changed. CHG[id] is "new" when every file of a node is new, "changed" when any is new or changed;
+     REMOVED lists the files the previous build had and this one does not, PRs gone from the stack included. Without
+     CFG.previous nothing is flagged. GEN is this page's generation (refresh.py counts builds; 0 for a page built
+     without a previous version). */
   function obj(k){var v=null;try{v=JSON.parse(load(k,'{}'));}catch(e){}return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}
   var PREV=CFG.previous&&CFG.previous.files&&typeof CFG.previous.files==='object'?CFG.previous:null,CHG=Object.create(null),REMOVED=[],CHGN={new:0,changed:0,removed:0};
   if(PREV){
@@ -1244,7 +1272,7 @@ details.nt-panel{margin:0}
       var old=own(PREV.files,p.key)||{},seen=Object.create(null);
       p.nodes.forEach(function(n){
         var fs=own(DIFFS,n.id)||[],nw=0,ch=0;
-        fs.forEach(function(f){seen[f.path]=1;if(own(old,f.path)==null)nw++;else if(old[f.path]!==f.fp)ch++;});
+        fs.forEach(function(f){seen[f.path]=1;if(own(old,f.path)==null)nw++;else if(f.fp&&old[f.path]!==f.fp)ch++;});
         CHGN.new+=nw;CHGN.changed+=ch;
         if(fs.length&&nw===fs.length)CHG[n.id]='new';else if(nw||ch)CHG[n.id]='changed';
       });
@@ -1253,19 +1281,27 @@ details.nt-panel{margin:0}
     Object.keys(PREV.files).forEach(function(k){if(!PR[k])Object.keys(PREV.files[k]||{}).sort().forEach(function(path){REMOVED.push({pr:k,path:path});});});
     CHGN.removed=REMOVED.length;
   }
-  /* A node's fingerprint: its files' fps. A read mark keeps the fingerprint it was made on ({prKey: {path: fp}} under
-     "readfp"); a mark whose file has changed since, or a mark from before fingerprints whose file this build flags,
-     is cleared on load and remembered under "wasread" until the file is marked read again, so the row and the banner
-     can say why it is unread. A file without a diff (an unchanged reference node) keeps its mark. */
-  function nodeFp(id){return (own(DIFFS,id)||[]).map(function(f){return f.path+'='+(f.fp||'');}).sort().join(',');}
+  /* A node's fingerprint: its files' fps ("path=fp", sorted), null when a file has none (unknown). A read mark keeps
+     the fingerprint and generation it is known good on ({prKey: {path: {f, g}}} under "readfp"). On load a mark is
+     cleared only when this page is newer than the mark and its file changed since: the fingerprint differs and the
+     mark's generation is lower than GEN. A page of the same or an older generation never clears a mark, and a mark
+     whose fingerprint matches moves up to GEN, so opening an older page later cannot clear it either. A mark stored
+     as a bare fingerprint (no generation) is cleared only when that fingerprint is this page's previous one (it was
+     made on the version just before); a mark from before fingerprints, only when this build flags its file. A
+     cleared mark is remembered under "wasread" until the file is marked read again, so the row and the banner can
+     say why it is unread. A file without a diff or a fingerprint keeps its mark as it is. */
+  var GEN=typeof CFG.generation==='number'&&CFG.generation>=0?CFG.generation:0;
+  function fpOf(id,files){var out=[],ok=true;(own(DIFFS,id)||[]).forEach(function(f){var x=files?own(files,f.path):f.fp;if(typeof x!=='string'||!x)ok=false;out.push(f.path+'='+x);});return ok&&out.length?out.sort().join(','):null;}
+  function nodeFp(id){return fpOf(id,null);}
   var rfp=obj('readfp'),was=obj('wasread'),cleared=0;
   Object.keys(all).forEach(function(id){
-    var n=all[id];if(!isDone(id)||!own(DIFFS,id))return;
-    var fp=nodeFp(id),r=rfp[n.pr]&&own(rfp[n.pr],n.path);
-    if(r?r!==fp:CHG[id]){
+    var n=all[id],fp=nodeFp(id);if(!isDone(id)||!fp)return;
+    var r=rfp[n.pr]&&own(rfp[n.pr],n.path),rf=r&&typeof r==='object'?r.f:r,rg=r&&typeof r==='object'&&typeof r.g==='number'?r.g:null;
+    var drop=rf?rf!==fp&&(rg!=null?rg<GEN:!!PREV&&rf===fpOf(id,own(PREV.files,n.pr)||{})):!!CHG[id];
+    if(drop){
       delete marks[n.pr][n.path];if(!Object.keys(marks[n.pr]).length)delete marks[n.pr];
-      if(rfp[n.pr])delete rfp[n.pr][n.path];(was[n.pr]=was[n.pr]||{})[n.path]=r||1;cleared++;
-    }else (rfp[n.pr]=rfp[n.pr]||{})[n.path]=fp;
+      if(rfp[n.pr])delete rfp[n.pr][n.path];(was[n.pr]=was[n.pr]||{})[n.path]=rf||1;cleared++;
+    }else if(!rf||rf===fp)(rfp[n.pr]=rfp[n.pr]||{})[n.path]={f:fp,g:Math.max(GEN,rg||0)};
   });
   saveDone();
   function wasRead(id){var n=all[id];return !!(n&&!isDone(id)&&was[n.pr]&&own(was[n.pr],n.path)!=null);}
@@ -1322,7 +1358,7 @@ details.nt-panel{margin:0}
   function paintChanges(){
     if(!PREV){chgBox.hidden=true;return;}
     var total=CHGN.new+CHGN.changed+CHGN.removed,h=[];chgBox.hidden=false;chgBox.className='g-chg callout '+(total?'warn':'ok');
-    var tips=data.prs.map(function(p){var o=own(PREV.tips,p.key)||'',t=p.tip||'';return prName(p.key)+' '+(o&&o!==t?esc(o)+' → '+esc(t):esc(t||o)+' ('+esc(S.chgTipSame)+')');}).join(', ');
+    var tips=data.prs.map(function(p){var o=own(PREV.tips,p.key)||'',t=p.tip||'';return esc(prName(p.key))+' '+(o&&o!==t?esc(o)+' → '+esc(t):esc(t||o)+' ('+esc(S.chgTipSame)+')');}).join(', ');
     h.push('<p><strong>'+esc(S.chgTitle)+':</strong> '+esc(total?fmt(S.chgSummary,{n:total,files:filesWord(total),new:CHGN.new,changed:CHGN.changed,removed:CHGN.removed}):S.chgNone)+' <span class="mono">'+esc(S.chgTips)+' '+tips+'</span></p>');
     if(CHGN.new+CHGN.changed){
       var per=data.prs.map(function(p){var n=p.nodes.filter(function(x){return CHG[x.id];}).length;return n?'<button type="button" class="tag" data-chg="'+esc(p.key)+'" style="--c:'+esc(prColor(p.key))+'">'+esc(prName(p.key))+': '+n+'</button>':'';}).join(' ');
@@ -1654,7 +1690,11 @@ details.nt-panel{margin:0}
   function setDone(id,v){
     var n=all[id];if(!n)return;
     var w=wasRead(id);
-    if(v){(marks[n.pr]=marks[n.pr]||{})[n.path]=1;if(own(DIFFS,id))(rfp[n.pr]=rfp[n.pr]||{})[n.path]=nodeFp(id);if(was[n.pr]){delete was[n.pr][n.path];if(!Object.keys(was[n.pr]).length)delete was[n.pr];}}
+    if(v){
+      (marks[n.pr]=marks[n.pr]||{})[n.path]=1;var fp=nodeFp(id);
+      if(fp)(rfp[n.pr]=rfp[n.pr]||{})[n.path]={f:fp,g:GEN};else if(rfp[n.pr])delete rfp[n.pr][n.path];
+      if(was[n.pr]){delete was[n.pr][n.path];if(!Object.keys(was[n.pr]).length)delete was[n.pr];}
+    }
     else{if(marks[n.pr]){delete marks[n.pr][n.path];if(!Object.keys(marks[n.pr]).length)delete marks[n.pr];}if(rfp[n.pr]){delete rfp[n.pr][n.path];if(!Object.keys(rfp[n.pr]).length)delete rfp[n.pr];}}
     saveDone();
     var r=rowEl[id];if(r){r.li.classList.toggle('done',v);r.cb.checked=v;}
@@ -1704,8 +1744,8 @@ details.nt-panel{margin:0}
     if(!id){detEl.innerHTML='<p class="muted">'+esc(S.detailEmpty)+'</p>';return;}
     var n=byId[id],L=layerOf(n.layer),o=ordered(),i=o.findIndex(function(x){return x.id===id;}),pv=o[i-1],nx=o[i+1];
     function pn(m,which){if(!m)return '<span></span>';var t=which==='prev'?S.prev+' '+ON[m.id]+' · '+m.label:ON[m.id]+' · '+m.label+' '+S.next;return '<button type="button" class="nt-b" data-go="'+esc(m.id)+'" data-pn="'+which+'" title="'+esc(m.path)+'">'+esc(t)+'</button>';}
-    detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+n.note+'</p>':'')+
-      '<p class="muted">'+esc(L[0])+' · +'+(n.added||0)+' / −'+(n.removed||0)+'</p>'+hood(id)+'<div class="g-pn">'+pn(pv,'prev')+pn(nx,'next')+'</div>';
+    detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+safeHtml(n.note)+'</p>':'')+
+      '<p class="muted">'+esc(L[0])+' · +'+esc(n.added||0)+' / −'+esc(n.removed||0)+'</p>'+hood(id)+'<div class="g-pn">'+pn(pv,'prev')+pn(nx,'next')+'</div>';
     [].forEach.call(detEl.querySelectorAll('[data-go]'),function(b){b.addEventListener('click',function(){
       var t=b.dataset.go;if(all[t]&&all[t].pr!==cur){goto(t);return;}
       select(t,'nb');var f=b.dataset.pn&&detEl.querySelector('[data-pn="'+b.dataset.pn+'"]');(f||detEl.querySelector('h4')).focus({preventScroll:true});

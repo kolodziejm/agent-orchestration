@@ -176,19 +176,19 @@ def range_commits(repo: str, rng: str) -> dict[str, str]:
     `A...B`, `A` for `A..B`) and `tip`. A commit git cannot resolve is left out."""
 
     def short(rev: str) -> str:
-        out = git(repo, "rev-parse", "--verify", "--quiet", "--short", f"{rev}^{{commit}}", check=False)
+        out = git(repo, "rev-parse", "--verify", "--quiet", "--short", "--end-of-options", f"{rev}^{{commit}}", check=False)
         return (out or "").strip()
 
     tip = tip_of(rng)
     base = rng.split("..." if "..." in rng else "..", 1)[0] or "HEAD"
     if "..." in rng:
-        base = (git(repo, "merge-base", base, tip, check=False) or "").strip()
+        base = (git(repo, "merge-base", "--end-of-options", base, tip, check=False) or "").strip()
     commits = {"base": short(base) if base else "", "tip": short(tip)}
     return {name: sha for name, sha in commits.items() if sha}
 
 
 def numstat(repo: str, rng: str) -> dict[str, tuple[int, int]]:
-    out = git(repo, "diff", "--numstat", "-M", "-z", rng) or ""
+    out = git(repo, "diff", "--numstat", "-M", "-z", "--end-of-options", rng, "--") or ""
     tokens = out.split("\0")
     files: dict[str, tuple[int, int]] = {}
     i = 0
@@ -247,11 +247,11 @@ class Resolver:
 
     def __init__(self, repo: str, tip: str, aliases: list[tuple[str, str]]):
         self.repo, self.tip, self.aliases = repo, tip, aliases
-        listing = git(repo, "ls-tree", "-r", "--name-only", "-z", tip) or ""
+        listing = git(repo, "ls-tree", "-r", "--name-only", "-z", "--end-of-options", tip) or ""
         self.tree = {path for path in listing.split("\0") if path}
 
     def source(self, path: str) -> str:
-        return git(self.repo, "show", f"{self.tip}:{path}", check=False) or ""
+        return git(self.repo, "show", "--end-of-options", f"{self.tip}:{path}", check=False) or ""
 
     def _js_candidates(self, base: str) -> list[str]:
         base = posixpath.normpath(base)
@@ -446,8 +446,10 @@ def main() -> int:
     overlay = json.loads(args.overlay.read_text(encoding="utf-8")) if args.overlay else {}
 
     keys = [key for key, _repo, _rng in args.pr]
-    if len(set(keys)) != len(keys) or not all(re.fullmatch(r"[A-Za-z0-9_-]+", k) for k in keys):
-        raise SystemExit(f"PR keys must be unique letters, digits, '_' or '-': {keys}")
+    for key, repo, rng in args.pr:
+        manifest.check_pr(key, repo, rng)
+    if len(set(keys)) != len(keys):
+        raise SystemExit(f"PR keys must be unique: {keys}")
 
     prs = []          # per PR: key, nodes {nk: node}, owner {path: nk}
     warnings: list[str] = []
@@ -664,7 +666,7 @@ def main() -> int:
             "repos": [list(pair) for pair in args.repo], "aliases": list(args.alias),
             "groups": manifest.stored(here, args.groups), "noDefaultGroups": args.no_default_groups,
             "overlay": manifest.stored(here, args.overlay),
-            "tips": {key: (git(repo, "rev-parse", "--verify", "--quiet", f"{tip_of(rng)}^{{commit}}", check=False) or "").strip()
+            "tips": {key: (git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{tip_of(rng)}^{{commit}}", check=False) or "").strip()
                      for key, repo, rng in args.pr},
         })
     for entry in out["prs"]:

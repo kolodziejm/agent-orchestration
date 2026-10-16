@@ -193,12 +193,17 @@ builds the page against the previous version (`previous.json`): changed-file
 banner and badges, read marks of changed files cleared, notes moved or flagged.
 It never edits the narrative; it warns which stack cards still show an old tip
 and prints new counts. Update those cards and every claim the new commits
-change, run `refresh.py $SCRATCH --assemble-only`, and republish.
+change, run `refresh.py $SCRATCH --assemble-only`, and republish. refresh.py
+trusts `review-map.json` as far as reading the files it names (overlay,
+narrative, strings, template): run it only on a manifest your own runs wrote.
+It refuses PR keys, repositories, and ranges git could read as options and
+writes only inside `$SCRATCH` unless given `--allow-outside`.
 
 ## Rules
 
 - Read-only on the repositories: `git diff`, `git show`, `git log`, `git
-  ls-tree`. No checkout, stash, commit, or push.
+  ls-tree`. No checkout, stash, commit, or push. Keys, ranges, and revisions
+  never start with `-`; the scripts check that and pass `--end-of-options`.
 - The graph owns reading order. Do not add numbered reading lists to the
   narrative; put per-file explanations in the graph `note` fields.
 - Every edge must come from the code (resolved import, binding, call site). Do

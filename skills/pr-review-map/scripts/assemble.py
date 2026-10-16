@@ -22,9 +22,12 @@ UI strings come from assets/strings.json for --lang, overridden key by key by
 `</` written as `<\\/` and `<!--` as `<\\u0021--`, both valid JSON escapes that keep
 the HTML parser out of the data.
 
---previous names the previous build's tips and file fingerprints
-({"tips": {KEY: sha}, "files": {KEY: {path: fp}}}, written by refresh.py); the page
-then shows what changed since that version and clears read marks of changed files.
+--previous names the previous build's generation, tips, and file fingerprints
+({"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fp}}}, written by
+refresh.py); the page then shows what changed since that version, gets generation
+n + 1 (0 without --previous), and clears read marks of files that changed since a
+mark made on an older generation. A PR `color` must be a palette slot
+(`var(--pal-3)`), a hex colour, or a colour name: it lands in CSS.
 The arguments, with the storage key as resolved, go in the `assemble` section of
 review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -48,6 +51,7 @@ STRINGS_FILE = HERE.parent / "assets" / "strings.json"
 MARKER = "<!-- review-map:graph -->"
 PLACEHOLDER = re.compile(r"\{\{(S:[A-Za-z0-9_]+|[A-Z_]+)\}\}")
 KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+COLOR = re.compile(r"var\(--pal-[1-8]\)|#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20}")
 MERMAID_LOCAL = """<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js"></script>
 <script>
 (function(){
@@ -105,14 +109,15 @@ def load_strings(lang: str, overrides: Path | None) -> dict:
 
 
 def load_previous(path: Path) -> dict:
-    """The previous build's {"tips": {KEY: sha}, "files": {KEY: {path: fp}}}, checked for shape."""
+    """The previous build's {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fp}}}, checked for shape."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    tips, files = data.get("tips", {}), data.get("files")
+    tips, files, gen = data.get("tips", {}), data.get("files"), data.get("generation", 0)
     ok = isinstance(tips, dict) and all(isinstance(v, str) for v in tips.values()) and isinstance(files, dict) and all(
-        isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values())
+        isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values()) \
+        and isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0
     if not ok:
-        raise SystemExit(f'{path}: expected {{"tips": {{KEY: sha}}, "files": {{KEY: {{path: fingerprint}}}}}}')
-    return {"tips": tips, "files": files}
+        raise SystemExit(f'{path}: expected {{"generation": n, "tips": {{KEY: sha}}, "files": {{KEY: {{path: fingerprint}}}}}}')
+    return {"generation": gen, "tips": tips, "files": files}
 
 
 def check_graph(graph: dict, diffs: dict) -> None:
@@ -167,6 +172,8 @@ def main() -> int:
     pr_css = []
     for index, pr in enumerate(graph["prs"]):
         color = pr.get("color") or f"var(--pal-{index % 8 + 1})"
+        if not isinstance(color, str) or not COLOR.fullmatch(color):
+            raise SystemExit(f"PR {pr['key']}: color {color!r} must be var(--pal-1..8), a hex colour, or a colour name")
         prs.append({"key": pr["key"], "name": pr.get("name", pr["key"]), "title": pr.get("title", ""),
                     "repo": pr.get("repo", ""), "base": pr.get("base", ""), "tip": pr.get("tip", ""), "color": color})
         pr_css.append(f".c-{pr['key']}{{--c:{color}}}")
@@ -174,6 +181,7 @@ def main() -> int:
     config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
     if previous is not None:
         config["previous"] = previous
+    config["generation"] = previous["generation"] + 1 if previous is not None else 0
 
     toc = [*toc_entries(head), ("graph", strings["graphToc"]), *toc_entries(body)]
     toc_html = "\n".join(f'    <li><a href="#{html.escape(i)}">{t}</a></li>' for i, t in toc)

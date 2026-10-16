@@ -23,7 +23,14 @@ The narrative is never rewritten. When a tip moved, refresh.py warns that the
 narrative's claims may be outdated, lists the lines of narrative.html that still show
 a PR's old tip, and prints each PR's new file count and +/-. After editing the
 narrative, `--assemble-only` assembles and validates again without rebuilding.
-Python 3 standard library only.
+
+refresh.py trusts the manifest only so far: PR keys, repositories, and ranges must
+pass manifest.check_pr (no leading "-", white space, or control characters), every
+other value reaches the scripts as `--option=value` or is checked the same way, and
+the files it writes (graphs.json, diffs.json, the page, previous.json) must lie in
+SCRATCH_DIR unless --allow-outside is given. It still reads the inputs the manifest
+names (overlay, narrative, strings, template) wherever they are, so run it only on a
+manifest you or your own scripts wrote. Python 3 standard library only.
 """
 
 from __future__ import annotations
@@ -54,7 +61,7 @@ def tip_of(rng: str) -> str:
 
 
 def resolve_tip(repo: str, rng: str) -> str | None:
-    return git(repo, "rev-parse", "--verify", "--quiet", f"{tip_of(rng)}^{{commit}}")
+    return git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{tip_of(rng)}^{{commit}}")
 
 
 def step(script: str, args: list[str], names: dict[str, str] | None = None) -> str:
@@ -111,16 +118,39 @@ def summary(before: dict[str, dict[str, str]], after: dict[str, dict[str, str]])
 
 
 def assemble_args(here: Path, section: dict, previous: Path | None) -> list[str]:
-    args = ["--graph", str(manifest.resolve(here, section["graph"])), "--diffs", str(manifest.resolve(here, section["diffs"])),
-            "--narrative", str(manifest.resolve(here, section["narrative"])), "--title", section["title"],
-            "--lang", section.get("lang", "en"), "--target", section.get("target", "artifact"),
-            "--storage-key", section["storageKey"], "--out", str(manifest.resolve(here, section["out"]))]
-    for flag, name in (("--strings", "strings"), ("--template", "template")):
-        if section.get(name):
-            args += [flag, str(manifest.resolve(here, section[name]))]
-    if previous is not None:
-        args += ["--previous", str(previous)]
-    return args
+    """assemble.py's arguments, each as `--option=value` so no value can pass for an option."""
+    values = {"graph": manifest.resolve(here, section["graph"]), "diffs": manifest.resolve(here, section["diffs"]),
+              "narrative": manifest.resolve(here, section["narrative"]), "title": text(section, "title"),
+              "lang": text(section, "lang", "en"), "target": text(section, "target", "artifact"),
+              "storage-key": text(section, "storageKey"), "out": manifest.resolve(here, section["out"]),
+              "strings": manifest.resolve(here, section.get("strings")), "template": manifest.resolve(here, section.get("template")),
+              "previous": previous}
+    return [f"--{name}={value}" for name, value in values.items() if value is not None]
+
+
+def text(section: dict, name: str, default: str | None = None) -> str:
+    """A manifest string, refused when it holds a control character (it goes on a command line)."""
+    value = section.get(name, default)
+    if not isinstance(value, str) or re.search(r"[\x00-\x1f\x7f]", value):
+        raise SystemExit(f"{manifest.NAME}: {name} must be a string without control characters, not {value!r}")
+    return value
+
+
+def pair_args(flag: str, pairs) -> list[str]:
+    """`flag KEY VALUE` for each manifest pair; a VALUE starting with "-" would be read as an option, so it is refused."""
+    out = []
+    for item in pairs or []:
+        if not (isinstance(item, list) and len(item) == 2 and all(isinstance(v, str) for v in item)) \
+                or not manifest.KEY.fullmatch(item[0]) or item[1].startswith("-") or re.search(r"[\x00-\x1f\x7f]", item[1]):
+            raise SystemExit(f"{manifest.NAME}: {flag} entry {item!r} must be [KEY, value] with a value that does not start with '-'")
+        out += [flag, *item]
+    return out
+
+
+def generation(path: Path | None) -> int:
+    """The generation of the page built with the previous-version file `path`: one after that file's, 0 without one."""
+    data = load_json(path) if path is not None else None
+    return int(data.get("generation", 0)) + 1 if isinstance(data, dict) else 0
 
 
 def narrative_warnings(narrative: Path | None, moved: list[tuple[str, str, str]], before: dict, after: dict) -> list[str]:
@@ -156,6 +186,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("directory", type=Path, help="the scratch directory with review-map.json")
     parser.add_argument("--assemble-only", action="store_true", help="assemble and validate again without rebuilding the data")
+    parser.add_argument("--allow-outside", action="store_true",
+                        help="let the manifest's outputs (graph, diffs, page) lie outside the directory")
     args = parser.parse_args()
     here = args.directory.resolve()
     data = manifest.read(here)
@@ -167,9 +199,16 @@ def main() -> int:
         raise SystemExit(f"{manifest.NAME} has no record of {', '.join(missing)}; run those scripts once with their outputs in {here}")
     build, gen, asm = data.get("build_graph", {}), data.get("gen_diffs", {}), data["assemble"]
     out = manifest.resolve(here, asm["out"])
+    writes = [out] + ([] if args.assemble_only else [manifest.resolve(here, build["out"]), manifest.resolve(here, gen["out"])])
+    outside = [str(path) for path in writes if not manifest.inside(here, path)]
+    if outside and not args.allow_outside:
+        raise SystemExit(f"{manifest.NAME} would write outside {here}: {', '.join(outside)}; "
+                         "pass --allow-outside if you wrote that manifest yourself")
+    for pr in ([] if args.assemble_only else build["prs"] + gen["prs"]):
+        manifest.check_pr(pr["key"], pr["repo"], pr["range"])
     if args.assemble_only:
         step("assemble.py", assemble_args(here, asm, previous_file(here, asm)))
-        step("validate.py", [str(out)])
+        step("validate.py", ["--", str(out)])
         return 0
 
     graph_path, diffs_path = manifest.resolve(here, build["out"]), manifest.resolve(here, gen["out"])
@@ -196,30 +235,31 @@ def main() -> int:
             moved.append((pr["key"], old, tip))
         left = pr["range"].split("..", 1)[0]
         if ".." in pr["range"] and "..." not in pr["range"] and FIXED_BASE.match(left) \
-                and git(pr["repo"], "merge-base", "--is-ancestor", left, tip) is None:
+                and git(pr["repo"], "merge-base", "--is-ancestor", "--end-of-options", left, tip) is None:
             warnings.append(f"PR {pr['key']}: its range starts at the fixed commit {left}, which is no longer an ancestor of "
                             f"the tip (rebased?); re-run build_graph.py and gen_diffs.py with a new range")
 
     # Build into side files and swap them in only when both steps succeed, so a failure leaves the last good data.
     new_graph_path, new_diffs_path = graph_path.with_name(graph_path.name + ".new"), diffs_path.with_name(diffs_path.name + ".new")
-    build_args = ["--out", str(new_graph_path), "--no-manifest"]
+    build_args = [f"--out={new_graph_path}", "--no-manifest"]
     for pr in build["prs"]:
         build_args += ["--pr", pr["key"], pr["repo"], pr["range"]]
     for flag, name in (("--name", "names"), ("--title", "titles"), ("--repo", "repos")):
-        for key, value in build.get(name, []):
-            build_args += [flag, key, value]
+        build_args += pair_args(flag, build.get(name))
     for alias in build.get("aliases", []):
-        build_args += ["--alias", alias]
+        build_args.append(f"--alias={text({'alias': alias}, 'alias')}")
     for flag, name in (("--groups", "groups"), ("--overlay", "overlay")):
         if build.get(name):
-            build_args += [flag, str(manifest.resolve(here, build[name]))]
-    if build.get("noDefaultGroups"):
+            build_args.append(f"{flag}={manifest.resolve(here, build[name])}")
+    if build.get("noDefaultGroups") is True:
         build_args.append("--no-default-groups")
-    diff_args = ["--graph", str(new_graph_path), "--out", str(new_diffs_path), "--no-manifest",
-                 "--context", str(gen.get("context", 4)), "--max-lines", str(gen.get("maxLines", 2000))]
+    context, max_lines = gen.get("context", 4), gen.get("maxLines", 2000)
+    if not (isinstance(context, int) and isinstance(max_lines, int) and context >= 0 and max_lines > 0):
+        raise SystemExit(f"{manifest.NAME}: gen_diffs context and maxLines must be non-negative integers")
+    diff_args = [f"--graph={new_graph_path}", f"--out={new_diffs_path}", "--no-manifest", f"--context={context}", f"--max-lines={max_lines}"]
     for pr in gen["prs"]:
         diff_args += ["--pr", pr["key"], pr["repo"], pr["range"]]
-    if gen.get("strict"):
+    if gen.get("strict") is True:
         diff_args.append("--strict")
     try:
         names = {str(new_graph_path): str(graph_path), str(new_diffs_path): str(diffs_path)}
@@ -242,12 +282,15 @@ def main() -> int:
         previous = kept
         print("nothing changed since the last build; the page keeps its comparison with the version before")
     else:
+        # The build being replaced becomes the comparison; its generation is one after the comparison it had, so the
+        # viewer can tell an older page from a newer one and never clears a read mark on an older page.
         previous = here / PREVIOUS
         short = {pr["key"]: pr.get("tip", "") for pr in old_graph.get("prs", [])}
-        previous.write_text(json.dumps({"tips": short, "files": old_files}, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
-                            encoding="utf-8")
+        current = generation(manifest.resolve(here, asm.get("previous")))
+        previous.write_text(json.dumps({"generation": current, "tips": short, "files": old_files}, ensure_ascii=False, indent=1,
+                                       sort_keys=True) + "\n", encoding="utf-8")
     step("assemble.py", assemble_args(here, asm, previous))
-    step("validate.py", [str(out)])
+    step("validate.py", ["--", str(out)])
 
     if previous is not None:
         before = load_json(previous).get("files", {})

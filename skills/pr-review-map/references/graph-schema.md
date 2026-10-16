@@ -41,7 +41,7 @@ from `review-map.json` (below).
 
 PR fields:
 
-- `key` — letters, digits, `_`, `-`; also the narrative class suffix (`c-S`).
+- `key` — letters, digits, `_`, `-`, not starting with `-`; also the narrative class suffix (`c-S`).
 - `name` — short tab label (`S #12680`). `title` is the tab tooltip.
 - `repo` — repository label (`owner/name`) that copied review notes name with the
   PR. `build_graph.py` takes `--repo KEY owner/name`, else reads it from the
@@ -50,8 +50,9 @@ PR fields:
 - `base`, `tip` — short SHAs of the two versions the PR's diff compares (for
   `A...B` the base is the merge base), written by `build_graph.py` and left out
   when git cannot resolve them. Copied review notes name them per PR.
-- `color` — optional CSS colour; by default PR *n* gets palette slot `--pal-n`
-  (8 slots, light and dark variants).
+- `color` — optional: `var(--pal-1)` … `var(--pal-8)`, a hex colour, or a colour
+  name (anything else is refused, since it lands in CSS); by default PR *n* gets
+  palette slot `--pal-n` (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
 
 Node fields:
@@ -67,7 +68,7 @@ Node fields:
 | `order` | Integer, dependency-first: a node's dependencies have lower numbers. |
 | `files` | Group nodes only: every path the node stands for. `gen_diffs.py` maps diffs with it. |
 | `match` | Optional globs for hand-written graphs; `gen_diffs.py` also accepts a glob-like `path`. |
-| `note` | Optional per-file reviewer note, trusted HTML, report language. Shown in the detail panel. |
+| `note` | Optional per-file reviewer note, report language. HTML limited to `code`, `b`/`strong`, `i`/`em`, `br`, `kbd`, `sub`, `sup`, and links to `https://`/`#` addresses; other tags keep only their text and lose their attributes, `script`/`style` are dropped. Shown in the detail panel. |
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
 
@@ -251,7 +252,8 @@ a hunk in the middle of a `<template>`, `<script>`, or `<style>` block in that b
 language (it falls back to the tags inside the hunks and a guess for diffs without it).
 `fp` fingerprints the file's change: 12 hex digits of SHA-256 over the full diff body
 with every `@@` line reduced to `@@` (lines that only shift do not count), plus the
-blob ids for a binary file. `truncated` is the
+header lines for a mode change (and a new or deleted file's mode unless 100644), a
+rename or copy (from, to, similarity), and the blob ids of a binary file. `truncated` is the
 full line count of a diff cut at `--max-lines`; `binary: true` marks a binary
 file. The viewer opens files lazily and collapses a file over 400 lines, and every
 file after the first when a node has more than four.
@@ -269,14 +271,23 @@ skips the record.
 
 `refresh.py DIR` replays the three runs (into side files, swapped in only when
 both data steps succeed), then validates. Before rebuilding it keeps the current
-build's tips and file fingerprints in `previous.json`
-(`{"tips": {KEY: short sha}, "files": {KEY: {path: fp}}}`), which `assemble.py
---previous` embeds in the page config. A re-run that changes nothing keeps the
-existing `previous.json`, so the page's comparison stays. `--assemble-only`
-reassembles and validates with the recorded inputs, after a narrative edit.
+build's generation, tips, and file fingerprints in `previous.json`
+(`{"generation": n, "tips": {KEY: short sha}, "files": {KEY: {path: fp}}}`), which
+`assemble.py --previous` embeds in the page config; the page's own generation is
+n + 1 (0 for a page built without `--previous`). A re-run that changes nothing keeps
+the existing `previous.json`, so the page's comparison stays. `--assemble-only`
+reassembles and validates with the recorded inputs, after a narrative edit. PR keys,
+repositories, and ranges must not start with `-` or hold white space or control
+characters (`--end-of-options` goes before every revision too), other values reach
+the scripts as `--option=value`, and the outputs must lie in the directory unless
+`--allow-outside` is given.
 
 The viewer compares each file's `fp` with `previous.files`: a file the PR did not
 change before is new, a different fingerprint is changed, a file only the previous
-build had is removed. A read mark stores the fingerprint it was made on (`readfp`
-in localStorage); when the file's fingerprint differs on load, the mark is cleared
-and remembered under `wasread` until the file is marked read again.
+build had is removed; a file without `fp` is never flagged changed. A read mark
+stores the fingerprint and generation it is known good on (`readfp` in
+localStorage, `{f, g}`). On load it is cleared only when the fingerprint differs
+and its generation is lower than the page's, so opening an older page never clears
+a mark; a matching fingerprint moves the mark up to the page's generation. A
+cleared mark is remembered under `wasread` until the file is marked read again. A
+file without a fingerprint keeps its mark and stores none.
