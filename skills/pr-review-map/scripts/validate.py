@@ -15,7 +15,10 @@ Checks, each an error unless noted:
   * external <script src>/<link href> hosts are on the allowlist (default cdnjs)
   * no unfilled `{{…}}` template placeholder
   * graph/diff consistency: unique node ids, edges to known nodes, integer order,
-    diff entries only for known nodes; a node without a diff is a warning
+    diff entries only for known nodes, string fingerprints; a node without a diff is
+    a warning
+  * the previous version's data (review-config "previous", from refresh.py), when
+    present: {"tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}}
 Python 3 standard library plus node on PATH (skip node only where it is missing).
 """
 
@@ -151,11 +154,23 @@ def main() -> int:
             for key in diffs:
                 if key not in nodes:
                     errors.append(f"diff entry for unknown node {key!r}")
+                for entry in diffs[key] if isinstance(diffs[key], list) else []:
+                    if "fp" in entry and not isinstance(entry["fp"], str):
+                        errors.append(f"diff entry {key}:{entry.get('path')} has a non-string fingerprint")
             without = [i for i, (_k, n) in nodes.items() if i not in diffs and not n.get("unchanged")]
             if without:
                 warnings.append(f"nodes without a diff: {without[:20]}")
     else:
         warnings.append("no graph-data block found; graph checks skipped")
+
+    config = data.get("review-config")
+    previous = config.get("previous") if isinstance(config, dict) else None
+    if previous is not None:
+        files = previous.get("files") if isinstance(previous, dict) else None
+        tips = previous.get("tips", {}) if isinstance(previous, dict) else None
+        if not (isinstance(files, dict) and all(isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values())
+                and isinstance(tips, dict) and all(isinstance(v, str) for v in tips.values())):
+            errors.append('review-config "previous" must be {"tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}}')
 
     size = len(page.encode("utf-8"))
     print(f"{args.page}: {size // 1024} KB, {len(blocks)} inline scripts checked")

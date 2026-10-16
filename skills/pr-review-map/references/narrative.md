@@ -35,7 +35,9 @@ colour as its graph tab). Use it on `.pr-card`, `.tag`, and `ol.steps`.
 
 Take files, +/−, and tip SHA from `git diff --shortstat <range>` and
 `git rev-parse --short <tip>`; include the merge-commit callout only when
-`git log --merges <range>` is non-empty.
+`git log --merges <range>` is non-empty. Write the tip as its short SHA in
+`<code>`: when a branch moves, `refresh.py` finds the cards that still show an
+old tip, prints the new tip and counts, and leaves the edit to you.
 
 ```html
 <!-- review-map:graph -->

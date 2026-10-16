@@ -5,7 +5,7 @@ Usage:
   python3 assemble.py --graph graphs.json --diffs diffs.json --narrative narrative.html \\
       --title "Review: …" --lang pl --out report.html \\
       [--strings overrides.json] [--storage-key my-review] [--target artifact|local] \\
-      [--template ../assets/viewer.html]
+      [--template ../assets/viewer.html] [--previous previous.json]
 
 The narrative is HTML for <main>, split by one line `<!-- review-map:graph -->`:
 everything before it (header, PR stack) renders above the reading graph, everything
@@ -20,7 +20,14 @@ by the host. --target local emits a complete document and loads mermaid from cdn
 UI strings come from assets/strings.json for --lang, overridden key by key by
 --strings. JSON data is embedded in <script type="application/json"> blocks with
 `</` written as `<\\/` and `<!--` as `<\\u0021--`, both valid JSON escapes that keep
-the HTML parser out of the data. Python 3 standard library only.
+the HTML parser out of the data.
+
+--previous names the previous build's tips and file fingerprints
+({"tips": {KEY: sha}, "files": {KEY: {path: fp}}}, written by refresh.py); the page
+then shows what changed since that version and clears read marks of changed files.
+The arguments, with the storage key as resolved, go in the `assemble` section of
+review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
+--no-manifest skips that. Python 3 standard library only.
 """
 
 from __future__ import annotations
@@ -31,6 +38,9 @@ import json
 import re
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import manifest  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TEMPLATE = HERE.parent / "assets" / "viewer.html"
@@ -94,6 +104,17 @@ def load_strings(lang: str, overrides: Path | None) -> dict:
     return base
 
 
+def load_previous(path: Path) -> dict:
+    """The previous build's {"tips": {KEY: sha}, "files": {KEY: {path: fp}}}, checked for shape."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    tips, files = data.get("tips", {}), data.get("files")
+    ok = isinstance(tips, dict) and all(isinstance(v, str) for v in tips.values()) and isinstance(files, dict) and all(
+        isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values())
+    if not ok:
+        raise SystemExit(f'{path}: expected {{"tips": {{KEY: sha}}, "files": {{KEY: {{path: fingerprint}}}}}}')
+    return {"tips": tips, "files": files}
+
+
 def check_graph(graph: dict, diffs: dict) -> None:
     if not isinstance(graph.get("prs"), list) or not graph["prs"]:
         raise SystemExit("graphs.json needs a non-empty prs list")
@@ -128,11 +149,14 @@ def main() -> int:
     parser.add_argument("--target", choices=("artifact", "local"), default="artifact")
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--previous", type=Path, help="the previous build's tips and fingerprints (written by refresh.py)")
+    parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
 
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     diffs = json.loads(args.diffs.read_text(encoding="utf-8"))
     check_graph(graph, diffs)
+    previous = load_previous(args.previous) if args.previous else None
     narrative = args.narrative.read_text(encoding="utf-8")
     if narrative.count(MARKER) != 1:
         raise SystemExit(f"the narrative must contain exactly one {MARKER} line")
@@ -148,6 +172,8 @@ def main() -> int:
         pr_css.append(f".c-{pr['key']}{{--c:{color}}}")
     storage_key = args.storage_key or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:60] or "review"
     config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
+    if previous is not None:
+        config["previous"] = previous
 
     toc = [*toc_entries(head), ("graph", strings["graphToc"]), *toc_entries(body)]
     toc_html = "\n".join(f'    <li><a href="#{html.escape(i)}">{t}</a></li>' for i, t in toc)
@@ -193,6 +219,15 @@ def main() -> int:
     template = args.template.read_text(encoding="utf-8")
     page = PLACEHOLDER.sub(fill, template)
     args.out.write_text(page, encoding="utf-8")
+    if not args.no_manifest:
+        here = args.graph.resolve().parent
+        manifest.record(here, "assemble", {
+            "graph": manifest.stored(here, args.graph), "diffs": manifest.stored(here, args.diffs),
+            "narrative": manifest.stored(here, args.narrative), "title": args.title, "lang": args.lang,
+            "strings": manifest.stored(here, args.strings), "storageKey": storage_key, "target": args.target,
+            "template": None if args.template.resolve() == DEFAULT_TEMPLATE else manifest.stored(here, args.template),
+            "out": manifest.stored(here, args.out), "previous": manifest.stored(here, args.previous),
+        })
     print(f"wrote {args.out} ({len(page.encode('utf-8')) // 1024} KB, target {args.target})")
     return 0
 

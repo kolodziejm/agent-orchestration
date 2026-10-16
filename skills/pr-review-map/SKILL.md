@@ -67,6 +67,15 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    PRs with repo and base/tip commits, then the notes by kind, PR, file, and line,
    each with a `path:start-end` (or bare `path`) reference, side, code, and text;
    headings in a note move below the note's own level and an open fence is closed.
+   **After a refresh** (step 7) a line note whose code moved follows it ("moved
+   from :12-14"; exact, white space ignored, or a close fuzzy match, found once on
+   the same side), one whose code changed is "stale" (no marker), one on a file
+   the PR no longer changes is "file gone"; a "Code changed" filter and actions
+   (accept the new location, re-anchor to the selected lines, dismiss, restore)
+   handle them, and the copy names each state. A banner counts the files new,
+   changed, and removed since the previous version (tips old → new, "Only changed
+   files"), rows carry new/changed badges, and read marks of changed files are
+   cleared and marked ↻.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -153,7 +162,9 @@ python3 $SKILL/scripts/validate.py $SCRATCH/review.html
 
 Read marks (by PR and file path) and review notes live in localStorage under
 `--storage-key` (default: derived from the title); keep it unchanged when you
-regenerate so they survive.
+regenerate so they survive. Keep `graphs.json` and `diffs.json` in `$SCRATCH`:
+build_graph, gen_diffs, and assemble record their inputs (and the resolved
+storage key) in `$SCRATCH/review-map.json` for step 7.
 `assemble.py` fills the template, builds the table of contents, colours each PR,
 and embeds the data as `<script type="application/json">` blocks with `</`
 written as `<\/` and `<!--` as `<!--` (both valid JSON). Never hand-insert
@@ -175,9 +186,14 @@ fixing too.
 - **Anywhere else**: assemble with `--target local` (a full document that loads
   mermaid from cdnjs), validate it, and give the user the absolute file path.
 
-When a branch moves, rerun steps 3 (scaffold with the same overlay), 4, and 6,
-and republish. Update the stack cards (tip SHA, counts) and any narrative claim
-the new commits change.
+When a branch moves, fetch, then run `python3 $SKILL/scripts/refresh.py $SCRATCH`.
+It replays steps 3 (same overlay), 4, and 6 from `review-map.json`, resolves
+branch names to their current tips (read-only, prints old → new per PR), and
+builds the page against the previous version (`previous.json`): changed-file
+banner and badges, read marks of changed files cleared, notes moved or flagged.
+It never edits the narrative; it warns which stack cards still show an old tip
+and prints new counts. Update those cards and every claim the new commits
+change, run `refresh.py $SCRATCH --assemble-only`, and republish.
 
 ## Rules
 

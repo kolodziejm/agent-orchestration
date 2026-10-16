@@ -68,8 +68,9 @@ for (let i = html.indexOf('{', fn); i < html.length; i++) {
 const mdNote = new Function(html.slice(start, end) + '\nreturn mdNote;')();
 process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(casesFile, 'utf8')).map(mdNote)));
 """
-# Runs the viewer's lang(), parse(), and sfcLangs(), cut out of assets/viewer.html, and prints the highlight.js language
-# of every path in the input's "paths" and of every row of its "diffs" ({path: diff}) as [side, line, text, lang].
+# Runs the viewer's lang(), mdLang(), parse(), and sfcLangs(), cut out of assets/viewer.html, and prints the highlight.js
+# language and the Markdown fence hint of every path in the input's "paths" and the language of every row of its
+# "diffs" ({path: diff}) as [side, line, text, lang].
 VIEWER_LANGS = r"""
 const fs = require('fs');
 const [template, inputFile] = process.argv.slice(2);
@@ -83,11 +84,12 @@ function cut(from, to) {
     else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
   }
 }
-const code = cut('  var LANG={', 'function sfcLangs(path,hs){') + '\n' + cut('  function parse(diff){', 'function parse(diff){');
-const api = new Function('DIFFS', 'esc', code + '\nreturn {lang: lang, parse: parse, sfcLangs: sfcLangs};')({}, String);
+const code = cut('  function own(o,k)', 'function own(o,k)') + '\n' + cut('  var LANG={', 'function sfcLangs(path,hs){') + '\n'
+  + cut('  function parse(diff){', 'function parse(diff){') + '\n' + cut('  function mdLang(p)', 'function mdLang(p)');
+const api = new Function('DIFFS', 'esc', code + '\nreturn {lang: lang, parse: parse, sfcLangs: sfcLangs, mdLang: mdLang};')({}, String);
 const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
-const out = {paths: {}, rows: {}};
-input.paths.forEach((p) => { out.paths[p] = api.lang(p); });
+const out = {paths: {}, fences: {}, rows: {}};
+input.paths.forEach((p) => { out.paths[p] = api.lang(p); out.fences[p] = api.mdLang(p); });
 Object.entries(input.diffs).forEach(([path, diff]) => {
   const hs = api.parse(diff), rows = [];
   api.sfcLangs(path, hs);
@@ -98,6 +100,27 @@ Object.entries(input.diffs).forEach(([path, diff]) => {
   out.rows[path] = rows;
 });
 process.stdout.write(JSON.stringify(out));
+"""
+# Runs the viewer's note-state code (FILE lookup through stateOf()), cut out of assets/viewer.html, over a graph, diffs,
+# and notes, and prints each note's state as {st, a?, b?, how?}.
+NOTE_STATE = r"""
+const fs = require('fs');
+const [template, inputFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+const code = [cut('  function own(o,k)', 'function own(o,k)'), cut('  function parse(diff){', 'function parse(diff){'),
+  cut('  /* FILE[pr+', 'function stateOf(n){')].join('\n');
+const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+const stateOf = new Function('data', 'DIFFS', code + '\nreturn stateOf;')(input.graph, input.diffs);
+process.stdout.write(JSON.stringify(input.notes.map((n) => { const s = stateOf(n); return Object.fromEntries(Object.entries(s).filter(([k]) => k !== 'k')); })));
 """
 
 
@@ -666,7 +689,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's highlighting code")
     def test_single_file_components_are_highlighted_per_block_and_common_files_are_mapped(self):
-        """This test will fail when gen_diffs.py stops naming the block a Vue/Svelte hunk starts in on its @@ line, the viewer highlights a hunk in the middle of a <template>, <script lang="ts">, or <style lang="scss"> block (or Svelte markup after </script>) in another block's language, or a common file type loses its highlight.js language."""
+        """This test will fail when gen_diffs.py stops naming the block a Vue/Svelte hunk starts in on its @@ line as a short tag with its lang (also for a tag past git's 80-byte cut, with a ">" in an attribute, or spread over lines), the viewer highlights a hunk in the middle of a <template>, <script lang="ts">, or <style lang="scss"> block (or Svelte markup after </script>) in another block's language, a common file type loses its highlight.js language, or a file named after an Object.prototype property gets one."""
         repo = self.root / "sfc"
         repo.mkdir()
         git(repo, "init", "-q", "-b", "main")
@@ -675,12 +698,20 @@ class ReviewMapPipelineTests(unittest.TestCase):
                '<style lang="scss" scoped>', "$gap: 4px;"] + [f".r{i} {{ margin: $gap * {i}; }}" for i in range(10)] + ["</style>", ""]
         svelte = ['<script lang="ts">'] + [f"  let v{i}: number = {i};" for i in range(10)] + ["</script>", "", "<main>"] + \
                  [f"  <p>{{v{i}}}</p>" for i in range(10)] + ["</main>", ""]
-        commit_files(repo, {"Card.vue": "\n".join(vue), "Page.svelte": "\n".join(svelte)}, "base")
+        # Long.vue's script tag runs past git's 80-byte funcname and hides a ">" in an attribute; Multi.vue's spans lines.
+        # Their hunks end with </script>, so the viewer must take the block's lang from the @@ line.
+        long_vue = ["<template>", "  <p>{{ m0 }}</p>", "</template>", "",
+                    '<script setup generic="T extends Record<string, unknown>, U extends Array<T> = Array<T>" lang="ts">'] + \
+                   [f"const m{i}: number = {i};" for i in range(12)] + ["</script>", ""]
+        multi_vue = ["<template>", "  <p>{{ k0 }}</p>", "</template>", "", "<script", "  setup", '  lang="ts"', ">"] + \
+                    [f"const k{i}: number = {i};" for i in range(12)] + ["</script>", ""]
+        files = {"Card.vue": "\n".join(vue), "Page.svelte": "\n".join(svelte), "Long.vue": "\n".join(long_vue), "Multi.vue": "\n".join(multi_vue)}
+        commit_files(repo, files, "base")
         git(repo, "checkout", "-q", "-b", "feat")
         changed = {"    <li class=\"r5\">{{ n5 }}</li>": "    <li class=\"r5 on\">{{ n5 }}</li>",
                    "const n5: number = 5;": "const n5: number = 50;", ".r5 { margin: $gap * 5; }": ".r5 { margin: $gap * 6; }",
-                   "  let v5: number = 5;": "  let v5: number = 55;", "  <p>{v5}</p>": "  <p class=\"on\">{v5}</p>"}
-        files = {"Card.vue": "\n".join(vue), "Page.svelte": "\n".join(svelte)}
+                   "  let v5: number = 5;": "  let v5: number = 55;", "  <p>{v5}</p>": "  <p class=\"on\">{v5}</p>",
+                   "const m10: number = 10;": "const m10: number = 100;", "const k10: number = 10;": "const k10: number = 100;"}
         for old, new in changed.items():
             files = {path: text.replace(old, new) for path, text in files.items()}
         commit_files(repo, files, "feat")
@@ -689,11 +720,14 @@ class ReviewMapPipelineTests(unittest.TestCase):
         run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "V", str(repo), "main...feat", "--context", "2")
         by_path = {entry["path"]: entry["diff"] for entries in json.loads(diffs.read_text(encoding="utf-8")).values() for entry in entries}
         heads = [line.split("@@")[-1].strip() for diff in by_path.values() for line in diff.splitlines() if line.startswith("@@")]
-        self.assertEqual(sorted(heads), sorted(['<template>', '<script setup lang="ts">', '<style lang="scss" scoped>', '<script lang="ts">', "</script>"]))
+        self.assertEqual(sorted(heads), sorted(['<template>', '<script lang="ts">', '<style lang="scss">', '<script lang="ts">', "</script>",
+                                                '<script lang="ts">', '<script lang="ts">']))
         paths = {"Dockerfile": "dockerfile", "ops/Dockerfile.dev": "dockerfile", "app/build.gradle": "groovy", "settings.gradle.kts": "kotlin",
                  "api/visit.proto": "protobuf", "web/.env.local": "ini", ".env": "ini", "pyproject.toml": "ini", "a.mts": "typescript",
                  "a.cts": "typescript", "a.mjs": "javascript", "a.cjs": "javascript", "db/schema.pgsql": "pgsql", "q.sql": "sql",
-                 "Makefile": "makefile", "schema.graphql": "graphql", "Card.vue": "xml", "infra/main.tf": None, "LICENSE": None, "c": None}
+                 "Makefile": "makefile", "schema.graphql": "graphql", "Card.vue": "xml", "infra/main.tf": None, "LICENSE": None, "c": None,
+                 "src/x.constructor": None, "constructor": None, "src/__proto__": None, "a.toString": None, "b.hasOwnProperty": None,
+                 "lib/valueOf": None}
         cases = self.root / "langs.json"
         cases.write_text(json.dumps({"paths": list(paths), "diffs": by_path}), encoding="utf-8")
         script = self.root / "viewer-langs.js"
@@ -701,12 +735,16 @@ class ReviewMapPipelineTests(unittest.TestCase):
         result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(cases)], capture_output=True, text=True, check=True)
         out = json.loads(result.stdout)
         self.assertEqual(out["paths"], paths)
+        # A name that is an Object.prototype property is no language and no fence hint (it used to stop the page).
+        self.assertEqual({p: out["fences"][p] for p in ("src/x.constructor", "constructor", "src/__proto__", "a.toString")},
+                         {"src/x.constructor": "", "constructor": "", "src/__proto__": "", "a.toString": ""})
         langs = {(path, side, text): lang for path, rows in out["rows"].items() for side, _line, text, lang in rows}
         for path, text, lang in (
             ("Card.vue", '<li class="r5">{{ n5 }}</li>', "xml"), ("Card.vue", '<li class="r5 on">{{ n5 }}</li>', "xml"),
             ("Card.vue", "const n5: number = 5;", "typescript"), ("Card.vue", "const n5: number = 50;", "typescript"),
             ("Card.vue", ".r5 { margin: $gap * 5; }", "scss"), ("Card.vue", ".r5 { margin: $gap * 6; }", "scss"),
             ("Page.svelte", "let v5: number = 55;", "typescript"), ("Page.svelte", '<p class="on">{v5}</p>', "xml"),
+            ("Long.vue", "const m10: number = 100;", "typescript"), ("Multi.vue", "const k10: number = 100;", "typescript"),
         ):
             with self.subTest(path=path, text=text):
                 side = "old" if (path, "old", text) in langs and (path, "new", text) not in langs else "new"
@@ -839,6 +877,256 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("error:", result.stdout)
 
+
+
+def added(lines: list[str]) -> str:
+    return f"--- /dev/null\n+++ b/f\n@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+
+
+class NoteStateTests(unittest.TestCase):
+    """The viewer's note states, run in node on hand-written diffs."""
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's note-state code")
+    def test_notes_on_changed_code_move_go_stale_or_lose_their_file(self):
+        """This test will fail when a note on code that moved (exactly, with white space changed, or slightly edited) is not moved to its code's new lines on the same side, when an in-place edit, an ambiguous match, or a weak fuzzy match does not leave it stale, when a note on a file the PR no longer changes is not "gone", or when file and PR notes stop being current."""
+        svc = ["import { a } from './a';", "", "export function listItems(offset: number, limit: number) {",
+               "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
+        moved = ["import { a } from './a';", "// one", "// two", "", "export function listItems(offset: number, limit: number) {",
+                 "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
+        spaced = ["// x", "export  function listItems(offset: number,  limit: number) {", "    return ITEMS.slice(offset, offset + limit);", "}"]
+        fuzzy = ["// x", "// y", "// z", "export function listItems(offset: number, limit: number, sort?: string) {", "  return ITEMS.slice(offset, offset + limit);"]
+        inplace = ["import { a } from './a';", "", "export function listItems(page: Page) {", "  return ITEMS.slice(page.offset, page.end);", "}"]
+        twice = ["const x = 1;", "export const PAGE = 20;", "const y = 2;", "export const PAGE = 20;"]
+        weak = ["// a", "// b", "// c", "export function countItems(filter: Filter): number {", "  return ITEMS.filter(filter).length;", "}"]
+        tuned = ["const x = 1;", "export const PAGE = 25;", "const y = 2;"]
+        old_side = ("--- a/legacy.ts\n+++ b/legacy.ts\n@@ -10,4 +10,4 @@\n export function label(id: number) {\n"
+                    "-  return 'item-' + id;\n+  return `item-${id}`;\n }\n ")
+        diffs = {"P1": [{"path": "svc.ts", "diff": added(moved)}], "P2": [{"path": "sp.ts", "diff": added(spaced)}],
+                 "P3": [{"path": "fz.ts", "diff": added(fuzzy)}], "P4": [{"path": "in.ts", "diff": added(inplace)}],
+                 "P5": [{"path": "tw.ts", "diff": added(twice)}], "P6": [{"path": "legacy.ts", "diff": old_side}],
+                 "P7": [{"path": "wk.ts", "diff": added(weak)}], "P8": [{"path": "tu.ts", "diff": added(tuned)}],
+                 "P9": [{"path": "del.ts", "diff": "--- a/del.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b"}]}
+        graph = {"prs": [{"key": "P", "nodes": [{"id": i, "path": e[0]["path"]} for i, e in diffs.items()], "edges": []}]}
+
+        def line(path, side, a, b, code, **extra):
+            return {"id": f"{path}{a}{side}", "scope": "line", "pr": "P", "path": path, "side": side, "a": a, "b": b, "code": code, **extra}
+
+        notes = [
+            line("svc.ts", "new", 3, 5, svc[2:5]),        # three lines inserted above: exact move
+            line("svc.ts", "new", 1, 1, svc[0:1]),        # unchanged
+            line("sp.ts", "new", 3, 4, svc[2:4]),         # white space changed: moved, "ws"
+            line("fz.ts", "new", 3, 4, svc[2:4]),         # a parameter added: moved, "fuzzy"
+            line("in.ts", "new", 3, 4, svc[2:4]),         # rewritten in place: stale
+            line("tw.ts", "new", 7, 7, svc[6:7]),         # the line now appears twice: stale (ambiguous)
+            line("in.ts", "new", 8, 8, ["  return 42;"]),  # nowhere, and too short to match fuzzily: stale
+            line("gone.ts", "new", 1, 2, ["a", "b"]),     # the PR no longer changes the file
+            line("legacy.ts", "old", 2, 2, ["  return 'item-' + id;"]),  # the base moved by 9 lines: old side moved
+            line("svc.ts", "new", 9, 8, svc[0:1]),        # malformed range: never matched in place
+            {"id": "f1", "scope": "file", "pr": "P", "path": "in.ts"},
+            {"id": "f2", "scope": "file", "pr": "P", "path": "gone.ts"},
+            {"id": "p1", "scope": "pr", "pr": "P"},
+            line("svc.ts", "new", 1, 1, None),            # no snapshot, its line still shown: current
+            line("wk.ts", "new", 3, 4, svc[2:4]),         # only a loosely similar function elsewhere: stale
+            line("tu.ts", "new", 2, 2, ["export const PAGE = 20;"]),  # edited in place, best fuzzy match is its own line: stale
+            {"id": "f3", "scope": "file", "pr": "P", "path": "del.ts"},  # a file note on a file the PR deletes: current
+        ]
+        script = Path(tempfile.mkdtemp()) / "note-state.js"
+        script.write_text(NOTE_STATE, encoding="utf-8")
+        inputs = script.with_name("in.json")
+        inputs.write_text(json.dumps({"graph": graph, "diffs": diffs, "notes": notes}), encoding="utf-8")
+        result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(inputs)], capture_output=True, text=True, check=True)
+        states = json.loads(result.stdout)
+        shutil.rmtree(script.parent)
+        self.assertEqual(states, [
+            {"st": "moved", "a": 5, "b": 7, "how": "exact"}, {"st": "ok"}, {"st": "moved", "a": 2, "b": 3, "how": "ws"},
+            {"st": "moved", "a": 4, "b": 5, "how": "fuzzy"}, {"st": "stale"}, {"st": "stale"}, {"st": "stale"}, {"st": "gone"},
+            {"st": "moved", "a": 11, "b": 11, "how": "exact"}, {"st": "moved", "a": 1, "b": 1, "how": "exact"},
+            {"st": "ok"}, {"st": "gone"}, {"st": "ok"}, {"st": "ok"}, {"st": "stale"}, {"st": "stale"}, {"st": "ok"},
+        ])
+
+
+class ReviewMapRefreshTests(unittest.TestCase):
+    """A report built once, then refreshed after its branch moved: manifest, refresh.py, fingerprints, previous build."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = repo = cls.root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        legacy = [f"export const v{i} = {i};" for i in range(12)]
+        commit_files(repo, {"README.md": "# x\n", "src/legacy.ts": "\n".join(legacy) + "\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        cls.a_v1 = ["import { b } from './b';", "", "export function listItems(offset: number, limit: number) {",
+                    "  return b(offset, limit);", "}"]
+        commit_files(repo, {
+            "src/a.ts": "\n".join(cls.a_v1) + "\n", "src/b.ts": "export const b = (o: number, l: number) => [o, l];\n",
+            "src/c.ts": "export const c = 1;\n", "src/keep.ts": "export const keep = 1;\n",
+            "src/legacy.ts": "\n".join(legacy).replace("v6 = 6", "v6 = 60") + "\n",
+        }, "feat: items")
+        cls.scratch = d = cls.root / "scratch"
+        d.mkdir()
+        cls.tip1 = git(repo, "rev-parse", "feat").strip()
+        (d / "overlay.json").write_text(json.dumps({"nodes": {"A:src/c.ts": {"role": "Removed later"}, "A:src/a.ts": {"role": "Lists items"}}}), encoding="utf-8")
+        (d / "groups.json").write_text(json.dumps([{"id": "imgs", "label": "images", "layer": "config", "pattern": "^img/"}]), encoding="utf-8")
+        (d / "strings.json").write_text(json.dumps({"graphTitle": "Mapa"}), encoding="utf-8")
+        (d / "narrative.html").write_text(
+            f'<section id="stack"><h2>Stack</h2><div class="pr-card c-A">\n<span class="meta">tip <code>{cls.tip1[:7]}</code></span></div></section>\n'
+            "<!-- review-map:graph -->\n<footer>x</footer>\n", encoding="utf-8")
+        cls.build = ["--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--name", "A", "A #1",
+                     "--title", "A", "Items", "--repo", "A", "acme/items", "--alias", "@x/=src/", "--groups", str(d / "groups.json"),
+                     "--overlay", str(d / "overlay.json")]
+        run_script("build_graph.py", *cls.build)
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--pr", "A", str(repo), "main...feat",
+                   "--context", "3", "--max-lines", "500", "--strict")
+        run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                   "--title", "Refresh Test", "--lang", "pl", "--strings", str(d / "strings.json"), "--storage-key", "items-review",
+                   "--target", "local", "--out", str(d / "review.html"))
+        cls.manifest_v1 = json.loads((d / "review-map.json").read_text(encoding="utf-8"))
+        cls.diffs_v1 = json.loads((d / "diffs.json").read_text(encoding="utf-8"))
+        cls.page_v1 = (d / "review.html").read_text(encoding="utf-8")
+        # The branch moves: lines inserted above the code in a.ts, b.ts edited, c.ts removed, d.ts added; keep.ts and
+        # legacy.ts stay as they were.
+        git(repo, "rm", "-q", "src/c.ts")
+        commit_files(repo, {"src/a.ts": "\n".join(cls.a_v1[:1] + ["// one", "// two"] + cls.a_v1[1:]) + "\n",
+                            "src/b.ts": "export const b = (o: number, l: number) => [o, o + l];\n", "src/d.ts": "export const d = 4;\n"}, "fix: round 1")
+        cls.tip2 = git(repo, "rev-parse", "feat").strip()
+        cls.refs = git(repo, "for-each-ref"), git(repo, "rev-parse", "HEAD"), git(repo, "status", "--porcelain")
+        # A diffs.json written before fingerprints existed: refresh fingerprints its entries from their bodies (all text
+        # here; a binary entry's body lacks the blob ids, so such a file shows as changed once).
+        legacy_diffs = {k: [{key: v for key, v in e.items() if key != "fp"} for e in entries] for k, entries in cls.diffs_v1.items()}
+        (d / "diffs.json").write_text(json.dumps(legacy_diffs), encoding="utf-8")
+        cls.out = run_script("refresh.py", str(d)).stdout
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def fps(self, diffs: dict) -> dict[str, str]:
+        return {e["path"]: e["fp"] for entries in diffs.values() for e in entries}
+
+    def test_the_manifest_records_every_input_relative_to_the_scratch_directory(self):
+        """This test will fail when build_graph.py, gen_diffs.py, or assemble.py stop recording an input refresh.py needs, store a scratch file by an absolute path, a repository by a relative one, or leave the storage key unresolved."""
+        m = self.manifest_v1
+        self.assertEqual(m["version"], 1)
+        self.assertEqual(m["build_graph"], {
+            "out": "graphs.json", "prs": [{"key": "A", "repo": str(self.repo.resolve()), "range": "main...feat"}], "names": [["A", "A #1"]],
+            "titles": [["A", "Items"]], "repos": [["A", "acme/items"]], "aliases": ["@x/=src/"], "groups": "groups.json",
+            "noDefaultGroups": False, "overlay": "overlay.json", "tips": {"A": self.tip1}})
+        self.assertEqual(m["gen_diffs"], {"graph": "graphs.json", "out": "diffs.json", "prs": [{"key": "A", "repo": str(self.repo.resolve()), "range": "main...feat"}],
+                                          "context": 3, "maxLines": 500, "strict": True})
+        self.assertEqual(m["assemble"], {"graph": "graphs.json", "diffs": "diffs.json", "narrative": "narrative.html", "title": "Refresh Test",
+                                         "lang": "pl", "strings": "strings.json", "storageKey": "items-review", "target": "local",
+                                         "template": None, "out": "review.html", "previous": None})
+        other = self.root / "no-manifest"
+        other.mkdir()
+        run_script("build_graph.py", "--out", str(other / "g.json"), "--pr", "A", str(self.repo), "main...feat", "--no-manifest")
+        self.assertFalse((other / "review-map.json").exists())
+        result = run_script("refresh.py", str(other), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no review-map.json", result.stderr)
+
+    def test_refresh_rebuilds_from_the_directory_and_reports_what_moved(self):
+        """This test will fail when refresh.py does not resolve the branch to its new tip, print old -> new tips and the change counts, carry over the inputs (title, language, strings, storage key, target), warn about the narrative's old tip with its line, skip an overlay entry for a removed file instead of failing, update the manifest's tips, or writes to the repository."""
+        out = self.out
+        self.assertIn(f"PR A: {self.tip1[:7]} -> {self.tip2[:7]}", out)
+        self.assertIn("changed since the previous version: 4 files (1 new, 2 changed, 1 removed)", out)
+        self.assertIn(f"still shows its old tip {self.tip1[:7]} at narrative.html:2", out)
+        self.assertIn("overlay reference 'A:src/c.ts': no node or changed file with that path in PR A; skipped", out)
+        self.assertIn("OK", out)
+        self.assertEqual((git(self.repo, "for-each-ref"), git(self.repo, "rev-parse", "HEAD"), git(self.repo, "status", "--porcelain")), self.refs)
+        page = (self.scratch / "review.html").read_text(encoding="utf-8")
+        config = embedded_json(page, "review-config")
+        self.assertEqual((config["title"], config["lang"], config["storageKey"], config["strings"]["graphTitle"]), ("Refresh Test", "pl", "items-review", "Mapa"))
+        self.assertTrue(page.startswith("<!doctype html>"))
+        graph = embedded_json(page, "graph-data")
+        self.assertEqual(graph["prs"][0]["tip"], self.tip2[:len(graph["prs"][0]["tip"])])
+        self.assertEqual(json.loads((self.scratch / "review-map.json").read_text(encoding="utf-8"))["build_graph"]["tips"], {"A": self.tip2})
+        self.assertFalse(list(self.scratch.glob("*.new")))
+
+    def test_fingerprints_flag_new_changed_and_removed_files_only(self):
+        """This test will fail when a file whose change is the same gets a new fingerprint (or one fingerprinted from an old diffs.json body differs), when an edited, shifted, or binary file keeps its old one, or when the page does not embed the previous build's tips and fingerprints."""
+        new = self.fps(json.loads((self.scratch / "diffs.json").read_text(encoding="utf-8")))
+        old = self.fps(self.diffs_v1)
+        self.assertTrue(all(re.fullmatch(r"[0-9a-f]{12}", fp) for fp in [*new.values(), *old.values()]))
+        self.assertEqual({p for p in new if p in old and new[p] == old[p]}, {"src/keep.ts", "src/legacy.ts"})
+        self.assertEqual({p for p in new if p in old and new[p] != old[p]}, {"src/a.ts", "src/b.ts"})
+        self.assertEqual(set(new) - set(old), {"src/d.ts"})
+        self.assertEqual(set(old) - set(new), {"src/c.ts"})
+        previous = json.loads((self.scratch / "previous.json").read_text(encoding="utf-8"))
+        self.assertEqual(previous, {"tips": {"A": self.tip1[:len(previous["tips"]["A"])]}, "files": {"A": old}})
+        config = embedded_json((self.scratch / "review.html").read_text(encoding="utf-8"), "review-config")
+        self.assertEqual(config["previous"], previous)
+        # A binary file's fingerprint follows its blob, whose diff text is the same for every version.
+        repo = self.root / "binary"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"x.bin": "a\0"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        prints = []
+        for content in ("b\0", "c\0"):
+            commit_files(repo, {"x.bin": content}, "edit")
+            graph, diffs = repo.parent / "bg.json", repo.parent / "bd.json"
+            run_script("build_graph.py", "--out", str(graph), "--pr", "B", str(repo), "main...feat", "--no-manifest")
+            run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "B", str(repo), "main...feat", "--no-manifest")
+            entry = next(e for entries in json.loads(diffs.read_text(encoding="utf-8")).values() for e in entries)
+            self.assertTrue(entry.get("binary"))
+            prints.append(entry["fp"])
+        self.assertNotEqual(prints[0], prints[1])
+
+    def test_a_base_that_moved_under_an_unchanged_change_keeps_its_fingerprint(self):
+        """This test will fail when lines that only shift (the base gained lines above a hunk, the PR's change is the same) count as a change."""
+        repo = self.root / "shift"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        body = [f"line {i}" for i in range(30)]
+        commit_files(repo, {"f.txt": "\n".join(body) + "\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(repo, {"f.txt": "\n".join(body).replace("line 20", "line twenty") + "\n"}, "feat")
+        results = []
+        for step in ("v1", "v2"):
+            if step == "v2":
+                git(repo, "checkout", "-q", "main")
+                commit_files(repo, {"f.txt": "\n".join(["new 1", "new 2", "new 3"] + body) + "\n"}, "main moves")
+                git(repo, "rebase", "-q", "main", "feat")
+            graph, diffs = repo.parent / f"s-{step}.json", repo.parent / f"sd-{step}.json"
+            run_script("build_graph.py", "--out", str(graph), "--pr", "S", str(repo), "main...feat", "--no-manifest")
+            run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "S", str(repo), "main...feat", "--no-manifest")
+            results.append(next(e for entries in json.loads(diffs.read_text(encoding="utf-8")).values() for e in entries))
+        self.assertNotEqual(results[0]["diff"], results[1]["diff"])
+        self.assertEqual(results[0]["fp"], results[1]["fp"])
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_refresh_again_keeps_the_comparison_and_assemble_only_rebuilds_the_page(self):
+        """This test will fail when a refresh that changes nothing alters the page (it must be byte-identical and keep the last comparison), when a failing step replaces the last good page or data, or when --assemble-only stops reassembling with the saved inputs and comparison."""
+        page = (self.scratch / "review.html").read_bytes()
+        previous = (self.scratch / "previous.json").read_bytes()
+        again = run_script("refresh.py", str(self.scratch)).stdout
+        self.assertIn("nothing changed since the last build; the page keeps its comparison", again)
+        self.assertIn(f"PR A: {self.tip2[:7]} -> {self.tip2[:7]} (unchanged)", again)
+        self.assertNotIn("warning: the branches moved", again)
+        self.assertEqual((self.scratch / "review.html").read_bytes(), page)
+        self.assertEqual((self.scratch / "previous.json").read_bytes(), previous)
+        narrative = self.scratch / "narrative.html"
+        good = narrative.read_text(encoding="utf-8")
+        data = (self.scratch / "graphs.json").read_bytes(), (self.scratch / "diffs.json").read_bytes()
+        try:
+            narrative.write_text(good.replace("<!-- review-map:graph -->", ""), encoding="utf-8")
+            failed = run_script("refresh.py", str(self.scratch), check=False)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual((self.scratch / "review.html").read_bytes(), page)
+            self.assertEqual(((self.scratch / "graphs.json").read_bytes(), (self.scratch / "diffs.json").read_bytes()), data)
+        finally:
+            narrative.write_text(good.replace("<footer>x</footer>", "<footer>y</footer>"), encoding="utf-8")
+        result = run_script("refresh.py", str(self.scratch), "--assemble-only").stdout
+        self.assertIn("OK", result)
+        rebuilt = (self.scratch / "review.html").read_text(encoding="utf-8")
+        self.assertIn("<footer>y</footer>", rebuilt)
+        self.assertEqual(embedded_json(rebuilt, "review-config")["previous"], json.loads(previous))
+        narrative.write_text(good, encoding="utf-8")
+        run_script("refresh.py", str(self.scratch), "--assemble-only")
+        self.assertEqual((self.scratch / "review.html").read_bytes(), page)
 
 if __name__ == "__main__":
     unittest.main()

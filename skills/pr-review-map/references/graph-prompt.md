@@ -45,6 +45,10 @@ Steps:
 5. Generate diffs and confirm every node has one:
    python3 <skill dir>/scripts/gen_diffs.py --graph <scratch dir>/graphs.json \
      --out <scratch dir>/diffs.json --pr <KEY REPO RANGE> [...] --strict
+   Keep both outputs in <scratch dir>: the scripts record their arguments in
+   <scratch dir>/review-map.json, which refresh.py replays when a branch moves.
+   An overlay reference to a file the PR does not change is skipped with a
+   warning; fix it rather than leave it.
 
 Return only: node and edge counts per PR, cross-PR edge count, the overlay path,
 and anything you could not resolve (unmatched files, edges you were unsure about).

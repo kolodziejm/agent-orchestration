@@ -1,9 +1,10 @@
-# Review-map data: graphs.json, overlay.json, diffs.json
+# Review-map data: graphs.json, overlay.json, diffs.json, review-map.json
 
 `scripts/build_graph.py` writes `graphs.json` from git plus `overlay.json`;
 `scripts/gen_diffs.py` writes `diffs.json` from `graphs.json`; `scripts/assemble.py`
 embeds both. Hand-edit only the overlay, then re-run the scripts, so a branch
-that moves never loses authored content.
+that moves never loses authored content: `scripts/refresh.py` replays all three
+from `review-map.json` (below).
 
 ## graphs.json
 
@@ -210,6 +211,9 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 Shared dependencies). An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). Overlay edges replace a
 weaker edge between the same nodes (`test > route > di > http > config > import`).
+A reference to a path the PR does not change (a typo, or a file a moved branch
+dropped) and an `extraNodes` file the PR now changes are skipped with a warning,
+so a refresh never fails on them; fix or remove them when you see the warning.
 
 ## groups.json (optional)
 
@@ -231,18 +235,48 @@ matching file as its own node (with the given layer) instead of collapsing it.
 
 ```json
 {
-  "S1": [{"path": "libs/x/contract/services.schema.ts", "diff": "--- /dev/null\n+++ b/…\n@@ -0,0 +1,79 @@\n+…"}],
-  "B21": [{"path": "web/translations/pl-PL.json", "diff": "…"}, {"path": "web/translations/en-US.json", "diff": "…"}],
-  "A27": [{"path": "pnpm-lock.yaml", "diff": "…", "truncated": 5120}]
+  "S1": [{"path": "libs/x/contract/services.schema.ts", "diff": "--- /dev/null\n+++ b/…\n@@ -0,0 +1,79 @@\n+…", "fp": "3f9a0c1d2e4b"}],
+  "B21": [{"path": "web/translations/pl-PL.json", "diff": "…", "fp": "…"}, {"path": "web/translations/en-US.json", "diff": "…", "fp": "…"}],
+  "A27": [{"path": "pnpm-lock.yaml", "diff": "…", "fp": "…", "truncated": 5120}]
 }
 ```
 
 Keys are node ids; each value lists that node's files with a unified diff whose
 `diff --git`, `index`, mode, and rename headers are stripped. For `.vue`, `.svelte`,
-and `.astro` files each `@@` line ends with the last block tag before the hunk
-(`<script setup lang="ts">`, `</script>`), which the viewer uses to highlight a hunk
-in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
-language (it falls back to the tags inside the hunks and a guess for diffs without it). `truncated` is the
+and `.astro` files each `@@` line ends with the last block tag before the hunk,
+shortened to its name and lang (`<script lang="ts">`, `<template>`, `</script>`;
+gen_diffs.py reads a tag that git cut at 80 bytes, that hides a `>` in an attribute,
+or that spans lines from the file's old version), which the viewer uses to highlight
+a hunk in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
+language (it falls back to the tags inside the hunks and a guess for diffs without it).
+`fp` fingerprints the file's change: 12 hex digits of SHA-256 over the full diff body
+with every `@@` line reduced to `@@` (lines that only shift do not count), plus the
+blob ids for a binary file. `truncated` is the
 full line count of a diff cut at `--max-lines`; `binary: true` marks a binary
 file. The viewer opens files lazily and collapses a file over 400 lines, and every
 file after the first when a node has more than four.
+
+## review-map.json and previous.json
+
+`build_graph.py` (section `build_graph`, beside `--out`), `gen_diffs.py`
+(`gen_diffs`, beside `--graph`), and `assemble.py` (`assemble`, beside `--graph`)
+record the inputs of their last run in `review-map.json`: PR keys, repositories
+(absolute), ranges, names, titles, labels, aliases, groups, overlay, context, line
+cap, strictness, narrative, title, language, strings, target, template (when not the
+default), output, the storage key as resolved, the previous-version file, and each
+PR's full tip SHA. Paths inside the directory are relative to it. `--no-manifest`
+skips the record.
+
+`refresh.py DIR` replays the three runs (into side files, swapped in only when
+both data steps succeed), then validates. Before rebuilding it keeps the current
+build's tips and file fingerprints in `previous.json`
+(`{"tips": {KEY: short sha}, "files": {KEY: {path: fp}}}`), which `assemble.py
+--previous` embeds in the page config. A re-run that changes nothing keeps the
+existing `previous.json`, so the page's comparison stays. `--assemble-only`
+reassembles and validates with the recorded inputs, after a narrative edit.
+
+The viewer compares each file's `fp` with `previous.files`: a file the PR did not
+change before is new, a different fingerprint is changed, a file only the previous
+build had is removed. A read mark stores the fingerprint it was made on (`readfp`
+in localStorage); when the file's fingerprint differs on load, the mark is cleared
+and remembered under `wasread` until the file is marked read again.

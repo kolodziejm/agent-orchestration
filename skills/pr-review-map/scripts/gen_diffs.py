@@ -13,11 +13,16 @@ is read with `git diff`, so nothing is checked out.
 
 A changed file is assigned to the node whose `path` equals it, whose `files` list
 contains it, or whose `match` globs (or a glob-like `path`) match it. Output maps
-node id -> [{"path", "diff", "truncated"?, "binary"?}] with git headers stripped;
-`truncated` holds the full line count of a diff cut at --max-lines. For Vue, Svelte,
-and Astro files git puts the last block tag before each hunk (`<script setup lang="ts">`,
-`</script>`) on the hunk's @@ line, so the viewer highlights a hunk in the middle of a
-block in that block's language.
+node id -> [{"path", "diff", "fp", "truncated"?, "binary"?}] with git headers stripped;
+`truncated` holds the full line count of a diff cut at --max-lines. `fp` fingerprints
+the file's change (see fingerprint()); the viewer compares it with the previous
+build's to flag new and changed files and to clear read marks of changed ones. For
+Vue, Svelte, and Astro files each hunk's @@ line names the last block tag before
+the hunk, shortened to its name and lang (`<script lang="ts">`, `<template>`,
+`</script>`), so the viewer highlights a hunk in the middle of a block in that
+block's language. The arguments
+go in the `gen_diffs` section of review-map.json beside --graph (scripts/manifest.py),
+which refresh.py replays; --no-manifest skips that.
 Python 3 standard library only.
 """
 
@@ -25,12 +30,17 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import manifest  # noqa: E402
 
 HEADER_PREFIXES = (
     "diff --git ",
@@ -47,11 +57,17 @@ HEADER_PREFIXES = (
     "new mode",
 )
 GLOB_CHARS = set("*?[")
-# A diff driver for single-file components: the funcname on a hunk's @@ line is the last block tag at the start of a
-# line before the hunk, whole with its lang attribute (git shows a pattern's first group, so the outer group holds the
-# tag). An opening tag means the hunk starts in that block; a closing one, outside every block (Svelte's markup).
+# A diff driver for single-file components: the funcname on a hunk's @@ line is the last line before the hunk that
+# starts with a block tag (git shows a pattern's first group, so the outer group holds the line). An opening tag means
+# the hunk starts in that block; a closing one, outside every block (Svelte's markup). The line may hold only the start
+# of a tag that spans lines, a `>` may sit inside an attribute (`generic="T extends Record<K, V>"`), and git keeps only
+# its first 80 bytes, so normalise_sfc() rewrites it as a short tag with just the block name and lang.
 SFC_ATTRIBUTES = "".join(f"*.{ext} diff=review-map-sfc\n" for ext in ("vue", "svelte", "astro"))
-SFC_FUNCNAME = r"^(</?(template|script|style|i18n|docs)([[:space:]][^>]*)?>)"
+SFC_FUNCNAME = r"^(</?(template|script|style|i18n|docs)([[:space:]>].*)?)$"
+SFC_EXT = (".vue", ".svelte", ".astro")
+HUNK_HEAD = re.compile(r"^(@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@) ?(.*)$")
+BLOCK_TAG = re.compile(r"^<(/?)(template|script|style|i18n|docs)(?=[\s>]|$)(.*)$", re.IGNORECASE)
+LANG_ATTR = re.compile(r"""[\s"']lang\s*=\s*["']?([\w-]+)""", re.IGNORECASE)
 
 
 def git(repo: str, *args: str) -> str:
@@ -87,8 +103,76 @@ def sfc_options(repo: str, folder: str) -> list[str]:
     return ["-c", f"core.attributesFile={path}", "-c", f"diff.review-map-sfc.xfuncname={SFC_FUNCNAME}"]
 
 
-def split_files(diff: str) -> list[tuple[str, str, bool]]:
-    """Split one `git diff` into (path, body, binary) per file, headers removed."""
+def block_tag(text: str) -> str | None:
+    """`<name lang="x">`, `<name>`, or `</name>` for a line that starts with an SFC block tag, else None."""
+    match = BLOCK_TAG.match(text)
+    if not match:
+        return None
+    closing, name, rest = match.group(1), match.group(2).lower(), match.group(3)
+    if closing:
+        return f"</{name}>"
+    lang = LANG_ATTR.search(" " + rest)
+    return f'<{name} lang="{lang.group(1)}">' if lang else f"<{name}>"
+
+
+def old_lines(repo: str, rng: str, path: str | None) -> list[str] | None:
+    """The lines of `path` in the version a range's diff starts from (the merge base for `A...B`), or None."""
+    if not path:
+        return None
+    left, _sep, right = rng.partition("...") if "..." in rng else rng.partition("..")
+    base = git(repo, "merge-base", left or "HEAD", right or "HEAD").strip() if "..." in rng else left or "HEAD"
+    return git(repo, "show", f"{base}:{path}").split("\n")
+
+
+def normalise_sfc(body: str, preimage) -> str:
+    """Rewrite the block tag git put on each @@ line of a Vue/Svelte/Astro diff as a short `block_tag()`.
+
+    When the text git gave has no lang attribute and is not a plain complete tag (it does not end in `>`, or it has
+    attribute values that may hide a `>` or a cut-off lang), the whole tag is read from the file's old version
+    (`preimage()`, read once and only then): the last line before the hunk that starts with that text, plus the
+    lines after it up to the one that ends the tag.
+    """
+    lines = body.split("\n")
+    old: list[str] | None = None
+    for i, line in enumerate(lines):
+        head = HUNK_HEAD.match(line)
+        if not head or not head.group(3):
+            continue
+        text = head.group(3).rstrip()
+        tag = block_tag(text)
+        if tag is None:
+            continue
+        if not tag.startswith("</") and " lang=" not in tag and (not text.endswith(">") or '"' in text or "'" in text):
+            if old is None:
+                old = preimage() or []
+            before = old[: max(0, int(head.group(2)) - 1)]
+            at = next((j for j in range(len(before) - 1, -1, -1) if before[j].startswith(text) and BLOCK_TAG.match(before[j])), None)
+            if at is not None:
+                end = next((k for k in range(at, min(len(old), at + 12)) if old[k].rstrip().endswith(">")), at)
+                tag = block_tag(" ".join(part.strip() for part in old[at:end + 1])) or tag
+        lines[i] = f"{head.group(1)} {tag}"
+    return "\n".join(lines)
+
+
+def fingerprint(body: str, index: str = "") -> str:
+    """Twelve hex digits that change exactly when a file's change does.
+
+    The input is the file's diff body (headers stripped, before --max-lines cuts it)
+    with each @@ line reduced to "@@": line numbers and the context name shift when
+    lines above a hunk move, and that alone is no new change to read. A binary file
+    adds its `index` line (blob ids, --full-index), since its body ("Binary files ...
+    differ") is the same for every version. refresh.py fingerprints a diffs.json entry
+    written before `fp` existed the same way, from its stored body; a binary or
+    truncated one cannot match (no blob ids, a cut body), so it shows as changed once.
+    """
+    lines = ["@@" if line.startswith("@@") else line for line in body.split("\n")]
+    if index:
+        lines.append(index)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()[:12]
+
+
+def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
+    """Split one `git diff` into (path, body, binary, fingerprint) per file, headers removed from the body."""
     chunks: list[list[str]] = []
     for line in diff.split("\n"):
         if line.startswith("diff --git "):
@@ -99,10 +183,13 @@ def split_files(diff: str) -> list[tuple[str, str, bool]]:
     for lines in chunks:
         path = None
         binary = False
+        index = ""
         for line in lines:
             if line.startswith("@@"):
                 break
-            if line.startswith("rename to "):
+            if line.startswith("index "):
+                index = line
+            elif line.startswith("rename to "):
                 path = line[len("rename to "):]
             elif line.startswith("+++ ") and line[4:].rstrip("\t") != "/dev/null":
                 path = line[4:].rstrip("\t").removeprefix("b/")
@@ -116,7 +203,7 @@ def split_files(diff: str) -> list[tuple[str, str, bool]]:
         body = "\n".join(
             line for line in lines if not line.startswith(HEADER_PREFIXES)
         ).rstrip("\n")
-        files.append((path, body, binary))
+        files.append((path, body, binary, fingerprint(body, index if binary else "")))
     return files
 
 
@@ -153,6 +240,7 @@ def main() -> int:
     parser.add_argument("--context", type=int, default=4, help="context lines per hunk (default 4)")
     parser.add_argument("--max-lines", type=int, default=2000, help="truncate a file's diff after this many lines (default 2000)")
     parser.add_argument("--strict", action="store_true", help="fail when a changed file maps to no node")
+    parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
 
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
@@ -173,13 +261,17 @@ def main() -> int:
     folder = tempfile.TemporaryDirectory(prefix="review-map-")
     for key, pr in prs.items():
         repo, rng = ranges[key]
-        diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "-M", f"-U{args.context}", rng)
-        for path, body, binary in split_files(diff):
+        diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "--full-index", "-M",
+                   f"-U{args.context}", rng)
+        for path, body, binary, fp in split_files(diff):
             node_id = assign(path, pr["nodes"])
             if node_id is None:
                 unassigned.append(f"{key}:{path}")
                 continue
-            entry: dict = {"path": path, "diff": body}
+            if path.lower().endswith(SFC_EXT):
+                old = next((line[6:].rstrip("\t") for line in body.split("\n") if line.startswith("--- a/")), None)
+                body = normalise_sfc(body, lambda old=old, repo=repo, rng=rng: old_lines(repo, rng, old))
+            entry: dict = {"path": path, "diff": body, "fp": fp}
             lines = body.split("\n")
             if len(lines) > args.max_lines:
                 entry["diff"] = "\n".join(lines[: args.max_lines])
@@ -196,6 +288,13 @@ def main() -> int:
         if node["id"] in out
     }
     args.out.write_text(json.dumps(ordered, ensure_ascii=False, indent=0) + "\n", encoding="utf-8")
+    if not args.no_manifest:
+        here = args.graph.resolve().parent
+        manifest.record(here, "gen_diffs", {
+            "graph": manifest.stored(here, args.graph), "out": manifest.stored(here, args.out),
+            "prs": [{"key": key, "repo": str(Path(repo).resolve()), "range": rng} for key, repo, rng in args.pr],
+            "context": args.context, "maxLines": args.max_lines, "strict": args.strict,
+        })
     without = [
         node["id"]
         for pr in graph["prs"]

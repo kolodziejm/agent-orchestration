@@ -35,7 +35,9 @@ What the script resolves on its own:
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
-Python 3 standard library only.
+Its arguments and each PR's full tip SHA go in the `build_graph` section of
+review-map.json beside --out (scripts/manifest.py), which refresh.py replays;
+--no-manifest skips that. Python 3 standard library only.
 """
 
 from __future__ import annotations
@@ -48,6 +50,9 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+
+sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import manifest  # noqa: E402
 
 DEFAULT_GROUPS = [
     {"id": "lockfiles", "label": "lockfiles", "layer": "config",
@@ -422,6 +427,7 @@ def main() -> int:
     parser.add_argument("--no-default-groups", action="store_true")
     parser.add_argument("--overlay", type=Path, help="authored roles, notes, layers, extra nodes and edges")
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
 
     names = dict(args.name)
@@ -480,7 +486,8 @@ def main() -> int:
             raise SystemExit(f"overlay extraNodes entry needs a known pr and a path: {extra}")
         path = extra["path"]
         if path in prs[i]["owner"]:
-            raise SystemExit(f"overlay extraNodes {path!r} is changed in PR {extra['pr']}; set its fields under nodes")
+            warnings.append(f"overlay extraNodes {path!r} is changed in PR {extra['pr']} now; skipped (set its fields under nodes)")
+            continue
         prs[i]["nodes"][path] = {
             "label": extra.get("label", posixpath.basename(path)), "layer": extra.get("layer", guess_layer(path)),
             "role": extra.get("role", ""), "added": 0, "removed": 0, "files": [], "path": path,
@@ -549,7 +556,9 @@ def main() -> int:
 
     index_of = {pr["key"]: i for i, pr in enumerate(prs)}
 
-    def ref(text: str) -> tuple[int, str]:
+    def ref(text: str) -> tuple[int, str] | None:
+        """The (PR index, node key) an overlay reference names; None, with a warning, for a path the PR does not
+        change (any more: re-running after a branch moved must not fail on a file that left the PR)."""
         if ":" not in text:
             raise SystemExit(f"overlay reference {text!r}: expected KEY:path or KEY:#group")
         key, path = text.split(":", 1)
@@ -560,11 +569,15 @@ def main() -> int:
             return i, path
         owner = prs[i]["owner"].get(path)
         if owner is None:
-            raise SystemExit(f"overlay reference {text!r}: no node or changed file with that path in PR {key}")
+            warnings.append(f"overlay reference {text!r}: no node or changed file with that path in PR {key}; skipped")
+            return None
         return i, owner
 
     for text, fields in overlay.get("nodes", {}).items():
-        i, nk = ref(text)
+        found = ref(text)
+        if found is None:
+            continue
+        i, nk = found
         node = prs[i]["nodes"][nk]
         for field in ("role", "note", "layer", "label"):
             if field in fields:
@@ -577,14 +590,17 @@ def main() -> int:
         kind = edge.get("kind", "import")
         if kind not in KINDS:
             raise SystemExit(f"overlay edge kind {kind!r} not in {sorted(KINDS)}")
-        i, frm = ref(edge["from"])
-        target = ref(edge["to"])
+        source, target = ref(edge["from"]), ref(edge["to"])
+        if source is None or target is None:
+            continue
+        i, frm = source
         if target[0] > i:
             raise SystemExit(f"overlay edge {edge}: an edge may only point to the same or an earlier PR")
         add_edge(i, frm, target, kind)
     for edge in overlay.get("dropEdges", []):
-        i, frm = ref(edge["from"])
-        prs[i]["edges"].pop((frm, ref(edge["to"])), None)
+        source, target = ref(edge["from"]), ref(edge["to"])
+        if source is not None and target is not None:
+            prs[source[0]]["edges"].pop((source[1], target), None)
 
     ids: dict[tuple[int, str], str] = {}
     for index, pr in enumerate(prs):
@@ -639,6 +655,18 @@ def main() -> int:
         out["prs"].append(entry)
 
     args.out.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    if not args.no_manifest:
+        here = args.out.resolve().parent
+        manifest.record(here, "build_graph", {
+            "out": manifest.stored(here, args.out),
+            "prs": [{"key": key, "repo": str(Path(repo).resolve()), "range": rng} for key, repo, rng in args.pr],
+            "names": [list(pair) for pair in args.name], "titles": [list(pair) for pair in args.title],
+            "repos": [list(pair) for pair in args.repo], "aliases": list(args.alias),
+            "groups": manifest.stored(here, args.groups), "noDefaultGroups": args.no_default_groups,
+            "overlay": manifest.stored(here, args.overlay),
+            "tips": {key: (git(repo, "rev-parse", "--verify", "--quiet", f"{tip_of(rng)}^{{commit}}", check=False) or "").strip()
+                     for key, repo, rng in args.pr},
+        })
     for entry in out["prs"]:
         hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
         print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
