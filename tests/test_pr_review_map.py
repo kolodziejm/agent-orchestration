@@ -1198,7 +1198,7 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(embedded_json((scratch / "review.html").read_text(encoding="utf-8"), "review-config")["generation"], 2)
 
     def test_every_build_path_numbers_pages_by_what_they_show(self):
-        """This test will fail when a build by hand (build_graph, gen_diffs, assemble without --previous) does not count the generation up after the content changed, when a rebuild of the same content changes the bytes or the number, when refresh.py takes its numbers from anything but the page it replaces (a hand build after a refresh must not reset the count), or when a page written under a new name loses the history the manifest points to."""
+        """This test will fail when a build by hand (build_graph, gen_diffs, assemble without --previous) does not count the generation up after the content changed, when a rebuild of the same content changes the bytes or the number (also the first refresh after a hand build, which adds --previous), when refresh.py takes its numbers from anything but the page it replaces (a hand build after a refresh must not reset the count), or when a page written under a new name loses the history the manifest points to."""
         repo, d = self.root / "hand-repo", self.root / "hand"
         shutil.copytree(self.repo, repo)
         git(repo, "checkout", "-q", "-B", "feat", self.tip1)
@@ -1222,6 +1222,10 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(gen, 1)
         self.assertNotIn('"previous"', v2)
         self.assertEqual(build(), (1, v2))
+        # The first refresh after a hand build finds the same content: it adds the comparison but keeps generation 1.
+        for _ in range(2):
+            run_script("refresh.py", str(d))
+            self.assertEqual(embedded_json((d / "review.html").read_text(encoding="utf-8"), "review-config")["generation"], 1)
         commit_files(repo, {"src/b.ts": "export const b = 3;\n"}, "hand round 2")
         run_script("refresh.py", str(d))
         self.assertEqual(json.loads((d / "previous.json").read_text(encoding="utf-8"))["generation"], 1)
@@ -1231,6 +1235,48 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(build(out="renamed.html")[0], 3)
         commit_files(repo, {"src/c.ts": "export const c = 5;\n"}, "hand round 4")
         self.assertEqual(build(out="renamed-again.html")[0], 4)
+
+    def test_a_page_assemble_cannot_read_gives_no_history_and_never_a_crash(self):
+        """This test will fail when assemble.py crashes on, or takes a generation from, a page at --out whose review-map data has an unexpected shape (diff entries that are not lists of objects, PRs that are not a list, a node without an id, a non-string fingerprint) or whose generation is not an int from 0 to 2**31 (a bool, a string, a float, a negative or huge number), or when such a generation passes validate.py or --previous."""
+        d = self.root / "odd-pages"
+        d.mkdir()
+        page = d / "review.html"
+        args = ["--graph", str(self.scratch / "graphs.json"), "--diffs", str(self.scratch / "diffs.json"), "--narrative",
+                str(self.scratch / "narrative.html"), "--title", "odd", "--target", "local", "--out", str(page), "--no-manifest"]
+        run_script("assemble.py", *args)
+        good = page.read_text(encoding="utf-8")
+        config = embedded_json(good, "review-config")
+
+        def block(text: str, ident: str, value) -> str:
+            return re.sub(rf'(<script type="application/json" id="{ident}">).*?(</script>)',
+                          lambda m: m.group(1) + json.dumps(value).replace("</", "<\\/") + m.group(2), text, flags=re.DOTALL)
+
+        cases = {
+            "diff entries not lists": block(good, "diff-data", {"x": [1]}),
+            "prs not a list": block(good, "graph-data", {"prs": "zz"}),
+            "node without id": block(good, "graph-data", {"prs": [{"key": "A", "nodes": [{"path": "a"}]}]}),
+            "fingerprint not a string": block(good, "diff-data", {"A1": [{"path": "a", "fp": 5}]}),
+            "unparsable data": good.replace('<script type="application/json" id="graph-data">{', '<script type="application/json" id="graph-data">{{', 1),
+            **{f"generation {value!r}": block(good, "review-config", {**config, "generation": value})
+               for value in (True, "7", 1.5, -1, 2**31 + 1)},
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                page.write_text(text, encoding="utf-8")
+                result = run_script("assemble.py", *args, check=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("build history is ignored", result.stdout)
+                self.assertEqual(embedded_json(page.read_text(encoding="utf-8"), "review-config")["generation"], 0)
+        page.write_text(block(good, "review-config", {**config, "generation": 2**31}), encoding="utf-8")
+        run_script("assemble.py", *args)
+        self.assertEqual(embedded_json(page.read_text(encoding="utf-8"), "review-config")["generation"], 2**31)
+        self.assertEqual(run_script("validate.py", str(page), check=False).returncode, 0)
+        page.write_text(block(good, "review-config", {**config, "generation": 2**31 + 1}), encoding="utf-8")
+        self.assertIn("integer from 0 to 2**31", run_script("validate.py", str(page), check=False).stdout)
+        previous = d / "previous.json"
+        previous.write_text(json.dumps({"generation": 2**31 + 1, "tips": {}, "files": {}}), encoding="utf-8")
+        result = run_script("assemble.py", *args, "--previous", str(previous), check=False)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_fingerprints_see_mode_changes_renames_and_copies(self):
         """This test will fail when a mode change or a pure rename leaves no trace in the fingerprint (every such file would hash to the same empty body), or when an ordinary new text file stops matching the fingerprint refresh.py computes from an old diffs.json body."""

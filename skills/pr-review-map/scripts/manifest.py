@@ -94,10 +94,36 @@ def record(directory: Path, section: str, value: dict) -> Path:
 
 
 DATA_BLOCK = re.compile(r'<script type="application/json" id="(review-config|graph-data|diff-data)">(.*?)</script>', re.DOTALL)
+MAX_GENERATION = 2**31
+
+
+def generation_ok(value) -> bool:
+    """A generation is an int (not a bool) from 0 to MAX_GENERATION."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= MAX_GENERATION
+
+
+def well_formed(graph, diffs) -> bool:
+    """Whether graph and diff data have the shape digest() reads: PRs with a string key and nodes with a string id,
+    and diff entries (lists of objects) whose path, diff, and fp, when present, are strings."""
+    if not isinstance(graph, dict) or not isinstance(graph.get("prs"), list) or not isinstance(diffs, dict):
+        return False
+    for pr in graph["prs"]:
+        if not isinstance(pr, dict) or not isinstance(pr.get("key"), str) or not isinstance(pr.get("nodes", []), list):
+            return False
+        if not all(isinstance(node, dict) and isinstance(node.get("id"), str) for node in pr.get("nodes", [])):
+            return False
+    for entries in diffs.values():
+        if not isinstance(entries, list):
+            return False
+        for entry in entries:
+            if not isinstance(entry, dict) or not all(isinstance(entry.get(k, ""), str) for k in ("path", "diff", "fp")):
+                return False
+    return True
 
 
 def digest(graph: dict, diffs: dict) -> str:
-    """What a page shows, as one hash: every changed file's PR key, path, and fingerprint (its diff's hash without one)."""
+    """What a page shows, as one hash: every changed file's PR key, path, and fingerprint (its diff's hash without one).
+    The data must be well_formed()."""
     owner = {node["id"]: pr["key"] for pr in graph.get("prs", []) for node in pr.get("nodes", [])}
     items = sorted((owner.get(node_id, ""), entry.get("path", ""),
                     entry.get("fp") or "diff:" + hashlib.sha256(entry.get("diff", "").encode("utf-8")).hexdigest()[:12])
@@ -105,22 +131,29 @@ def digest(graph: dict, diffs: dict) -> str:
     return hashlib.sha256(json.dumps(items, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
-def history(pages) -> tuple[int, str] | None:
+def history(pages, warn=print) -> tuple[int, str] | None:
     """(generation, digest) of the first of `pages` that is an assembled review map, else None.
 
     Each page carries its generation in its config (0 before generations existed) and its data, so the page a build
     replaces tells the build its number: the same digest keeps it, any other content counts one up. This works for
-    every build path (refresh.py or the scripts by hand) and needs nothing besides the page itself.
+    every build path (refresh.py or the scripts by hand) and needs nothing besides the page itself. A page that cannot
+    be read as a review map (unparsable data, an unexpected shape, a generation that is not an int from 0 to
+    MAX_GENERATION) gives no history: `warn` says so and the next page is tried. Nothing here raises.
     """
     for page in pages:
         if page is None or not Path(page).is_file():
             continue
         try:
             blocks = {m.group(1): json.loads(m.group(2)) for m in DATA_BLOCK.finditer(Path(page).read_text(encoding="utf-8"))}
-        except (OSError, UnicodeDecodeError, ValueError):
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError):
+            warn(f"warning: cannot read {page} as a review map; its build history is ignored")
             continue
         config, graph, diffs = blocks.get("review-config"), blocks.get("graph-data"), blocks.get("diff-data")
-        if isinstance(config, dict) and isinstance(graph, dict) and isinstance(diffs, dict):
-            gen = config.get("generation", 0)
-            return (gen if isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0 else 0), digest(graph, diffs)
+        if config is None and graph is None and diffs is None:
+            continue  # not a review map page at all
+        gen = config.get("generation", 0) if isinstance(config, dict) else None
+        if not isinstance(config, dict) or not generation_ok(gen) or not well_formed(graph, diffs):
+            warn(f"warning: {page} has review-map data of an unexpected shape or generation; its build history is ignored")
+            continue
+        return gen, digest(graph, diffs)
     return None

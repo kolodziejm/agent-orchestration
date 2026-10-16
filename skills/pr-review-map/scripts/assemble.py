@@ -32,8 +32,9 @@ this build replaces: --out if it exists, else the page the manifest last recorde
 (manifest.history). The same content (every file's PR, path, and fingerprint) keeps
 that page's generation, so rebuilding from the same data gives the same bytes; any
 other content counts one up, whether the data came from refresh.py or the scripts by
-hand. With --previous the generation is also above the previous build's. A page with
-no page before it starts at 0 (or one above --previous).
+hand; when the content differs, it is also above the generation of --previous. A page
+with no readable page before it starts at 0 (or one above --previous). A generation is
+an int from 0 to 2**31.
 
 A PR `color` must be a palette slot (`var(--pal-3)`), a hex colour, or a colour
 name: it lands in CSS.
@@ -123,7 +124,7 @@ def load_previous(path: Path) -> dict:
     tips, files, gen = data.get("tips", {}), data.get("files"), data.get("generation", 0)
     ok = isinstance(tips, dict) and all(isinstance(v, str) for v in tips.values()) and isinstance(files, dict) and all(
         isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values()) \
-        and isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0
+        and manifest.generation_ok(gen)
     if not ok:
         raise SystemExit(f'{path}: expected {{"generation": n, "tips": {{KEY: sha}}, "files": {{KEY: {{path: fingerprint}}}}}}')
     return {"generation": gen, "tips": tips, "files": files}
@@ -193,10 +194,14 @@ def main() -> int:
     here = args.graph.resolve().parent
     last = None if args.no_manifest else manifest.read(here).get("assemble")
     before = manifest.history([args.out, manifest.resolve(here, last.get("out")) if isinstance(last, dict) and last.get("out") else None])
-    generation = 0 if before is None else before[0] + (before[1] != manifest.digest(graph, diffs))
-    if previous is not None:
-        generation = max(generation, previous["generation"] + 1)
-    config["generation"] = generation
+    floor = previous["generation"] + 1 if previous is not None else 0
+    if before is None:
+        generation = floor
+    elif before[1] == manifest.digest(graph, diffs):
+        generation = before[0]  # the same content keeps its number, with or without --previous
+    else:
+        generation = max(before[0] + 1, floor)
+    config["generation"] = min(generation, manifest.MAX_GENERATION)
 
     toc = [*toc_entries(head), ("graph", strings["graphToc"]), *toc_entries(body)]
     toc_html = "\n".join(f'    <li><a href="#{html.escape(i)}">{t}</a></li>' for i, t in toc)

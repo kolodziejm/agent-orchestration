@@ -19,7 +19,7 @@ Checks, each an error unless noted:
     a warning
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
-    review-config "generation", when present, a non-negative integer
+    review-config "generation", when present, an integer from 0 to 2**31
 Python 3 standard library plus node on PATH (skip node only where it is missing).
 """
 
@@ -172,11 +172,11 @@ def main() -> int:
         gen = previous.get("generation", 0) if isinstance(previous, dict) else None
         if not (isinstance(files, dict) and all(isinstance(v, dict) and all(isinstance(fp, str) for fp in v.values()) for v in files.values())
                 and isinstance(tips, dict) and all(isinstance(v, str) for v in tips.values())
-                and isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0):
+                and isinstance(gen, int) and not isinstance(gen, bool) and 0 <= gen <= 2**31):
             errors.append('review-config "previous" must be {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}}')
     gen = config.get("generation", 0) if isinstance(config, dict) else 0
-    if not isinstance(gen, int) or isinstance(gen, bool) or gen < 0:
-        errors.append('review-config "generation" must be a non-negative integer')
+    if not isinstance(gen, int) or isinstance(gen, bool) or not 0 <= gen <= 2**31:
+        errors.append('review-config "generation" must be an integer from 0 to 2**31')
 
     size = len(page.encode("utf-8"))
     print(f"{args.page}: {size // 1024} KB, {len(blocks)} inline scripts checked")

@@ -277,9 +277,11 @@ build's generation, tips, and file fingerprints in `previous.json`
 generation, which `assemble.py` takes from the page it replaces (`--out`, else the
 page the manifest last recorded): the same content (every file's PR, path, and
 fingerprint) keeps its number, so rebuilding the same data is byte-identical; other
-content counts one up, whether it came from `refresh.py` or the scripts by hand; with
-`--previous` it is also above n. A page with nothing before it starts at 0, and
-`refresh.py` writes the replaced page's own generation as n. A re-run that changes nothing keeps
+content counts one up, whether it came from `refresh.py` or the scripts by hand, and
+then also above n when `--previous` is given. A page with no readable page before it
+starts at 0 (one above n with `--previous`); a page whose data or generation is not
+what assemble.py writes (a generation is an int from 0 to 2**31) counts as none, with a
+warning. `refresh.py` writes the replaced page's own generation as n. A re-run that changes nothing keeps
 the existing `previous.json`, so the page's comparison stays. `--assemble-only`
 reassembles and validates with the recorded inputs, after a narrative edit. PR keys,
 repositories, and ranges must not start with `-` or hold white space or control
@@ -302,3 +304,9 @@ under `wasread` (shown as ↻ while the page's code differs from what was read) 
 the file is marked read again; a page built without `--previous` still lists the
 cleared marks in its banner. A file without a fingerprint keeps its mark and stores
 none.
+
+Limit: generations are counted per directory. A page built in a fresh directory starts
+at 0 again, so with the same storage key it never clears marks another directory's
+history stamped with a higher generation, even where the code changed (those files
+show as read). Keep one scratch directory per review, or give a new one its own
+`--storage-key`.

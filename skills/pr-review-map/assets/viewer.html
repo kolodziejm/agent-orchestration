@@ -1293,13 +1293,14 @@ details.nt-panel{margin:0}
      made on the version just before); a mark from before fingerprints, only when this build flags its file. A
      cleared mark is remembered under "wasread" until the file is marked read again, so the row and the banner can
      say why it is unread. A file without a diff or a fingerprint keeps its mark as it is. */
-  var GEN=typeof CFG.generation==='number'&&CFG.generation>=0?CFG.generation:0;
+  function genOk(g){return typeof g==='number'&&Number.isInteger(g)&&g>=0&&g<=2147483648;}
+  var GEN=genOk(CFG.generation)?CFG.generation:0;
   function fpOf(id,files){var out=[],ok=true;(own(DIFFS,id)||[]).forEach(function(f){var x=files?own(files,f.path):f.fp;if(typeof x!=='string'||!x)ok=false;out.push(f.path+'='+x);});return ok&&out.length?out.sort().join(','):null;}
   function nodeFp(id){return fpOf(id,null);}
   var rfp=obj('readfp'),was=obj('wasread'),cleared=0;
   Object.keys(all).forEach(function(id){
     var n=all[id],fp=nodeFp(id);if(!isDone(id)||!fp)return;
-    var r=rfp[n.pr]&&own(rfp[n.pr],n.path),rf=r&&typeof r==='object'?r.f:r,rg=r&&typeof r==='object'&&typeof r.g==='number'?r.g:null;
+    var r=rfp[n.pr]&&own(rfp[n.pr],n.path),rf=r&&typeof r==='object'?r.f:r,rg=r&&typeof r==='object'&&genOk(r.g)?r.g:null;
     var drop=rf?rf!==fp&&(rg!=null?rg<=GEN:!!PREV&&rf===fpOf(id,own(PREV.files,n.pr)||{})):!!CHG[id];
     if(drop){
       delete marks[n.pr][n.path];if(!Object.keys(marks[n.pr]).length)delete marks[n.pr];
