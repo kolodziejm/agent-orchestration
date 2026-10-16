@@ -52,6 +52,22 @@ const run = new Function('data', 'var ON={},SUBJ={},LINKED={},omode,all={},LATE=
   return out;`);
 process.stdout.write(JSON.stringify(run(JSON.parse(fs.readFileSync(graphFile, 'utf8')))));
 """
+# Runs the viewer's mdNote(), cut out of assets/viewer.html, over a JSON list of note texts and prints the results.
+MD_NOTE = r"""
+const fs = require('fs');
+const [template, casesFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+const start = html.indexOf('  var MD_IN=');
+const fn = html.indexOf('function mdNote(text){');
+if (start < 0 || fn < 0) throw new Error('mdNote not found in the viewer');
+let depth = 0, end = -1;
+for (let i = html.indexOf('{', fn); i < html.length; i++) {
+  if (html[i] === '{') depth++;
+  else if (html[i] === '}' && --depth === 0) { end = i + 1; break; }
+}
+const mdNote = new Function(html.slice(start, end) + '\nreturn mdNote;')();
+process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(casesFile, 'utf8')).map(mdNote)));
+"""
 
 
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -386,6 +402,69 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 "api/openapi-spec.yaml", "docs/guide.md",
             ],
         )
+
+    def test_more_languages_test_conventions_are_found_and_matched_to_subjects(self):
+        """This test will fail when a C/C++, Kotlin/Scala/Groovy, Java failsafe, Cypress, or Django test convention is missed, a look-alike name (Inspect.kt, SpecRunner.kt, HotelSuite.kt, ITService.java, Commit.java, latest.cc, testing.c) becomes a test, a test loses its name-matched subject, or Django's tests.py gets a name match instead of being placed by its imports."""
+        repo = self.root / "conventions"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        tests = {
+            "cpp/widget_test.cc": "cpp/widget.cc", "cpp/test_parser.cpp": "cpp/parser.cpp", "cpp/engine_test.c": "cpp/engine.c",
+            "kt/OrderServiceSpec.kt": "kt/OrderService.kt", "kt/CartTests.kt": "kt/Cart.kt",
+            "scala/LedgerSpec.scala": "scala/Ledger.scala", "groovy/PriceSpec.groovy": "groovy/Price.groovy",
+            "java/UserRepositoryIT.java": "java/UserRepository.java", "java/PaymentITCase.java": "java/Payment.java",
+            "web/login.cy.ts": "web/login.ts", "shop/tests.py": None,
+        }
+        others = ["cpp/widget.h", "kt/Inspect.kt", "kt/SpecRunner.kt", "kt/Spec.kt", "kt/HotelSuite.kt", "scala/HotelSuite.scala",
+                  "java/ITService.java", "java/Commit.java", "cpp/latest.cc", "cpp/testing.c", "web/policy.ts", "misc/tests.ts",
+                  ".editorconfig", "shop/models.py", "shop/views.py"]
+        files = {path: "x\n" for path in [*tests, *(subject for subject in tests.values() if subject), *others]}
+        files["shop/tests.py"] = "from .models import Item\n"
+        files["shop/views.py"] = "from .models import Item\n"
+        files["shop/models.py"] = "class Item: pass\n"
+        commit_files(repo, files, "feat")
+        out = self.root / "graphs-conventions.json"
+        run_script("build_graph.py", "--out", str(out), "--pr", "T", str(repo), "main...feat")
+        pr = json.loads(out.read_text(encoding="utf-8"))["prs"][0]
+        nodes = {node["path"]: node for node in pr["nodes"]}
+        by_id = {node["id"]: node["path"] for node in pr["nodes"]}
+        for path in tests:
+            self.assertEqual(nodes[path]["layer"], "test", path)
+        for path in others:
+            self.assertNotEqual(nodes[path]["layer"], "test", path)
+        test_edges = {by_id[e["from"]]: by_id[e["to"]] for e in pr["edges"] if e["kind"] == "test"}
+        self.assertEqual(test_edges, {path: subject for path, subject in tests.items() if subject})
+        edges = {(by_id[e["from"]], by_id[e["to"]], e["kind"]) for e in pr["edges"]}
+        self.assertIn(("shop/tests.py", "shop/models.py", "import"), edges)
+        order = [node["path"] for node in sorted(pr["nodes"], key=lambda node: node["order"])]
+        self.assertEqual(order[order.index("shop/models.py") + 1], "shop/tests.py")
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's Markdown code")
+    def test_copied_note_text_cannot_break_the_markdown_structure(self):
+        """This test will fail when a note's text can make a heading at or above its own "####" level (ATX, also in a quote or list item, or a setext underline), leave a code fence or an HTML comment/<pre> block open over the notes after it, or when ordinary text, closed fences, and closed HTML stop being copied as written."""
+        cases = {
+            "# Top\n## Sub\n###### Six": "##### Top\n###### Sub\n###### Six",
+            "   # Indented\n> # Quoted\n- # Listed\n1. ## Numbered": "   ##### Indented\n> ##### Quoted\n- ##### Listed\n1. ###### Numbered",
+            "Title\n===\nLine\n  ---  ": "Title\n\\===\nLine\n  \\---  ",
+            "para\n\n---\n\nnext": "para\n\n---\n\nnext",
+            "```js\nconst a = 1;\n# not a heading": "```js\nconst a = 1;\n# not a heading\n```",
+            "~~~~\ncode\n~~~": "~~~~\ncode\n~~~\n~~~~",
+            "```\n# in code\n```\n# outside": "```\n# in code\n```\n##### outside",
+            "<!-- todo\nstill open": "\\<!-- todo\nstill open",
+            "<pre>\nraw": "\\<pre>\nraw",
+            "<!-- closed -->\n<pre>x</pre>": "<!-- closed -->\n<pre>x</pre>",
+            "#hashtag, ####### seven, plain `code`": "#hashtag, ####### seven, plain `code`",
+        }
+        script = self.root / "md-note.js"
+        script.write_text(MD_NOTE, encoding="utf-8")
+        inputs = self.root / "md-note-cases.json"
+        inputs.write_text(json.dumps(list(cases)), encoding="utf-8")
+        result = subprocess.run(
+            ["node", str(script), str(SKILL / "assets" / "viewer.html"), str(inputs)], capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(dict(zip(cases, json.loads(result.stdout))), cases)
 
     def test_reading_order_keeps_connected_files_adjacent(self):
         """This test will fail when the reading order stops preferring, among the files ready to read, the one connected to the file placed last, and falls back to layer and path alone (both services, then both controllers)."""

@@ -331,6 +331,7 @@ details.nt-panel{margin:0}
     <span class="dv-mode" role="group" aria-label="{{S:viewLabel}}"><button type="button" data-v="list">{{S:viewList}}</button><button type="button" data-v="map">{{S:viewMap}}</button></span>
     <span class="dv-mode" role="group" aria-label="{{S:orderLabel}}"><button type="button" data-o="top">{{S:fromEntry}}</button><button type="button" data-o="bottom">{{S:fromDeps}}</button></span>
     <label id="g-pathl"><input type="checkbox" id="g-path"> {{S:showPath}}</label>
+    <label title="{{S:allLinksTitle}}"><input type="checkbox" id="g-all"> {{S:allLinks}}</label>
     <label><input type="checkbox" id="g-tests" checked> {{S:showTests}}</label>
     <label><input type="checkbox" id="g-ext" checked> {{S:showExternal}}</label>
     <span><button type="button" id="g-prev">{{S:prev}}</button> <button type="button" id="g-next">{{S:next}}</button></span>
@@ -412,7 +413,7 @@ details.nt-panel{margin:0}
   function syncM(){[].forEach.call(mbtns,function(b){b.setAttribute('aria-pressed',b.dataset.m===mode?'true':'false');});}
   [].forEach.call(mbtns,function(b){b.addEventListener('click',function(){mode=b.dataset.m;save('diffmode',mode);syncM();if(last)showDiff(last[0],last[1]);});});
   syncM();
-  var LANG={ts:'typescript',tsx:'typescript',mts:'typescript',cts:'typescript',js:'javascript',jsx:'javascript',mjs:'javascript',cjs:'javascript',php:'php',py:'python',rb:'ruby',go:'go',rs:'rust',java:'java',kt:'kotlin',kts:'kotlin',swift:'swift',cs:'csharp',c:'c',h:'c',cpp:'cpp',hpp:'cpp',m:'objectivec',scala:'scala',sql:'sql',sh:'bash',bash:'bash',zsh:'bash',yml:'yaml',yaml:'yaml',json:'json',md:'markdown',html:'xml',xml:'xml',svg:'xml',vue:'xml',css:'css',scss:'scss',less:'less',toml:'ini',ini:'ini',graphql:'graphql',gql:'graphql',feature:'gherkin',dockerfile:'dockerfile'};
+  var LANG={ts:'typescript',tsx:'typescript',mts:'typescript',cts:'typescript',js:'javascript',jsx:'javascript',mjs:'javascript',cjs:'javascript',php:'php',py:'python',rb:'ruby',go:'go',rs:'rust',java:'java',kt:'kotlin',kts:'kotlin',swift:'swift',cs:'csharp',c:'c',h:'c',cpp:'cpp',cc:'cpp',cxx:'cpp',hpp:'cpp',hh:'cpp',hxx:'cpp',groovy:'groovy',m:'objectivec',scala:'scala',sql:'sql',sh:'bash',bash:'bash',zsh:'bash',yml:'yaml',yaml:'yaml',json:'json',md:'markdown',html:'xml',xml:'xml',svg:'xml',vue:'xml',css:'css',scss:'scss',less:'less',toml:'ini',ini:'ini',graphql:'graphql',gql:'graphql',feature:'gherkin',dockerfile:'dockerfile'};
   function lang(p){var b=p.split('/').pop().toLowerCase();if(b==='dockerfile')return 'dockerfile';return LANG[(b.split('.').pop()||'')]||null;}
   function hl(code,l){if(!l||!window.hljs||!hljs.getLanguage(l))return esc(code);try{return hljs.highlight(code,{language:l,ignoreIllegals:true}).value;}catch(e){return esc(code);}}
   function parse(diff){
@@ -769,6 +770,32 @@ details.nt-panel{margin:0}
   }
   /* A Markdown code span whose backtick run is longer than any run inside the text (CommonMark). */
   function mdCode(s){var runs=s.match(/`+/g)||[],n=1;runs.forEach(function(r){n=Math.max(n,r.length+1);});var f=new Array(n+1).join('`'),pad=/^`|`$/.test(s)?' ':'';return f+pad+s+pad+f;}
+  /* A note's text is the body of its "####" section in the copied Markdown and must not end that section or hide the
+     notes after it. Outside the note's own code fences: an ATX heading (also inside a quote or list item) moves four
+     levels down, to "#####" or "######"; a "=" or "-" line under a text line, which would underline it into a heading,
+     is escaped; an HTML block that never closes in the note (a comment, <pre>, <script>…) has its "<" escaped; and a
+     fence the note opens and leaves open is closed after it. Everything else is copied as written. */
+  var MD_IN='(?:(?: {0,3}>) ?|(?: {0,3}(?:[-+*]|\\d{1,9}[.)]))[ \\t]+)*',MD_H=new RegExp('^('+MD_IN+' {0,3})(#{1,6})(?=[ \\t]|$)'),MD_U=new RegExp('^('+MD_IN+' {0,3})(?==+[ \\t]*$|-+[ \\t]*$)');
+  var MD_HTML=/^( {0,3})<(?:(script|pre|style|textarea)(?=[\s>]|$)|(!--)|(\?)|(!\[CDATA\[)|(![A-Za-z]))/i;
+  function mdNote(text){
+    var lines=String(text).split('\n'),out=[],fence=null;
+    lines.forEach(function(l,i){
+      var m;
+      if(fence){out.push(l);if(fence.end.test(l))fence=null;return;}
+      if((m=/^ {0,3}(`{3,}|~{3,})/.exec(l))&&!(m[1][0]==='`'&&l.slice(m[0].length).indexOf('`')>=0)){
+        fence={mark:m[1],end:new RegExp('^ {0,3}'+m[1][0]+'{'+m[1].length+',}[ \\t]*$')};out.push(l);return;
+      }
+      if((m=MD_H.exec(l))){out.push(m[1]+new Array(Math.min(6,m[2].length+4)+1).join('#')+l.slice(m[0].length));return;}
+      if((m=MD_U.exec(l))&&i&&lines[i-1].trim()){out.push(m[1]+'\\'+l.slice(m[1].length));return;}
+      if((m=MD_HTML.exec(l))){
+        var end=m[2]?new RegExp('</'+m[2]+'>','i'):m[3]?/-->/:m[4]?/\?>/:m[5]?/\]\]>/:/>/;
+        if(!end.test(lines.slice(i).join('\n').slice(m[0].length)))l=m[1]+'\\'+l.slice(m[1].length);
+      }
+      out.push(l);
+    });
+    if(fence)out.push(fence.mark);
+    return out.join('\n');
+  }
   function mdLang(p){var e=p.split('/').pop().toLowerCase().split('.').pop();return {html:'html',htm:'html',vue:'vue',svg:'svg',toml:'toml',xml:'xml'}[e]||lang(p)||'';}
   function prHead(k){
     var p=PR[k]||{},head=[prName(k)];if(p.repo)head.push(p.repo);if(p.title&&p.title!==prName(k))head.push(p.title);
@@ -798,7 +825,7 @@ details.nt-panel{margin:0}
           no++;
           out.push('','#### '+no+'. '+(n.scope==='pr'?S.notesMdWholePr:n.scope==='file'?mdCode(n.path)+' · '+S.scopeFile:mdCode(refOf(n))+' · '+sideText(n.side)));
           if(n.scope==='line'&&n.code&&n.code.length){var code=n.code.join('\n'),fence='```';while(code.indexOf(fence)>=0)fence+='`';out.push('',fence+mdLang(n.path),code,fence);}
-          out.push('',n.text);
+          out.push('',mdNote(n.text));
         });
       });
     });
@@ -862,6 +889,7 @@ details.nt-panel{margin:0}
   function isDone(id){var n=all[id],m=n&&marks[n.pr];return !!(m&&Object.prototype.hasOwnProperty.call(m,n.path));}
   function saveDone(){save('read',JSON.stringify(marks));}
   var cur=data.prs.length?data.prs[0].key:null,sel=null,showTests=true,showExt=true,showPath=false,ON={},SUBJ={},LINKED={};
+  var allArcs=load('arcs','sel')==='all';
   var omode=load('omode','top'),view=load('view','list')==='map'?'map':'list',selBy={},peek=null,nbAll={};
   var NS='http://www.w3.org/2000/svg';
   function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
@@ -885,6 +913,8 @@ details.nt-panel{margin:0}
   document.getElementById('g-tests').addEventListener('change',function(e){showTests=e.target.checked;render();});
   document.getElementById('g-ext').addEventListener('change',function(e){showExt=e.target.checked;render();});
   document.getElementById('g-path').addEventListener('change',function(e){showPath=e.target.checked;render();});
+  var allBox=document.getElementById('g-all');allBox.checked=allArcs;
+  allBox.addEventListener('change',function(){allArcs=allBox.checked;save('arcs',allArcs?'all':'sel');drawLane();});
   var obtns=document.querySelectorAll('[data-o]'),vbtns=document.querySelectorAll('[data-v]');
   [].forEach.call(obtns,function(b){b.addEventListener('click',function(){omode=b.dataset.o;save('omode',omode);render();});});
   [].forEach.call(vbtns,function(b){b.addEventListener('click',function(){view=b.dataset.v;save('view',view);render();if(sel)mapTo(sel);});});
@@ -1028,9 +1058,10 @@ details.nt-panel{margin:0}
     });
   }
   /* Arc lane: a dot per row (x by map column: entry points right, deep dependencies left) and an arc per dependency
-     between two shown rows; a test's arc to its own subject is left out, the indent shows it. Up to 60 rows every arc
-     is drawn faintly; above that only arcs within 8 steps of the selected (or hovered) row, plus the arcs of the
-     selected and the hovered file. The selected file's dependencies are blue, its dependents orange. */
+     between two shown rows; a test's arc to its own subject is left out, the indent shows it. By default only the
+     selected file's arcs are drawn, its dependencies blue and its dependents orange, plus the hovered or focused row's
+     as a hint; with nothing selected the lane shows just the dots. "All links" (kept under "arcs") draws every arc
+     faintly, above 60 rows only those within 8 steps of the selected (or hovered) row plus that file's own. */
   function drawLane(){
     lane.textContent='';
     var rows=[].slice.call(stepOl.children),lw=lane.getClientRects().length?lane.getBoundingClientRect().width:0;
@@ -1043,7 +1074,7 @@ details.nt-panel{margin:0}
     G.edges.forEach(function(e){
       if(idx[e.from]==null||idx[e.to]==null||e.from===e.to||(e.kind==='test'&&SUBJ[e.from]===e.to))return;
       var a=idx[e.from],b=idx[e.to];
-      if(big&&!arcRank(e)&&(f?Math.max(Math.abs(a-idx[f]),Math.abs(b-idx[f])):Math.abs(a-b))>8)return;
+      if(!arcRank(e)&&(!allArcs||big&&(f?Math.max(Math.abs(a-idx[f]),Math.abs(b-idx[f])):Math.abs(a-b))>8))return;
       arcs.push(e);
     });
     arcs.sort(function(a,b){return arcRank(a)-arcRank(b);}).forEach(function(e){

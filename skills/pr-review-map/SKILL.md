@@ -37,9 +37,10 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    pinned beside the detail panel and diff: one row per file in reading order
    (read checkbox, step number, layer colour, note-kind chips, and "→A"/"←B"
    chips for files of PR A it uses or PR B files that use it, which open that
-   file on its tab), each test indented under its subject, and a lane drawing
-   every dependency as an arc between two rows (above 60 rows only nearby arcs and
-   the selected file's). Files of earlier PRs the PR uses head the list, grouped
+   file on its tab), each test indented under its subject, and a lane drawing the
+   selected file's dependencies and dependents as arcs between rows ("All links"
+   draws every dependency; above 60 rows only nearby arcs and the selected
+   file's). Files of earlier PRs the PR uses head the list, grouped
    by PR. The order runs "from the entry point" (default, reverse dependency
    order) or "from dependencies"; in both, a file connected to the one just read
    comes next when the dependencies allow, tests follow their subject, files with
@@ -60,7 +61,8 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    localStorage, and "Copy notes" puts the shown ones on the clipboard as Markdown
    for an agent: what each kind asks for (fix, answer, consider, nothing), the
    PRs with repo and base/tip commits, then the notes by kind, PR, file, and line,
-   each with a `path:start-end` (or bare `path`) reference, side, code, and text.
+   each with a `path:start-end` (or bare `path`) reference, side, code, and text;
+   headings in a note move below the note's own level and an open fence is closed.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.

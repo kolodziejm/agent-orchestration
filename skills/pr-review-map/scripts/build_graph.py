@@ -62,14 +62,22 @@ DEFAULT_GROUPS = [
 # First-guess layer for a single file, checked in order. A test is a file under a test directory or
 # one whose name carries its language's marker as its own name segment: `.test.`/`.spec.`/`.e2e.`
 # anywhere; a `-test`/`_test`/`-spec`/`_spec`/`-e2e`/`_e2e` suffix in JS/TS, Vue, and Svelte
-# (`mobile-state-panel-test.tsx`); `_spec.rb`; `_test` in Go, Python, Ruby, and Elixir;
-# `test_*.py`/`test_*.rb`; `*Test(s)` in PHP/JVM/.NET/Swift; `conftest.py`. So `test-utils.ts`,
-# `contest.ts`, `api-spec.yaml`, `pod_spec.go`, `openapi_spec.py`, and `build_spec.rs` are not tests.
-# The JS suffix also tags a feature file such as `ab-test.tsx`; fix that one with an overlay `layer`.
+# (`mobile-state-panel-test.tsx`); Cypress `.cy.` in JS/TS; `_spec.rb`; `_test` in Go, Python, Ruby,
+# Elixir, and C/C++ (`.c`, `.cc`, `.cpp`, `.cxx`); `test_*` in Python, Ruby, and C/C++; `*Test(s)` in
+# PHP/JVM/.NET/Swift; `*Spec` in Kotlin, Scala, and Groovy; failsafe `*IT`/`*ITCase` in Java and
+# Kotlin; Django's `tests.py`; `conftest.py`. A `Spec` or `IT` suffix counts only after a lowercase
+# letter or digit that ends a name (`OrderSpec.kt`, `UserRepositoryIT.java`). So `test-utils.ts`,
+# `contest.ts`, `api-spec.yaml`, `pod_spec.go`, `openapi_spec.py`, `build_spec.rs`, `Inspect.kt`,
+# `SpecRunner.kt`, `Spec.kt`, `HotelSuite.kt`, `ITService.java`, `Commit.java`, `latest.cc`, and
+# `testing.c` are not tests. `*Suite` is left to test directories: domain names end in it too. The JS
+# suffix also tags a feature file such as `ab-test.tsx`, and the Kotlin suffix a data class such as
+# `PodSpec.kt`; fix those with an overlay `layer`.
 LAYER_RULES = [
     ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec)/|\.(spec|test|e2e)\.[^/]+$"
-             r"|[-_](spec|test|e2e)\.([cm]?[jt]sx?|vue|svelte)$|_spec\.rb$|_test\.(go|py|rb|exs)$"
-             r"|(^|/)test_[^/]+\.(py|rb)$|Tests?\.(php|java|kt|cs|swift)$|(^|/)conftest\.py$"),
+             r"|[-_](spec|test|e2e)\.([cm]?[jt]sx?|vue|svelte)$|\.cy\.[cm]?[jt]sx?$|_spec\.rb$"
+             r"|_test\.(go|py|rb|exs|c|cc|cpp|cxx)$|(^|/)test_[^/]+\.(py|rb|c|cc|cpp|cxx)$"
+             r"|Tests?\.(php|java|kt|scala|groovy|cs|swift)$|[a-z0-9]Spec\.(kt|scala|groovy)$"
+             r"|[a-z0-9]IT(Case)?\.(java|kt)$|(^|/)(tests|conftest)\.py$"),
     ("wiring", r"(^|/)([\w-]*-)?(services|routing|routes|di|container|bundles)(\.[\w-]+)?\.(ya?ml|xml)$"),
     ("config", r"(^|/)(package\.json|tsconfig[^/]*\.json|jsconfig\.json|pyproject\.toml|setup\.(cfg|py)|composer\.json|go\.mod|Cargo\.toml|Gemfile|requirements[^/]*\.txt|project\.json|nx\.json|turbo\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|(^|/)\.[^/]*rc(\.[a-z]+)?$|\.(ya?ml|toml|ini|cfg|env)$"),
     ("data", r"(^|/)(migrations?|db|database|prisma|seeds?|fixtures)/|\.(sql|prisma)$"),
@@ -98,8 +106,10 @@ JS_IMPORT = re.compile(
 PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.MULTILINE)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
 # Stripped (repeatedly) from a test's stem to find its subject: `panel-test` -> `panel`,
-# `app.e2e-spec` -> `app`, `test_service` -> `service`, `UserTest` -> `User`.
-TEST_MARK = re.compile(r"([.\-_](spec|test|e2e)$|Tests?$|^test_)")
+# `app.e2e-spec` -> `app`, `test_service` -> `service`, `UserTest` -> `User`, `login.cy` -> `login`,
+# `OrderSpec` -> `Order`, `UserRepositoryIT` -> `UserRepository`. Django's `tests` strips to nothing:
+# such a file has no name-matched subject and is placed by its imports.
+TEST_MARK = re.compile(r"([.\-_](spec|test|e2e)$|\.cy$|Tests?$|(?<=[a-z0-9])(Spec|IT(Case)?)$|^test_|^tests$)")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 SCP = re.compile(r"(?P<host>[^/:]{2,}):(?P<path>.*)")
 SAFE_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -484,7 +494,8 @@ def main() -> int:
         for nk, node in own.items():
             if nk.startswith("#") or node["layer"] != "test":
                 continue
-            candidates = subjects.get(test_stem(nk), [])
+            name = test_stem(nk)
+            candidates = subjects.get(name, []) if name else []
             if candidates:
                 best = max(candidates, key=lambda c: len(posixpath.commonpath([c, nk])))
                 add_edge(index, nk, (index, best), "test")

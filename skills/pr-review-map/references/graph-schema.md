@@ -127,14 +127,22 @@ anywhere else.
 A file is a test when its path is under a test directory (`__tests__`, `__mocks__`,
 `test`, `tests`, `e2e`, `spec`) or its name carries its language's marker as its own
 segment: `.test.`/`.spec.`/`.e2e.` anywhere; a `-test`/`_test`/`-spec`/`_spec`/`-e2e`/
-`_e2e` suffix in JS/TS, Vue, and Svelte; `_spec.rb`; `_test` in Go, Python, Ruby, and
-Elixir; `test_*.py`/`test_*.rb`; `*Test(s)` in PHP, Java, Kotlin, C#, or Swift; or
-`conftest.py`. `test-utils.ts`, `contest.ts`, `api-spec.yaml`, `pod_spec.go`,
-`openapi_spec.py`, and `build_spec.rs` are not tests. The JS suffix also catches a
-feature file such as `ab-test.tsx`; set its `layer` in the overlay.
+`_e2e` suffix in JS/TS, Vue, and Svelte; Cypress `.cy.` in JS/TS; `_spec.rb`; `_test` in
+Go, Python, Ruby, Elixir, and C/C++ (`.c`, `.cc`, `.cpp`, `.cxx`); `test_*` in Python,
+Ruby, and C/C++; `*Test(s)` in PHP, Java, Kotlin, Scala, Groovy, C#, or Swift; `*Spec`
+in Kotlin, Scala, and Groovy; failsafe `*IT`/`*ITCase` in Java and Kotlin; Django's
+`tests.py`; or `conftest.py`. A `Spec` or `IT` suffix counts only after a lowercase
+letter or digit (`OrderSpec.kt`, `UserRepositoryIT.java`). `test-utils.ts`,
+`contest.ts`, `api-spec.yaml`, `pod_spec.go`, `openapi_spec.py`, `build_spec.rs`,
+`Inspect.kt`, `SpecRunner.kt`, `Spec.kt`, `HotelSuite.kt`, `ITService.java`,
+`Commit.java`, `latest.cc`, and `testing.c` are not tests; `*Suite` counts only under
+a test directory, since domain names end in it too. The JS suffix also catches a
+feature file such as `ab-test.tsx`, and the Kotlin one a data class such as
+`PodSpec.kt`; set their `layer` in the overlay.
 Its subject is the changed file whose name equals the test's name with those
-markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`), the
-nearest by path when several match.
+markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`,
+`login.cy.ts` → `login.ts`, `PaymentITCase.java` → `Payment.java`), the nearest by
+path when several match. Django's `tests.py` has no name match; its imports place it.
 
 ## overlay.json
 
