@@ -14,7 +14,10 @@ is read with `git diff`, so nothing is checked out.
 A changed file is assigned to the node whose `path` equals it, whose `files` list
 contains it, or whose `match` globs (or a glob-like `path`) match it. Output maps
 node id -> [{"path", "diff", "truncated"?, "binary"?}] with git headers stripped;
-`truncated` holds the full line count of a diff cut at --max-lines.
+`truncated` holds the full line count of a diff cut at --max-lines. For Vue, Svelte,
+and Astro files git puts the last block tag before each hunk (`<script setup lang="ts">`,
+`</script>`) on the hunk's @@ line, so the viewer highlights a hunk in the middle of a
+block in that block's language.
 Python 3 standard library only.
 """
 
@@ -23,8 +26,10 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HEADER_PREFIXES = (
@@ -42,6 +47,11 @@ HEADER_PREFIXES = (
     "new mode",
 )
 GLOB_CHARS = set("*?[")
+# A diff driver for single-file components: the funcname on a hunk's @@ line is the last block tag at the start of a
+# line before the hunk, whole with its lang attribute (git shows a pattern's first group, so the outer group holds the
+# tag). An opening tag means the hunk starts in that block; a closing one, outside every block (Svelte's markup).
+SFC_ATTRIBUTES = "".join(f"*.{ext} diff=review-map-sfc\n" for ext in ("vue", "svelte", "astro"))
+SFC_FUNCNAME = r"^(</?(template|script|style|i18n|docs)([[:space:]][^>]*)?>)"
 
 
 def git(repo: str, *args: str) -> str:
@@ -55,6 +65,26 @@ def git(repo: str, *args: str) -> str:
     if result.returncode != 0:
         raise SystemExit(f"git {' '.join(args)} failed in {repo}: {result.stderr.strip()}")
     return result.stdout
+
+
+def sfc_options(repo: str, folder: str) -> list[str]:
+    """`git -c` options that apply the SFC diff driver without touching the repository.
+
+    The attributes go in a temporary core.attributesFile, followed by the user's own global
+    attributes file so their diff drivers still win (and in-tree .gitattributes win over both).
+    """
+    configured = subprocess.run(["git", "-C", repo, "config", "--path", "--get", "core.attributesFile"],
+                                capture_output=True, text=True).stdout.strip()
+    home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    own = Path(configured or os.path.join(home, "git", "attributes"))
+    text = SFC_ATTRIBUTES
+    try:
+        text += own.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        pass
+    path = Path(folder) / "attributes"
+    path.write_text(text, encoding="utf-8")
+    return ["-c", f"core.attributesFile={path}", "-c", f"diff.review-map-sfc.xfuncname={SFC_FUNCNAME}"]
 
 
 def split_files(diff: str) -> list[tuple[str, str, bool]]:
@@ -140,9 +170,10 @@ def main() -> int:
 
     out: dict[str, list[dict]] = {}
     unassigned: list[str] = []
+    folder = tempfile.TemporaryDirectory(prefix="review-map-")
     for key, pr in prs.items():
         repo, rng = ranges[key]
-        diff = git(repo, "diff", "--no-color", "--no-ext-diff", "-M", f"-U{args.context}", rng)
+        diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "-M", f"-U{args.context}", rng)
         for path, body, binary in split_files(diff):
             node_id = assign(path, pr["nodes"])
             if node_id is None:
@@ -157,6 +188,7 @@ def main() -> int:
                 entry["binary"] = True
             out.setdefault(node_id, []).append(entry)
 
+    folder.cleanup()
     ordered = {
         node["id"]: out[node["id"]]
         for pr in graph["prs"]

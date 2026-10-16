@@ -21,8 +21,11 @@ What the script resolves on its own:
   * JS/TS imports (relative, `.js`→`.ts`, `--alias`), Python imports, PHP `use`
   * test → subject edges by file name with the test marker removed
     (`panel-test.tsx`, `panel.spec.ts`, `test_panel.py`, `panel_spec.rb` → `panel`)
-  * `order`: dependency-first reading order that keeps connected files adjacent
-    (the viewer reverses it for the "from the entry point" mode)
+  * `hub`: shared dependencies, files that at least a quarter of the PR's linked files
+    (and at least 4) depend on, plus files only they use; the viewer pins them in a
+    "Shared dependencies" group and leaves their incoming links out of the arcs
+  * `order`: dependency-first reading order that keeps connected files adjacent, shared
+    dependencies first (the viewer reverses the rest for the "from the entry point" mode)
   * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
     URL path (never its host, credentials, query, or fragment), else the
     repository directory name
@@ -92,6 +95,7 @@ LAYER_RULES = [
 PRIO = {"contract": 0, "domain": 1, "data": 1, "logic": 2, "infra": 3, "rest": 4, "ui": 5,
         "wiring": 6, "test": 7, "config": 8, "i18n": 8, "docs": 9}
 LATE = {"docs", "config", "i18n"}
+HUB_MIN, HUB_SHARE = 4, 4  # a hub: at least 4 dependents and at least a quarter of the linked core files
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1}
 KINDS = set(KIND_RANK)
 GENERIC_NAMES = re.compile(r"^(index|types?|context|handlers?|routes?|utils?|helpers?|constants?|config|main|app|mod|lib|__init__|package|README|readme|schema|models?)\.[^.]+$")
@@ -302,52 +306,95 @@ def php_targets(namespace: str, candidates: set[str]) -> list[str]:
     return [best] if best is not None and best_len >= min(2, len(parts)) else []
 
 
+def is_core(node: dict) -> bool:
+    return node["layer"] != "test" and node["layer"] not in LATE
+
+
+def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced: dict[str, bool]) -> set[str]:
+    """Shared dependencies ("hubs") of one PR; `edges` are its same-PR (from, to, kind).
+
+    Only core files (not tests, not docs/config/i18n) and their non-test edges to each other
+    count. A file is a hub when at least max(HUB_MIN, ceil(linked / HUB_SHARE)) other core files
+    depend on it, `linked` being the core files that share such an edge with another one (in a
+    47-file PR with 25 linked files: 7). Then a file that only hubs depend on joins them
+    (repeated until nothing changes), so a hub's private helpers are read with it. `forced` is
+    the overlay's per-node `hub: true/false`; `false` also keeps a file out of the second step.
+    """
+    core = {nk for nk in nodes if is_core(nodes[nk])}
+    users: dict[str, set[str]] = {nk: set() for nk in core}
+    linked: set[str] = set()
+    for frm, to, kind in edges:
+        if frm in core and to in core and kind != "test" and frm != to:
+            users[to].add(frm)
+            linked.update((frm, to))
+    need = max(HUB_MIN, -(-len(linked) // HUB_SHARE))
+    hubs = {nk for nk in core if len(users[nk]) >= need or forced.get(nk) is True}
+    hubs -= {nk for nk, value in forced.items() if value is False}
+    grown = True
+    while grown:
+        grown = False
+        for nk in sorted(core - hubs):
+            if users[nk] and users[nk] <= hubs and forced.get(nk) is not False:
+                hubs.add(nk)
+                grown = True
+    return hubs
+
+
 def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_cycle=None) -> list[str]:
     """Dependency-first reading order of one PR's nodes; `edges` are its same-PR (from, to, kind).
 
-    Core files (not tests, not docs/config/i18n) that share a non-test edge with another core
-    file come first, topologically sorted; core files with no such edge (edges to tests, late
-    files, and other PRs do not count) follow, so an unrelated file never opens either reading
-    mode. Among the files ready to be read next, the one connected (by such an edge, either
-    direction) to the most recently placed file wins, so a chain such as types -> service ->
-    controller reads as a run instead of interleaving with unrelated files; then (PRIO, path).
-    Each test goes right after the core file it tests (its `test` edge first, else its other
-    edges; the last such file wins), a test with no core target after all core files, then
-    docs/config/i18n. The viewer's computeOrder() applies the same rule (its final tie-break is
-    this stored order) and reverses only the connected part for "from the entry point".
+    Core files (not tests, not docs/config/i18n) are read in two parts: the shared dependencies
+    (nodes with `hub` set, see find_hubs) first, then the others; an edge between a hub and a
+    non-hub file counts in neither part, so hubs neither pull files towards the top nor bind
+    files that share nothing else. In each part the files that share a non-test edge with
+    another file of that part come first, topologically sorted; the part's files with no such
+    edge (edges to tests, late files, and other PRs do not count) follow, so an unrelated file
+    never opens either reading mode. Among the files ready to be read next, the one connected
+    (by such an edge, either direction) to the most recently placed file wins, so a chain such
+    as types -> service -> controller reads as a run instead of interleaving with unrelated
+    files; then (PRIO, path). Each test goes right after the core file it tests (its `test`
+    edge first, else its other edges; the last such file wins), a test with no core target
+    after all core files, then docs/config/i18n. The viewer's computeOrder() applies the same
+    rule (its final tie-break is this stored order) and reverses only the connected files of
+    each part for "from the entry point", so the shared dependencies open both modes.
     """
 
     def rank(nk: str, default: int = 5) -> tuple[int, str, str]:
         return (PRIO.get(nodes[nk]["layer"], default), nodes[nk]["path"], nk)
 
-    core = {nk for nk in nodes if nodes[nk]["layer"] != "test" and nodes[nk]["layer"] not in LATE}
-    deps: dict[str, set[str]] = {nk: set() for nk in core}
-    near: dict[str, set[str]] = {nk: set() for nk in core}
-    for frm, to, kind in edges:
-        if frm in core and to in core and kind != "test" and frm != to:
-            deps[frm].add(to)
-            near[frm].add(to)
-            near[to].add(frm)
-    linked = {nk for nk in core if near[nk]}
-    order: list[str] = []
-    placed: dict[str, int] = {}
-    remaining = set(linked)
+    core = {nk for nk in nodes if is_core(nodes[nk])}
+    hubs = {nk for nk in core if nodes[nk].get("hub")}
 
-    def flow(nk: str) -> tuple:
-        last = max((placed[m] for m in near[nk] if m in placed), default=-1)
-        return (-last, *rank(nk))
+    def part(members: set[str]) -> list[str]:
+        deps: dict[str, set[str]] = {nk: set() for nk in members}
+        near: dict[str, set[str]] = {nk: set() for nk in members}
+        for frm, to, kind in edges:
+            if frm in members and to in members and kind != "test" and frm != to:
+                deps[frm].add(to)
+                near[frm].add(to)
+                near[to].add(frm)
+        linked = {nk for nk in members if near[nk]}
+        seq: list[str] = []
+        placed: dict[str, int] = {}
+        remaining = set(linked)
 
-    while remaining:
-        ready = [nk for nk in remaining if not deps[nk] & remaining]
-        if not ready:
-            ready = list(remaining)
-            if on_cycle:
-                on_cycle(sorted(remaining)[:3])
-        pick = min(ready, key=flow)
-        placed[pick] = len(order)
-        order.append(pick)
-        remaining.discard(pick)
-    order += sorted(core - linked, key=rank)
+        def flow(nk: str) -> tuple:
+            last = max((placed[m] for m in near[nk] if m in placed), default=-1)
+            return (-last, *rank(nk))
+
+        while remaining:
+            ready = [nk for nk in remaining if not deps[nk] & remaining]
+            if not ready:
+                ready = list(remaining)
+                if on_cycle:
+                    on_cycle(sorted(remaining)[:3])
+            pick = min(ready, key=flow)
+            placed[pick] = len(seq)
+            seq.append(pick)
+            remaining.discard(pick)
+        return seq + sorted(members - linked, key=rank)
+
+    order = part(hubs) + part(core - hubs)
     tests = sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: (nodes[nk]["path"], nk))
     attached = []
     for test in tests:
@@ -522,6 +569,10 @@ def main() -> int:
         for field in ("role", "note", "layer", "label"):
             if field in fields:
                 node[field] = fields[field]
+        if "hub" in fields:
+            if not isinstance(fields["hub"], bool):
+                raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
+            node["forced_hub"] = fields["hub"]
     for edge in overlay.get("edges", []):
         kind = edge.get("kind", "import")
         if kind not in KINDS:
@@ -539,6 +590,12 @@ def main() -> int:
     for index, pr in enumerate(prs):
         nodes = pr["nodes"]
         same_pr = [(frm, to, kind) for (frm, (ti, to)), kind in pr["edges"].items() if ti == index]
+        forced = {nk: node["forced_hub"] for nk, node in nodes.items() if "forced_hub" in node}
+        for nk in sorted(forced):
+            if forced[nk] and not is_core(nodes[nk]):
+                warnings.append(f"{pr['key']}: overlay hub ignored for {nodes[nk]['path']} ({nodes[nk]['layer']} is not a core layer)")
+        for nk in find_hubs(nodes, same_pr, forced):
+            nodes[nk]["hub"] = True
         order = reading_order(nodes, same_pr, lambda near: warnings.append(
             f"{pr['key']}: dependency cycle broken near {near}"))
         for position, nk in enumerate(order, 1):
@@ -569,6 +626,8 @@ def main() -> int:
                 item["note"] = node["note"]
             if node.get("unchanged"):
                 item["unchanged"] = True
+            if node.get("hub"):
+                item["hub"] = True
             if not item["role"]:
                 missing_roles += 1
             entry["nodes"].append(item)
@@ -581,7 +640,9 @@ def main() -> int:
 
     args.out.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     for entry in out["prs"]:
-        print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges")
+        hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
+        print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
+              + (f"; shared dependencies: {', '.join(hubs)}" if hubs else ""))
     print(f"cross-PR edges: {len(out['crossEdges'])}; nodes without a role: {missing_roles} -> {args.out}")
     for warning in warnings:
         print(f"warning: {warning}")

@@ -45,7 +45,7 @@ for (let i = html.indexOf('{', start); i < html.length; i++) {
   if (html[i] === '{') depth++;
   else if (html[i] === '}' && --depth === 0) { end = i + 1; break; }
 }
-const run = new Function('data', 'var ON={},SUBJ={},LINKED={},omode,all={},LATE=' + late + ';\n' + html.slice(start, end) + `
+const run = new Function('data', 'var ON={},SUBJ={},LINKED={},HUB={},omode,all={},LATE=' + late + ';\n' + html.slice(start, end) + `
   data.prs.forEach(function(p){p.nodes.forEach(function(n){all[n.id]=Object.assign({pr:p.key},n);});});
   var out={};
   ['bottom','top'].forEach(function(m){omode=m;out[m]={};data.prs.forEach(function(p){computeOrder(p);out[m][p.key]=ON;});});
@@ -57,7 +57,7 @@ MD_NOTE = r"""
 const fs = require('fs');
 const [template, casesFile] = process.argv.slice(2);
 const html = fs.readFileSync(template, 'utf8');
-const start = html.indexOf('  var MD_IN=');
+const start = html.indexOf('  var MD_Q=');
 const fn = html.indexOf('function mdNote(text){');
 if (start < 0 || fn < 0) throw new Error('mdNote not found in the viewer');
 let depth = 0, end = -1;
@@ -67,6 +67,37 @@ for (let i = html.indexOf('{', fn); i < html.length; i++) {
 }
 const mdNote = new Function(html.slice(start, end) + '\nreturn mdNote;')();
 process.stdout.write(JSON.stringify(JSON.parse(fs.readFileSync(casesFile, 'utf8')).map(mdNote)));
+"""
+# Runs the viewer's lang(), parse(), and sfcLangs(), cut out of assets/viewer.html, and prints the highlight.js language
+# of every path in the input's "paths" and of every row of its "diffs" ({path: diff}) as [side, line, text, lang].
+VIEWER_LANGS = r"""
+const fs = require('fs');
+const [template, inputFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+const code = cut('  var LANG={', 'function sfcLangs(path,hs){') + '\n' + cut('  function parse(diff){', 'function parse(diff){');
+const api = new Function('DIFFS', 'esc', code + '\nreturn {lang: lang, parse: parse, sfcLangs: sfcLangs};')({}, String);
+const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+const out = {paths: {}, rows: {}};
+input.paths.forEach((p) => { out.paths[p] = api.lang(p); });
+Object.entries(input.diffs).forEach(([path, diff]) => {
+  const hs = api.parse(diff), rows = [];
+  api.sfcLangs(path, hs);
+  hs.forEach((h) => h.rows.forEach((r) => {
+    if (r.t !== 'add') rows.push(['old', r.o, r.s.trim(), r.lo]);
+    if (r.t !== 'del') rows.push(['new', r.n, r.s.trim(), r.ln]);
+  }));
+  out.rows[path] = rows;
+});
+process.stdout.write(JSON.stringify(out));
 """
 
 
@@ -263,6 +294,37 @@ class ReviewMapPipelineTests(unittest.TestCase):
         cls.flow_path = cls.root / "graphs-flow.json"
         run_script("build_graph.py", "--out", str(cls.flow_path), "--pr", "F", str(repo), "main...feat")
         cls.flow = json.loads(cls.flow_path.read_text(encoding="utf-8"))
+        # Shared dependencies: i18n/index.ts (6 dependents) and failure-text.ts (4) of 10 linked core files are hubs,
+        # catalog.ts joins them because only index.ts uses it, c/util.ts is linked to hubs only, lonely.ts to nothing.
+        cls.hub_repo = repo = cls.root / "hubs"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        i18n, failure = "import { t } from '../../i18n';\n", "import { failureText } from '../../errors/failure-text';\n"
+        commit_files(
+            repo,
+            {
+                "src/i18n/catalog.ts": "export const catalog: Record<string, string> = {};\n",
+                "src/i18n/index.ts": "import { catalog } from './catalog';\nexport const t = (k: string) => catalog[k];\n",
+                "src/errors/failure-text.ts": "import { t } from '../i18n';\nexport const failureText = () => t('failed');\n",
+                "src/errors/failure-text.test.ts": "import { failureText } from './failure-text';\n",
+                "src/feature/a/state.ts": i18n + "export const a = t('a');\n",
+                "src/feature/a/state.spec.ts": "import { a } from './state';\n",
+                "src/feature/a/screen.tsx": "import { a } from './state';\n" + i18n + failure + "export const A = () => a;\n",
+                "src/feature/b/state.ts": i18n + "export const b = t('b');\n",
+                "src/feature/b/screen.tsx": "import { b } from './state';\n" + i18n + failure + "export const B = () => b;\n",
+                "src/feature/c/state.ts": "export const c = 1;\n",
+                "src/feature/c/screen.tsx": "import { c } from './state';\n" + failure + "export const C = () => c;\n",
+                "src/feature/c/util.ts": i18n + failure + "export const u = 1;\n",
+                "src/lonely.ts": "export const lonely = 1;\n",
+                "docs/notes.md": "# notes\n",
+            },
+            "feat",
+        )
+        cls.hubs_path = cls.root / "graphs-hubs.json"
+        run_script("build_graph.py", "--out", str(cls.hubs_path), "--pr", "H", str(repo), "main...feat")
+        cls.hubs = json.loads(cls.hubs_path.read_text(encoding="utf-8"))
 
     @classmethod
     def tearDownClass(cls):
@@ -443,7 +505,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's Markdown code")
     def test_copied_note_text_cannot_break_the_markdown_structure(self):
-        """This test will fail when a note's text can make a heading at or above its own "####" level (ATX, also in a quote or list item, or a setext underline), leave a code fence or an HTML comment/<pre> block open over the notes after it, or when ordinary text, closed fences, and closed HTML stop being copied as written."""
+        """This test will fail when a note's text can make a heading at or above its own "####" level (ATX, also in a quote or list item, or a setext underline), leave a code fence or an HTML comment/<pre> block open over the notes after it, when a fence or HTML block inside a list item or quote has its code changed or gets a stray closing fence, when a "---" thematic break is escaped as if it were an underline, when CR line endings slip through, or when ordinary text, closed fences, and closed HTML stop being copied as written."""
         cases = {
             "# Top\n## Sub\n###### Six": "##### Top\n###### Sub\n###### Six",
             "   # Indented\n> # Quoted\n- # Listed\n1. ## Numbered": "   ##### Indented\n> ##### Quoted\n- ##### Listed\n1. ###### Numbered",
@@ -456,6 +518,23 @@ class ReviewMapPipelineTests(unittest.TestCase):
             "<pre>\nraw": "\\<pre>\nraw",
             "<!-- closed -->\n<pre>x</pre>": "<!-- closed -->\n<pre>x</pre>",
             "#hashtag, ####### seven, plain `code`": "#hashtag, ####### seven, plain `code`",
+            # A fence opened in a list item or a quote: its code is copied as written, its closing fence is not taken for
+            # an opener, and no fence is appended (the blank line and heading after the note end it with its container).
+            "1. Run:\n- ```sh\n  # install\n  ```\n# after": "1. Run:\n- ```sh\n  # install\n  ```\n##### after",
+            "> ```py\n> # comment\n> x = 1": "> ```py\n> # comment\n> x = 1",
+            "- item\n  ```\n  # code": "- item\n  ```\n  # code",
+            "- item\n  ```\n# out": "- item\n  ```\n##### out",
+            # Lines inside an HTML block are not fences or headings; the block ends at its end marker or blank line.
+            "<!--\n```\n-->\n# heading": "<!--\n```\n-->\n##### heading",
+            "<div>\n```\n</div>\n\n# h": "<div>\n```\n</div>\n\n##### h",
+            "- <!-- open\n  # x": "- <!-- open\n  # x",
+            # "---" is a thematic break after a heading, a fence, a list item it is not part of, or a blank line.
+            "# H\n---": "##### H\n---",
+            "```\nx\n```\n---": "```\nx\n```\n---",
+            "- a\n---": "- a\n---",
+            "- a\n  ===\n> b\n> ---": "- a\n  \\===\n> b\n> \\---",
+            "> a\nlazy\n===": "> a\nlazy\n===",
+            "a\r\nb\r\n===\r\n# c\rd": "a\nb\n\\===\n##### c\nd",
         }
         script = self.root / "md-note.js"
         script.write_text(MD_NOTE, encoding="utf-8")
@@ -478,9 +557,48 @@ class ReviewMapPipelineTests(unittest.TestCase):
             ],
         )
 
+    def test_shared_dependencies_are_flagged_and_read_first(self):
+        """This test will fail when a file most of the PR depends on is not flagged as a shared dependency, a file only hubs use stays out of their group, a file below the threshold (or a test, or a small PR's file) gets flagged, hubs stop opening the order, edges into hubs still bind or pull the other files, or the overlay's hub: true/false is ignored or accepts a non-boolean."""
+        pr = self.hubs["prs"][0]
+        order = [node["path"] for node in sorted(pr["nodes"], key=lambda node: node["order"])]
+        self.assertEqual(
+            {node["path"] for node in pr["nodes"] if node.get("hub")},
+            {"src/i18n/catalog.ts", "src/i18n/index.ts", "src/errors/failure-text.ts"},
+        )
+        self.assertTrue(all(node["hub"] is True for node in pr["nodes"] if "hub" in node))
+        self.assertEqual(
+            order,
+            [
+                "src/i18n/catalog.ts", "src/i18n/index.ts", "src/errors/failure-text.ts", "src/errors/failure-text.test.ts",
+                "src/feature/a/state.ts", "src/feature/a/state.spec.ts", "src/feature/a/screen.tsx",
+                "src/feature/b/state.ts", "src/feature/b/screen.tsx", "src/feature/c/state.ts", "src/feature/c/screen.tsx",
+                "src/feature/c/util.ts", "src/lonely.ts", "docs/notes.md",
+            ],
+        )
+        for graph in (self.graph, self.ordering, self.flow):
+            self.assertFalse([node["path"] for pr in graph["prs"] for node in pr["nodes"] if "hub" in node])
+        overlay = self.root / "overlay-hubs.json"
+        overlay.write_text(json.dumps({"nodes": {
+            "H:src/errors/failure-text.ts": {"hub": False}, "H:src/feature/a/state.ts": {"hub": True}, "H:#docs": {"hub": True},
+        }}), encoding="utf-8")
+        out = self.root / "graphs-hubs-overlay.json"
+        result = run_script("build_graph.py", "--out", str(out), "--pr", "H", str(self.hub_repo), "main...feat", "--overlay", str(overlay))
+        self.assertIn("overlay hub ignored for docs/notes.md", result.stdout)
+        self.assertIn("shared dependencies:", result.stdout)
+        forced = json.loads(out.read_text(encoding="utf-8"))["prs"][0]["nodes"]
+        self.assertEqual(
+            [node["path"] for node in sorted(forced, key=lambda node: node["order"]) if node.get("hub")],
+            ["src/i18n/catalog.ts", "src/i18n/index.ts", "src/feature/a/state.ts"],
+        )
+        overlay.write_text(json.dumps({"nodes": {"H:src/lonely.ts": {"hub": "yes"}}}), encoding="utf-8")
+        result = run_script("build_graph.py", "--out", str(out), "--pr", "H", str(self.hub_repo), "main...feat",
+                            "--overlay", str(overlay), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hub must be true or false", result.stderr)
+
     @unittest.skipUnless(NODE, "node is required to run the viewer's ordering code")
     def test_viewer_order_matches_the_stored_order_and_numbers_every_step(self):
-        """This test will fail when the viewer's "from dependencies" order drifts from build_graph.py's stored order, the viewer stops applying the flow tie-break itself (a stored order without it must come out the same), or "from the entry point" skips, repeats, or misplaces a step."""
+        """This test will fail when the viewer's "from dependencies" order drifts from build_graph.py's stored order, the viewer stops applying the flow tie-break itself (a stored order without it must come out the same), "from the entry point" skips, repeats, or misplaces a step, or stops reading the shared dependencies first."""
         script = self.root / "viewer-order.js"
         script.write_text(VIEWER_ORDER, encoding="utf-8")
         orders = {}
@@ -494,7 +612,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
         stale_path = self.root / "graphs-flow-stale.json"
         stale_path.write_text(json.dumps(stale), encoding="utf-8")
         for name, path, graph in (("fixture", self.graph_path, self.graph), ("ordering", self.ordering_path, self.ordering),
-                                  ("flow", self.flow_path, self.flow)):
+                                  ("flow", self.flow_path, self.flow), ("hubs", self.hubs_path, self.hubs)):
             result = subprocess.run(
                 ["node", str(script), str(SKILL / "assets" / "viewer.html"), str(path)],
                 capture_output=True, text=True, check=True,
@@ -520,6 +638,19 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 "src/rest/billing.controller.spec.ts", "src/logic/billing.service.ts",
             ],
         )
+        # Shared dependencies open "from the entry point" too, their own links reversed like the rest's; edges into them
+        # neither bind c/util.ts (it reads with the unlinked files) nor pull the files that use them.
+        hub_ids = {node["id"]: node["path"] for node in self.hubs["prs"][0]["nodes"]}
+        hub_top = orders["hubs"]["top"]["H"]
+        self.assertEqual(
+            [hub_ids[i] for i in sorted(hub_top, key=hub_top.get)],
+            [
+                "src/errors/failure-text.ts", "src/errors/failure-text.test.ts", "src/i18n/index.ts", "src/i18n/catalog.ts",
+                "src/feature/c/screen.tsx", "src/feature/c/state.ts", "src/feature/b/screen.tsx", "src/feature/b/state.ts",
+                "src/feature/a/screen.tsx", "src/feature/a/state.ts", "src/feature/a/state.spec.ts",
+                "src/feature/c/util.ts", "src/lonely.ts", "docs/notes.md",
+            ],
+        )
         top = orders["ordering"]["top"]["O"]
         by_id = {node["id"]: node["path"] for node in self.ordering["prs"][0]["nodes"]}
         self.assertEqual(
@@ -532,6 +663,54 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 "api/openapi-spec.yaml", "docs/guide.md",
             ],
         )
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's highlighting code")
+    def test_single_file_components_are_highlighted_per_block_and_common_files_are_mapped(self):
+        """This test will fail when gen_diffs.py stops naming the block a Vue/Svelte hunk starts in on its @@ line, the viewer highlights a hunk in the middle of a <template>, <script lang="ts">, or <style lang="scss"> block (or Svelte markup after </script>) in another block's language, or a common file type loses its highlight.js language."""
+        repo = self.root / "sfc"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        vue = ["<template>", "  <ul>"] + [f'    <li class="r{i}">{{{{ n{i} }}}}</li>' for i in range(10)] + ["  </ul>", "</template>", "",
+               '<script setup lang="ts">'] + [f"const n{i}: number = {i};" for i in range(10)] + ["</script>", "",
+               '<style lang="scss" scoped>', "$gap: 4px;"] + [f".r{i} {{ margin: $gap * {i}; }}" for i in range(10)] + ["</style>", ""]
+        svelte = ['<script lang="ts">'] + [f"  let v{i}: number = {i};" for i in range(10)] + ["</script>", "", "<main>"] + \
+                 [f"  <p>{{v{i}}}</p>" for i in range(10)] + ["</main>", ""]
+        commit_files(repo, {"Card.vue": "\n".join(vue), "Page.svelte": "\n".join(svelte)}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        changed = {"    <li class=\"r5\">{{ n5 }}</li>": "    <li class=\"r5 on\">{{ n5 }}</li>",
+                   "const n5: number = 5;": "const n5: number = 50;", ".r5 { margin: $gap * 5; }": ".r5 { margin: $gap * 6; }",
+                   "  let v5: number = 5;": "  let v5: number = 55;", "  <p>{v5}</p>": "  <p class=\"on\">{v5}</p>"}
+        files = {"Card.vue": "\n".join(vue), "Page.svelte": "\n".join(svelte)}
+        for old, new in changed.items():
+            files = {path: text.replace(old, new) for path, text in files.items()}
+        commit_files(repo, files, "feat")
+        graph, diffs = self.root / "graphs-sfc.json", self.root / "diffs-sfc.json"
+        run_script("build_graph.py", "--out", str(graph), "--pr", "V", str(repo), "main...feat")
+        run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "V", str(repo), "main...feat", "--context", "2")
+        by_path = {entry["path"]: entry["diff"] for entries in json.loads(diffs.read_text(encoding="utf-8")).values() for entry in entries}
+        heads = [line.split("@@")[-1].strip() for diff in by_path.values() for line in diff.splitlines() if line.startswith("@@")]
+        self.assertEqual(sorted(heads), sorted(['<template>', '<script setup lang="ts">', '<style lang="scss" scoped>', '<script lang="ts">', "</script>"]))
+        paths = {"Dockerfile": "dockerfile", "ops/Dockerfile.dev": "dockerfile", "app/build.gradle": "groovy", "settings.gradle.kts": "kotlin",
+                 "api/visit.proto": "protobuf", "web/.env.local": "ini", ".env": "ini", "pyproject.toml": "ini", "a.mts": "typescript",
+                 "a.cts": "typescript", "a.mjs": "javascript", "a.cjs": "javascript", "db/schema.pgsql": "pgsql", "q.sql": "sql",
+                 "Makefile": "makefile", "schema.graphql": "graphql", "Card.vue": "xml", "infra/main.tf": None, "LICENSE": None, "c": None}
+        cases = self.root / "langs.json"
+        cases.write_text(json.dumps({"paths": list(paths), "diffs": by_path}), encoding="utf-8")
+        script = self.root / "viewer-langs.js"
+        script.write_text(VIEWER_LANGS, encoding="utf-8")
+        result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(cases)], capture_output=True, text=True, check=True)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["paths"], paths)
+        langs = {(path, side, text): lang for path, rows in out["rows"].items() for side, _line, text, lang in rows}
+        for path, text, lang in (
+            ("Card.vue", '<li class="r5">{{ n5 }}</li>', "xml"), ("Card.vue", '<li class="r5 on">{{ n5 }}</li>', "xml"),
+            ("Card.vue", "const n5: number = 5;", "typescript"), ("Card.vue", "const n5: number = 50;", "typescript"),
+            ("Card.vue", ".r5 { margin: $gap * 5; }", "scss"), ("Card.vue", ".r5 { margin: $gap * 6; }", "scss"),
+            ("Page.svelte", "let v5: number = 55;", "typescript"), ("Page.svelte", '<p class="on">{v5}</p>', "xml"),
+        ):
+            with self.subTest(path=path, text=text):
+                side = "old" if (path, "old", text) in langs and (path, "new", text) not in langs else "new"
+                self.assertEqual(langs[(path, side, text)], lang)
 
     def test_build_graph_is_deterministic(self):
         """This test will fail when two runs over the same branches produce different graphs."""

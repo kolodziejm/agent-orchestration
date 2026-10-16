@@ -32,6 +32,10 @@ Steps:
      earlier PR (`http`), a base class or router a changed file depends on as an
      unchanged reference node (`extraNodes` + `import`).
    - Tests point at their subject with kind `test` (add the edge when the stems differ).
+   - The summary names each PR's shared dependencies (`hub`). Keep a file there only
+     when most of the PR uses it as a utility (i18n, error text, shared types); set
+     `nodes.<ref>.hub` to false for a central file whose links carry the flow, or to
+     true for a missed utility.
 3. Fill `role` for every node (one line, at most ~60 characters, report language)
    and `note` for files a reviewer could misread (one or two sentences, report
    language, may use <code>). Take them from the change maps; verify against the code.

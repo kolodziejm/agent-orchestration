@@ -68,6 +68,7 @@ Node fields:
 | `match` | Optional globs for hand-written graphs; `gen_diffs.py` also accepts a glob-like `path`. |
 | `note` | Optional per-file reviewer note, trusted HTML, report language. Shown in the detail panel. |
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
+| `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
 `kind`, and `external` (`true` when `to` is in another PR; listed in that PR's
@@ -97,18 +98,44 @@ map. `docs`, `config`, and `i18n` always read last.
 | `config` | Code → the config, env, or i18n it reads; catalog → translations. |
 | `http` | A call across a service boundary (client → handler in another PR or repo). Drawn dashed. |
 
+### Shared dependencies
+
+A file that most of a PR depends on (an i18n entry point, a failure-text helper, a
+`common.py`) would put an arc from almost every row into its own and bind every file
+to every other one in the reading order. `build_graph.py` flags such a file `hub`.
+Counting only core nodes (not tests, not `docs`/`config`/`i18n`) and their non-`test`
+edges within the PR, with `linked` the core nodes that share such an edge with another
+core node: a node is a hub when at least `max(4, ceil(linked / 4))` other core nodes
+depend on it (25 linked files: 7). Then a core node that only hubs depend on joins
+them, repeated until nothing changes, so a hub's private helper is read with it. The
+overlay's `"hub": true` or `false` on a node overrides the rule (`false` also keeps
+the node out of the second step); on a test or late node it is ignored with a
+warning. A file with fewer than 4 dependents is never a hub, so most small PRs have
+none.
+
+The viewer pins the hubs, each with its tests indented under it, in a "Wspólne
+zależności" / "Shared dependencies" group at the top of the step list, numbered as
+the first steps in both reading modes. The arc lane draws an arc into a hub only
+while that hub is the selected or hovered file; another selected file that uses hubs
+gets a "◆" chip on its row and a blue ring on the hubs' dots instead, and its
+neighbourhood lists them on one "+ shared:" line instead of as dependencies. The map
+puts the hubs in a band on top, joined to each other by arcs above them, and shows an
+edge into the band only for the selected file.
+
 ### Reading order
 
 `order` is dependency-first ("Od zależności" / "From dependencies"). build_graph.py
-splits the core nodes (not tests, not `docs`/`config`/`i18n`) into connected ones,
-which share a non-`test` edge with another core node of the same PR, and isolated
-ones; edges to tests, to late nodes, and to other PRs do not connect a node. It
-topologically sorts the connected nodes. When several are ready to be read, the
+reads the hubs first, then the other core nodes, and an edge between a hub and
+another node counts in neither part: a node linked only to hubs reads with the
+isolated ones, and hubs do not pull their users together. Within each part it splits
+the nodes into connected ones, which share a non-`test` edge with another node of the
+part, and isolated ones; edges to tests, to late nodes, and to other PRs do not
+connect a node. It topologically sorts the connected nodes. When several are ready to be read, the
 flow rule picks the one that shares such an edge (either direction) with the most
 recently placed node, so a run like types → service → controller stays together
 instead of interleaving with unrelated files; remaining ties break by layer
 (`contract < domain = data < logic < infra < rest < ui < wiring`), then path. It
-appends the isolated nodes by layer and path, inserts each test right after the core
+appends the part's isolated nodes by layer and path, inserts each test right after the core
 file it tests (its `test` edge first, else its other edges; the last such file
 wins; a test with no core target goes after all core nodes), and puts `docs`,
 `config`, `i18n` last. The viewer recomputes the order with the same rule, using
@@ -116,12 +143,17 @@ the stored `order` as its last tie-break (for build_graph.py output that encodes
 the layer and path tie-break), so it reproduces the stored order exactly; on a
 hand-written graph the stored order decides only between equally connected files.
 The viewer's default mode, "Od punktu wejścia" / "From the entry point", reverses
-only the connected part: isolated nodes, the placement of tests, and the late
-layers stay as in the stored order, so an unrelated file (a collapsed import
-change, say) never opens either mode. Reversing keeps every adjacent pair
+only the connected nodes of each part: the hubs still come first (read the shared
+pieces before the files that use them), and isolated nodes, the placement of tests,
+and the late layers stay as in the stored order, so an unrelated file (a collapsed
+import change, say) never opens either mode. Reversing keeps every adjacent pair
 adjacent, so the flow rule holds in both modes. The viewer numbers the steps on
 the whole PR, tests included; the test filter hides tests without renumbering the
-rest, and prev/next skip hidden steps. Do not author a second reading order
+rest, and prev/next skip hidden steps. "Grupuj według folderów" / "Group by folder"
+(off by default, kept in localStorage) splits the rows after the hub group into
+collapsible sections by folder (a test goes with its subject's folder), keeps
+reading order inside each, orders the sections by their first step, and leaves the
+step numbers and prev/next as they are. Do not author a second reading order
 anywhere else.
 
 A file is a test when its path is under a test directory (`__tests__`, `__mocks__`,
@@ -174,7 +206,8 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 }
 ```
 
-`nodes` may set `role`, `note`, `layer`, `label`. An `extraNodes` entry is an
+`nodes` may set `role`, `note`, `layer`, `label`, and `hub` (`true` or `false`, see
+Shared dependencies). An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). Overlay edges replace a
 weaker edge between the same nodes (`test > route > di > http > config > import`).
 
@@ -205,7 +238,11 @@ matching file as its own node (with the given layer) instead of collapsing it.
 ```
 
 Keys are node ids; each value lists that node's files with a unified diff whose
-`diff --git`, `index`, mode, and rename headers are stripped. `truncated` is the
+`diff --git`, `index`, mode, and rename headers are stripped. For `.vue`, `.svelte`,
+and `.astro` files each `@@` line ends with the last block tag before the hunk
+(`<script setup lang="ts">`, `</script>`), which the viewer uses to highlight a hunk
+in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
+language (it falls back to the tags inside the hunks and a guess for diffs without it). `truncated` is the
 full line count of a diff cut at `--max-lines`; `binary: true` marks a binary
 file. The viewer opens files lazily and collapses a file over 400 lines, and every
 file after the first when a node has more than four.

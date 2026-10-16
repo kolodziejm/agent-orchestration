@@ -10,7 +10,7 @@ description: >-
   "raport do review", "graf zależności diffu", "jak czytać te zmiany", "in what
   order should I read this diff"), and offer it after finishing a change that
   spans several PRs.
-compatibility: Requires git and python3 (standard library only) to build the data, node to validate the page, and read access to every repository in the stack. Publishes through the Claude Code Artifact tool when available, otherwise writes a local HTML file. The page loads highlight.js (and, for a local file, mermaid) from cdnjs.
+compatibility: Requires git and python3 (standard library only) to build the data, node to validate the page, and read access to every repository in the stack. Publishes through the Claude Code Artifact tool when available, otherwise writes a local HTML file. The page loads highlight.js (plus any language file its diffs need, such as dockerfile or protobuf) and, for a local file, mermaid from cdnjs.
 ---
 
 # PR review map
@@ -41,7 +41,11 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    selected file's dependencies and dependents as arcs between rows ("All links"
    draws every dependency; above 60 rows only nearby arcs and the selected
    file's). Files of earlier PRs the PR uses head the list, grouped
-   by PR. The order runs "from the entry point" (default, reverse dependency
+   by PR. Shared dependencies (files at least a quarter of the PR's linked files
+   use, flagged `hub`) come next as the first steps in both modes, in their own
+   group; arcs into them show only while one is selected, and the neighbourhood
+   lists them on one "+ shared:" line. "Group by folder" splits the rest into
+   collapsible sections that keep the step numbers. The order runs "from the entry point" (default, reverse dependency
    order) or "from dependencies"; in both, a file connected to the one just read
    comes next when the dependencies allow, tests follow their subject, files with
    no edge to another file of the PR come after the connected ones, docs/config/
@@ -51,7 +55,7 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    orange, other PRs' files in their colour, previous and next step), then its
    diff (side by side or unified, big files collapsed, rendered lazily). A Map
    toggle adds the whole graph: entry points right, tests under their subject,
-   earlier-PR files in a left band, unlinked files and docs/config/i18n on a
+   earlier-PR files in a left band, shared dependencies in a top band, unlinked files and docs/config/i18n on a
    shelf, full-size labels that scroll. Read marks and the chosen view persist in
    localStorage. **Review notes**: on a line range (click a line number;
    Shift+click or the keyboard for a range on the same side), a
@@ -113,8 +117,8 @@ Hand `references/graph-prompt.md` to one subagent. It runs
 checkout (numstat, grouping, a first-guess layer, JS/TS imports with aliases,
 Python imports, PHP `use`, test → subject, dependency order), then records what
 git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,
-unchanged reference files, a `role` for every node, and `note`s from the change
-maps. The schema and overlay format are in `references/graph-schema.md`.
+unchanged reference files, a `role` for every node, `note`s from the change
+maps, and a `hub` override where the shared-dependency rule misjudges a file. The schema and overlay format are in `references/graph-schema.md`.
 
 ### 4. Generate the diffs
 
@@ -124,8 +128,9 @@ python3 $SKILL/scripts/gen_diffs.py --graph $SCRATCH/graphs.json --out $SCRATCH/
 ```
 
 One `--pr KEY REPO RANGE` per PR. Git headers are stripped, each diff is
-assigned to its node through `path`/`files`, and `--max-lines` (default 2000)
-caps a huge file such as a lockfile. Fix every "mapped to no node" file in the
+assigned to its node through `path`/`files`, `--max-lines` (default 2000)
+caps a huge file such as a lockfile, and Vue/Svelte/Astro hunks name their block
+on the `@@` line so the viewer highlights template, script, and style apart. Fix every "mapped to no node" file in the
 overlay rather than dropping `--strict`.
 
 ### 5. Write the narrative
