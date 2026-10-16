@@ -273,8 +273,13 @@ skips the record.
 both data steps succeed), then validates. Before rebuilding it keeps the current
 build's generation, tips, and file fingerprints in `previous.json`
 (`{"generation": n, "tips": {KEY: short sha}, "files": {KEY: {path: fp}}}`), which
-`assemble.py --previous` embeds in the page config; the page's own generation is
-n + 1 (0 for a page built without `--previous`). A re-run that changes nothing keeps
+`assemble.py --previous` embeds in the page config. Every page also carries its own
+generation, which `assemble.py` takes from the page it replaces (`--out`, else the
+page the manifest last recorded): the same content (every file's PR, path, and
+fingerprint) keeps its number, so rebuilding the same data is byte-identical; other
+content counts one up, whether it came from `refresh.py` or the scripts by hand; with
+`--previous` it is also above n. A page with nothing before it starts at 0, and
+`refresh.py` writes the replaced page's own generation as n. A re-run that changes nothing keeps
 the existing `previous.json`, so the page's comparison stays. `--assemble-only`
 reassembles and validates with the recorded inputs, after a narrative edit. PR keys,
 repositories, and ranges must not start with `-` or hold white space or control
@@ -286,8 +291,14 @@ The viewer compares each file's `fp` with `previous.files`: a file the PR did no
 change before is new, a different fingerprint is changed, a file only the previous
 build had is removed; a file without `fp` is never flagged changed. A read mark
 stores the fingerprint and generation it is known good on (`readfp` in
-localStorage, `{f, g}`). On load it is cleared only when the fingerprint differs
-and its generation is lower than the page's, so opening an older page never clears
-a mark; a matching fingerprint moves the mark up to the page's generation. A
-cleared mark is remembered under `wasread` until the file is marked read again. A
-file without a fingerprint keeps its mark and stores none.
+localStorage, `{f, g}`). On load it is cleared when the fingerprint differs and its
+generation is not above the page's: lower means the page is newer; equal means the
+mark comes from another history (a fresh directory with the same storage key; within
+one history equal generations have equal content), which cannot be ordered, so the
+different code counts as unread. A mark from a higher generation is from a newer page
+and is never cleared, and a matching fingerprint moves the mark up to the page's
+generation, so opening an older page never clears one. A cleared mark is remembered
+under `wasread` (shown as ↻ while the page's code differs from what was read) until
+the file is marked read again; a page built without `--previous` still lists the
+cleared marks in its banner. A file without a fingerprint keeps its mark and stores
+none.

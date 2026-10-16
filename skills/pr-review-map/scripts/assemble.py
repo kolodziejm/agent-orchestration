@@ -24,10 +24,19 @@ the HTML parser out of the data.
 
 --previous names the previous build's generation, tips, and file fingerprints
 ({"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fp}}}, written by
-refresh.py); the page then shows what changed since that version, gets generation
-n + 1 (0 without --previous), and clears read marks of files that changed since a
-mark made on an older generation. A PR `color` must be a palette slot
-(`var(--pal-3)`), a hex colour, or a colour name: it lands in CSS.
+refresh.py); the page then shows what changed since that version.
+
+Every page carries a generation, which the viewer uses to clear read marks of files
+that changed since they were read and never on an older page. It comes from the page
+this build replaces: --out if it exists, else the page the manifest last recorded
+(manifest.history). The same content (every file's PR, path, and fingerprint) keeps
+that page's generation, so rebuilding from the same data gives the same bytes; any
+other content counts one up, whether the data came from refresh.py or the scripts by
+hand. With --previous the generation is also above the previous build's. A page with
+no page before it starts at 0 (or one above --previous).
+
+A PR `color` must be a palette slot (`var(--pal-3)`), a hex colour, or a colour
+name: it lands in CSS.
 The arguments, with the storage key as resolved, go in the `assemble` section of
 review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -181,7 +190,13 @@ def main() -> int:
     config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
     if previous is not None:
         config["previous"] = previous
-    config["generation"] = previous["generation"] + 1 if previous is not None else 0
+    here = args.graph.resolve().parent
+    last = None if args.no_manifest else manifest.read(here).get("assemble")
+    before = manifest.history([args.out, manifest.resolve(here, last.get("out")) if isinstance(last, dict) and last.get("out") else None])
+    generation = 0 if before is None else before[0] + (before[1] != manifest.digest(graph, diffs))
+    if previous is not None:
+        generation = max(generation, previous["generation"] + 1)
+    config["generation"] = generation
 
     toc = [*toc_entries(head), ("graph", strings["graphToc"]), *toc_entries(body)]
     toc_html = "\n".join(f'    <li><a href="#{html.escape(i)}">{t}</a></li>' for i, t in toc)
@@ -228,7 +243,6 @@ def main() -> int:
     page = PLACEHOLDER.sub(fill, template)
     args.out.write_text(page, encoding="utf-8")
     if not args.no_manifest:
-        here = args.graph.resolve().parent
         manifest.record(here, "assemble", {
             "graph": manifest.stored(here, args.graph), "diffs": manifest.stored(here, args.diffs),
             "narrative": manifest.stored(here, args.narrative), "title": args.title, "lang": args.lang,

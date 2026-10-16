@@ -1197,6 +1197,41 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(json.loads((scratch / "previous.json").read_text(encoding="utf-8"))["generation"], 1)
         self.assertEqual(embedded_json((scratch / "review.html").read_text(encoding="utf-8"), "review-config")["generation"], 2)
 
+    def test_every_build_path_numbers_pages_by_what_they_show(self):
+        """This test will fail when a build by hand (build_graph, gen_diffs, assemble without --previous) does not count the generation up after the content changed, when a rebuild of the same content changes the bytes or the number, when refresh.py takes its numbers from anything but the page it replaces (a hand build after a refresh must not reset the count), or when a page written under a new name loses the history the manifest points to."""
+        repo, d = self.root / "hand-repo", self.root / "hand"
+        shutil.copytree(self.repo, repo)
+        git(repo, "checkout", "-q", "-B", "feat", self.tip1)
+        d.mkdir()
+        for name in ("narrative.html", "overlay.json"):
+            shutil.copy(self.scratch / name, d / name)
+
+        def build(*extra, out="review.html"):
+            run_script("build_graph.py", "--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--overlay", str(d / "overlay.json"))
+            run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--pr", "A", str(repo), "main...feat")
+            run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                       "--title", "Hand", "--target", "local", "--out", str(d / out), *extra)
+            page = (d / out).read_text(encoding="utf-8")
+            return embedded_json(page, "review-config").get("generation"), page
+
+        gen, v1 = build()
+        self.assertEqual(gen, 0)
+        self.assertEqual(build(), (0, v1))
+        commit_files(repo, {"src/a.ts": "export const a = 2;\n"}, "hand round 1")
+        gen, v2 = build()
+        self.assertEqual(gen, 1)
+        self.assertNotIn('"previous"', v2)
+        self.assertEqual(build(), (1, v2))
+        commit_files(repo, {"src/b.ts": "export const b = 3;\n"}, "hand round 2")
+        run_script("refresh.py", str(d))
+        self.assertEqual(json.loads((d / "previous.json").read_text(encoding="utf-8"))["generation"], 1)
+        self.assertEqual(build()[0], 2)
+        commit_files(repo, {"src/c.ts": "export const c = 4;\n"}, "hand round 3")
+        self.assertEqual(build()[0], 3)
+        self.assertEqual(build(out="renamed.html")[0], 3)
+        commit_files(repo, {"src/c.ts": "export const c = 5;\n"}, "hand round 4")
+        self.assertEqual(build(out="renamed-again.html")[0], 4)
+
     def test_fingerprints_see_mode_changes_renames_and_copies(self):
         """This test will fail when a mode change or a pure rename leaves no trace in the fingerprint (every such file would hash to the same empty body), or when an ordinary new text file stops matching the fingerprint refresh.py computes from an old diffs.json body."""
         flag, sys.dont_write_bytecode = sys.dont_write_bytecode, True  # no __pycache__ in the skill

@@ -147,12 +147,6 @@ def pair_args(flag: str, pairs) -> list[str]:
     return out
 
 
-def generation(path: Path | None) -> int:
-    """The generation of the page built with the previous-version file `path`: one after that file's, 0 without one."""
-    data = load_json(path) if path is not None else None
-    return int(data.get("generation", 0)) + 1 if isinstance(data, dict) else 0
-
-
 def narrative_warnings(narrative: Path | None, moved: list[tuple[str, str, str]], before: dict, after: dict) -> list[str]:
     """Where narrative.html still shows a moved PR's old tip, and each moved PR's new counts."""
     text = narrative.read_text(encoding="utf-8") if narrative and narrative.is_file() else ""
@@ -282,11 +276,12 @@ def main() -> int:
         previous = kept
         print("nothing changed since the last build; the page keeps its comparison with the version before")
     else:
-        # The build being replaced becomes the comparison; its generation is one after the comparison it had, so the
-        # viewer can tell an older page from a newer one and never clears a read mark on an older page.
+        # The build being replaced becomes the comparison, with its own generation as its page records it (whichever way
+        # that page was built); assemble.py numbers the new page above it.
         previous = here / PREVIOUS
         short = {pr["key"]: pr.get("tip", "") for pr in old_graph.get("prs", [])}
-        current = generation(manifest.resolve(here, asm.get("previous")))
+        replaced = manifest.history([out])
+        current = replaced[0] if replaced else 0
         previous.write_text(json.dumps({"generation": current, "tips": short, "files": old_files}, ensure_ascii=False, indent=1,
                                        sort_keys=True) + "\n", encoding="utf-8")
     step("assemble.py", assemble_args(here, asm, previous))

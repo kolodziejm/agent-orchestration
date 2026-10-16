@@ -8,11 +8,13 @@ The file is written with sorted keys, so the same inputs give the same bytes.
 
 It also holds the checks every script applies to the PR keys, ranges, and
 repositories it hands to git (check_pr), so a value from the command line or a
-manifest can never become a git option. Python 3 standard library only.
+manifest can never become a git option, and the page history assemble.py and
+refresh.py number builds by (history). Python 3 standard library only.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -89,3 +91,36 @@ def record(directory: Path, section: str, value: dict) -> Path:
     path = directory / NAME
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return path
+
+
+DATA_BLOCK = re.compile(r'<script type="application/json" id="(review-config|graph-data|diff-data)">(.*?)</script>', re.DOTALL)
+
+
+def digest(graph: dict, diffs: dict) -> str:
+    """What a page shows, as one hash: every changed file's PR key, path, and fingerprint (its diff's hash without one)."""
+    owner = {node["id"]: pr["key"] for pr in graph.get("prs", []) for node in pr.get("nodes", [])}
+    items = sorted((owner.get(node_id, ""), entry.get("path", ""),
+                    entry.get("fp") or "diff:" + hashlib.sha256(entry.get("diff", "").encode("utf-8")).hexdigest()[:12])
+                   for node_id, entries in diffs.items() for entry in entries)
+    return hashlib.sha256(json.dumps(items, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def history(pages) -> tuple[int, str] | None:
+    """(generation, digest) of the first of `pages` that is an assembled review map, else None.
+
+    Each page carries its generation in its config (0 before generations existed) and its data, so the page a build
+    replaces tells the build its number: the same digest keeps it, any other content counts one up. This works for
+    every build path (refresh.py or the scripts by hand) and needs nothing besides the page itself.
+    """
+    for page in pages:
+        if page is None or not Path(page).is_file():
+            continue
+        try:
+            blocks = {m.group(1): json.loads(m.group(2)) for m in DATA_BLOCK.finditer(Path(page).read_text(encoding="utf-8"))}
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        config, graph, diffs = blocks.get("review-config"), blocks.get("graph-data"), blocks.get("diff-data")
+        if isinstance(config, dict) and isinstance(graph, dict) and isinstance(diffs, dict):
+            gen = config.get("generation", 0)
+            return (gen if isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0 else 0), digest(graph, diffs)
+    return None

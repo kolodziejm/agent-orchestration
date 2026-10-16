@@ -1263,8 +1263,9 @@ details.nt-panel{margin:0}
      (the diff entry's fp, from gen_diffs.py) differs; a file without a fingerprint (diffs.json from before them) is
      never flagged changed. CHG[id] is "new" when every file of a node is new, "changed" when any is new or changed;
      REMOVED lists the files the previous build had and this one does not, PRs gone from the stack included. Without
-     CFG.previous nothing is flagged. GEN is this page's generation (refresh.py counts builds; 0 for a page built
-     without a previous version). */
+     CFG.previous nothing is flagged. GEN is this page's generation: assemble.py keeps the number of the page it
+     replaces when the content is the same and counts one up otherwise, however the page was built; a page with no
+     page before it starts at 0. */
   function obj(k){var v=null;try{v=JSON.parse(load(k,'{}'));}catch(e){}return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}
   var PREV=CFG.previous&&CFG.previous.files&&typeof CFG.previous.files==='object'?CFG.previous:null,CHG=Object.create(null),REMOVED=[],CHGN={new:0,changed:0,removed:0};
   if(PREV){
@@ -1283,9 +1284,11 @@ details.nt-panel{margin:0}
   }
   /* A node's fingerprint: its files' fps ("path=fp", sorted), null when a file has none (unknown). A read mark keeps
      the fingerprint and generation it is known good on ({prKey: {path: {f, g}}} under "readfp"). On load a mark is
-     cleared only when this page is newer than the mark and its file changed since: the fingerprint differs and the
-     mark's generation is lower than GEN. A page of the same or an older generation never clears a mark, and a mark
-     whose fingerprint matches moves up to GEN, so opening an older page later cannot clear it either. A mark stored
+     cleared when its fingerprint differs and its generation is not above GEN: lower means this page is newer; equal
+     means the mark comes from a page of another history (a fresh scratch directory with the same storage key; within
+     one history equal generations have equal content), which cannot be ordered, so its different code counts as
+     unread. A mark stamped with a higher generation is from a newer page and is never cleared here, and a mark whose
+     fingerprint matches moves up to GEN, so opening an older page later cannot clear it either. A mark stored
      as a bare fingerprint (no generation) is cleared only when that fingerprint is this page's previous one (it was
      made on the version just before); a mark from before fingerprints, only when this build flags its file. A
      cleared mark is remembered under "wasread" until the file is marked read again, so the row and the banner can
@@ -1297,14 +1300,16 @@ details.nt-panel{margin:0}
   Object.keys(all).forEach(function(id){
     var n=all[id],fp=nodeFp(id);if(!isDone(id)||!fp)return;
     var r=rfp[n.pr]&&own(rfp[n.pr],n.path),rf=r&&typeof r==='object'?r.f:r,rg=r&&typeof r==='object'&&typeof r.g==='number'?r.g:null;
-    var drop=rf?rf!==fp&&(rg!=null?rg<GEN:!!PREV&&rf===fpOf(id,own(PREV.files,n.pr)||{})):!!CHG[id];
+    var drop=rf?rf!==fp&&(rg!=null?rg<=GEN:!!PREV&&rf===fpOf(id,own(PREV.files,n.pr)||{})):!!CHG[id];
     if(drop){
       delete marks[n.pr][n.path];if(!Object.keys(marks[n.pr]).length)delete marks[n.pr];
       if(rfp[n.pr])delete rfp[n.pr][n.path];(was[n.pr]=was[n.pr]||{})[n.path]=rf||1;cleared++;
     }else if(!rf||rf===fp)(rfp[n.pr]=rfp[n.pr]||{})[n.path]={f:fp,g:Math.max(GEN,rg||0)};
   });
   saveDone();
-  function wasRead(id){var n=all[id];return !!(n&&!isDone(id)&&was[n.pr]&&own(was[n.pr],n.path)!=null);}
+  /* Unread again because it changed: a cleared mark is remembered and this page shows other code than was read (on the
+     version that was read, an older page, there is nothing new to say). */
+  function wasRead(id){var n=all[id],w=n&&!isDone(id)&&was[n.pr]?own(was[n.pr],n.path):null;return w!=null&&w!==nodeFp(id);}
   var cur=data.prs.length?data.prs[0].key:null,sel=null,showTests=true,showExt=true,showPath=false,onlyChg=false,ON={},SUBJ={},LINKED={},HUB={};
   var allArcs=load('arcs','sel')==='all';
   /* "Group by folder" (kept under "folders") and the collapsed sections, {prKey: {sectionKey: 1}} under "fold". */
@@ -1356,16 +1361,19 @@ details.nt-panel{margin:0}
   var chgBox=document.getElementById('g-chg');
   function setOnlyChg(v){onlyChg=v;var c=document.getElementById('g-changed');if(c)c.checked=v;}
   function paintChanges(){
-    if(!PREV){chgBox.hidden=true;return;}
-    var total=CHGN.new+CHGN.changed+CHGN.removed,h=[];chgBox.hidden=false;chgBox.className='g-chg callout '+(total?'warn':'ok');
-    var tips=data.prs.map(function(p){var o=own(PREV.tips,p.key)||'',t=p.tip||'';return esc(prName(p.key))+' '+(o&&o!==t?esc(o)+' → '+esc(t):esc(t||o)+' ('+esc(S.chgTipSame)+')');}).join(', ');
-    h.push('<p><strong>'+esc(S.chgTitle)+':</strong> '+esc(total?fmt(S.chgSummary,{n:total,files:filesWord(total),new:CHGN.new,changed:CHGN.changed,removed:CHGN.removed}):S.chgNone)+' <span class="mono">'+esc(S.chgTips)+' '+tips+'</span></p>');
-    if(CHGN.new+CHGN.changed){
-      var per=data.prs.map(function(p){var n=p.nodes.filter(function(x){return CHG[x.id];}).length;return n?'<button type="button" class="tag" data-chg="'+esc(p.key)+'" style="--c:'+esc(prColor(p.key))+'">'+esc(prName(p.key))+': '+n+'</button>':'';}).join(' ');
-      h.push('<div class="g-chg-r"><span>'+per+'</span><label title="'+esc(S.chgOnlyTitle)+'"><input type="checkbox" id="g-changed"'+(onlyChg?' checked':'')+'> '+esc(S.chgOnly)+'</label></div>');
+    var wr=Object.keys(all).filter(wasRead).sort(function(a,b){return prIdx(all[a].pr)-prIdx(all[b].pr)||all[a].order-all[b].order;});
+    if(!PREV&&!cleared&&!wr.length){chgBox.hidden=true;return;}
+    var total=CHGN.new+CHGN.changed+CHGN.removed,h=[];chgBox.hidden=false;chgBox.className='g-chg callout '+(total||!PREV?'warn':'ok');
+    /* A page built without a previous version (by hand, not by refresh.py) still says which read marks it cleared. */
+    if(PREV){
+      var tips=data.prs.map(function(p){var o=own(PREV.tips,p.key)||'',t=p.tip||'';return esc(prName(p.key))+' '+(o&&o!==t?esc(o)+' → '+esc(t):esc(t||o)+' ('+esc(S.chgTipSame)+')');}).join(', ');
+      h.push('<p><strong>'+esc(S.chgTitle)+':</strong> '+esc(total?fmt(S.chgSummary,{n:total,files:filesWord(total),new:CHGN.new,changed:CHGN.changed,removed:CHGN.removed}):S.chgNone)+' <span class="mono">'+esc(S.chgTips)+' '+tips+'</span></p>');
+      if(CHGN.new+CHGN.changed){
+        var per=data.prs.map(function(p){var n=p.nodes.filter(function(x){return CHG[x.id];}).length;return n?'<button type="button" class="tag" data-chg="'+esc(p.key)+'" style="--c:'+esc(prColor(p.key))+'">'+esc(prName(p.key))+': '+n+'</button>':'';}).join(' ');
+        h.push('<div class="g-chg-r"><span>'+per+'</span><label title="'+esc(S.chgOnlyTitle)+'"><input type="checkbox" id="g-changed"'+(onlyChg?' checked':'')+'> '+esc(S.chgOnly)+'</label></div>');
+      }
     }
     if(cleared)h.push('<p>'+esc(fmt(S.chgCleared,{n:cleared}))+'</p>');
-    var wr=Object.keys(all).filter(wasRead).sort(function(a,b){return prIdx(all[a].pr)-prIdx(all[b].pr)||all[a].order-all[b].order;});
     if(wr.length)h.push('<details><summary>'+esc(fmt(S.chgWasRead,{n:wr.length}))+'</summary><p class="nt-hint">'+esc(S.chgWasReadTitle)+'</p><ul>'+wr.map(function(id){return '<li><button type="button" class="nt-b lnk" data-go="'+esc(id)+'">'+esc(prName(all[id].pr)+' · '+all[id].path)+'</button></li>';}).join('')+'</ul></details>');
     if(REMOVED.length)h.push('<details><summary>'+esc(fmt(S.chgRemoved,{n:REMOVED.length}))+'</summary><ul>'+REMOVED.map(function(r){return '<li>'+esc(prName(r.pr)+' · '+r.path)+'</li>';}).join('')+'</ul></details>');
     var open=[].map.call(chgBox.querySelectorAll('details'),function(d){return d.open;});
