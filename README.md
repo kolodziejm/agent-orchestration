@@ -296,8 +296,10 @@ Nothing in this repository rewrites those files for you.
   when the user asks for it. `pr-review-map` builds an interactive HTML review map
   for one large pull request or a stack of dependent ones: a per-PR reading list
   of the changed files with their real dependencies drawn as arcs, links across
-  the stack, an optional map, and each file's neighbourhood and side-by-side diff
-  beside it, review notes on lines, files, or whole PRs that copy as Markdown for
+  the stack, an optional map that above 40 core files opens on a zoomable overview
+  of areas (authored clusters, else folders) expanding in place, and each file's
+  neighbourhood and side-by-side diff beside it, the list grouped by folder or by
+  area on request, review notes on lines, files, or whole PRs that copy as Markdown for
   an agent, plus architecture, rules, risks, and verification; `chunks.py` splits
   a pull request too large for one map into parts cut from its commits, shown as
   tabs grouped under it with each shared file's whole-PR diff a toggle away;

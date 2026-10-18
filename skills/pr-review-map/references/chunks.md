@@ -72,8 +72,9 @@ edges. A file that several parts change is one node per part, each with its own 
 slice and fingerprint; `gen_diffs.py` adds its diff over the whole PR to the last part's
 entry (`whole`) for the viewer's toggle.
 
-Overlay references may use the parent key: `M:path` sets `role`, `note`, `layer`, and
-`label` on every part's node of that path; an edge from `M:a` starts at the last part
+Overlay references may use the parent key: `M:path` sets `role`, `note`, `layer`,
+`label`, and `cluster` (its area, so an area spans the parts and each part tab shows the
+areas its nodes use) on every part's node of that path; an edge from `M:a` starts at the last part
 that changes `a` and ends at the last part up to that one that has its target (skipped
 with a warning when there is none); `dropEdges` drops the edge in every part;
 `extraNodes` with `"pr": "M"` go to the first part, so every part can link to them. A

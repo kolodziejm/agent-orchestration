@@ -44,8 +44,8 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    by PR. Shared dependencies (files at least a quarter of the PR's linked files
    use, flagged `hub`) come next as the first steps in both modes, in their own
    group; arcs into them show only while one is selected, and the neighbourhood
-   lists them on one "+ shared:" line. "Group by folder" splits the rest into
-   collapsible sections that keep the step numbers. The order runs "from the entry point" (default, reverse dependency
+   lists them on one "+ shared:" line. "Group by folder" (or "by area") splits the rest
+   into collapsible sections that keep the step numbers. The order runs "from the entry point" (default, reverse dependency
    order) or "from dependencies"; in both, a file connected to the one just read
    comes next when the dependencies allow, tests follow their subject, files with
    no edge to another file of the PR come after the connected ones, docs/config/
@@ -56,7 +56,9 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    diff (side by side or unified, big files collapsed, rendered lazily). A Map
    toggle adds the whole graph: entry points right, tests under their subject,
    earlier-PR files in a left band, shared dependencies in a top band, unlinked files and docs/config/i18n on a
-   shelf, full-size labels that scroll. Read marks and the chosen view persist in
+   shelf, full-size labels that scroll; above 40 core files it opens on an overview
+   of areas (`clusters`, else folders) with link counts, each area expanding in place,
+   zoomed and panned. Read marks and the chosen view persist in
    localStorage. **Review notes**: on a line range (click a line number;
    Shift+click or the keyboard for a range on the same side), a
    whole file ("Note on file" in its diff header), or a whole PR (the button by
@@ -143,7 +145,8 @@ checkout (numstat, grouping, a first-guess layer, JS/TS imports with aliases,
 Python imports, PHP `use`, test → subject, dependency order), then records what
 git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,
 unchanged reference files, a `role` for every node, `note`s from the change
-maps, and a `hub` override where the shared-dependency rule misjudges a file. The schema and overlay format are in `references/graph-schema.md`.
+maps, a `hub` override where the shared-dependency rule misjudges a file, and for a
+PR above 40 core files 8-12 areas (`clusters`). The schema and overlay format are in `references/graph-schema.md`.
 
 ### 4. Generate the diffs
 

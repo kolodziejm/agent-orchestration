@@ -54,6 +54,8 @@ PR fields:
   name (anything else is refused, since it lands in CSS); by default PR *n* gets
   palette slot `--pal-n` (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
+- `clusters` — the areas the PR's nodes use, from the overlay (see Areas below):
+  `[{"id": "auth", "label": "Sign-in", "order": 1}]`, by order; absent without them.
 - `chunk` — only on a part of a PR split by its commits (`--chunks`,
   `references/chunks.md`): `{"of": "M", "index": 2, "count": 5, "from": "<sha>",
   "to": "<sha>", "commits": 4, "subjects": ["first five", "…"], "label": "web"}`, with
@@ -85,6 +87,7 @@ Node fields:
 | `note` | Optional per-file reviewer note, report language. HTML limited to `code`, `b`/`strong`, `i`/`em`, `br`, `kbd`, `sub`, `sup`, and links to `https://`/`#` addresses; other tags keep only their text and lose their attributes, `script`/`style` are dropped. Shown in the detail panel. |
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
+| `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
 `kind`, and `external` (`true` when `to` is in another PR; listed in that PR's
@@ -169,7 +172,9 @@ rest, and prev/next skip hidden steps. "Grupuj według folderów" / "Group by fo
 (off by default, kept in localStorage) splits the rows after the hub group into
 collapsible sections by folder (a test goes with its subject's folder), keeps
 reading order inside each, orders the sections by their first step, and leaves the
-step numbers and prev/next as they are. Do not author a second reading order
+step numbers and prev/next as they are. "Grupuj według obszarów" / "Group by area"
+(off by default, kept under `lgroup`; it and the folder grouping exclude each other)
+does the same with one section per area (below). Do not author a second reading order
 anywhere else.
 
 A file is a test when its path is under a test directory (`__tests__`, `__mocks__`,
@@ -191,6 +196,46 @@ Its subject is the changed file whose name equals the test's name with those
 markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`,
 `login.cy.ts` → `login.ts`, `PaymentITCase.java` → `Payment.java`), the nearest by
 path when several match. Django's `tests.py` has no name match; its imports place it.
+
+### Areas (clusters)
+
+A PR above 40 core files (not tests, not docs/config/i18n) opens its Map on an overview
+of areas instead of every file; at 40 or fewer the Map is the flat map as before. Author
+8–12 areas by feature or flow in the overlay:
+
+```json
+{"clusters": {"auth": {"label": "Sign-in", "order": 1}, "billing": {"label": "Billing", "order": 2}},
+ "nodes": {"M:src/auth/service.ts": {"cluster": "auth"}, "M:src/auth/routes.ts": {"cluster": "auth"}}}
+```
+
+An id is up to 40 letters, digits, `_`, `.`, or `-`, starting with a letter or digit;
+`label` (report language) defaults to the id and `order` to the area's place in the
+overlay. A parent-key reference (`M:path`) puts the file in the area in every part, so
+an area spans the parts and each part tab shows its own. build_graph.py writes the
+node's `cluster` and each PR's `clusters` (the areas its nodes use); a shared
+dependency or a docs/config/i18n node keeps none, with a warning, and an unknown area,
+a malformed id, or a non-integer order stops it. Its summary counts the core files per
+area and names those without one. validate.py rejects a node whose area its PR does not
+list and warns about fewer than 4 or more than 15 areas, an area with no core node, and
+a PR above 40 core nodes without areas.
+
+The viewer completes the areas, so a graph without them still has some: the shared
+dependencies form one area, docs/config/i18n another, each test joins the file it
+tests, core files without a known area are grouped by folder (at most 10 areas less the
+authored ones, about 25 files each), and each earlier PR or part whose files the PR uses
+is one area. The overview draws a box per area (name, files, read count, note-kind and
+test chips) and one line per pair of linked areas with its link count, wider for more
+(log scale), laid out with the flat map's layered layout (earlier PRs left, shared
+dependencies in a band on top, docs/config/i18n below, their lines drawn only for the
+selected file). A click or Enter expands an area in place: its linked files in the same
+layout, the others in a grid, each test as a "T n" badge on the file it tests (the list
+and the diff keep the tests). The selected file's links to other areas end at the files
+of expanded areas and at the border of collapsed ones; selecting a file expands its area
+and fades files more than 1 or 2 links away (1 / 2 / all, default 2, kept under `hops`).
+It zooms and pans through an SVG transform: Ctrl+wheel or pinch, dragging, the −/+/Fit
+buttons, keys `+` `-` `0`, Shift+arrows; the arrow keys move between the areas and the
+files of expanded ones (one Tab stop), Enter or Space acts, and expanding is announced.
+Expanded areas are kept per PR under `mapx`, zoom and pan under `mapz`.
 
 ## overlay.json
 
@@ -222,8 +267,9 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 }
 ```
 
-`nodes` may set `role`, `note`, `layer`, `label`, and `hub` (`true` or `false`, see
-Shared dependencies). An `extraNodes` entry is an
+`nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
+Shared dependencies), and `cluster` (an id from the overlay's `clusters`, see Areas).
+An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,
 the parent key (`M:path`) names the path in every part: `nodes` apply to each part's
 node, an edge starts at the last part that changes its `from` and ends at the last
