@@ -75,7 +75,9 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    handle them, and the copy names each state. A banner counts the files new,
    changed, and removed since the previous version (tips old → new, "Only changed
    files"), rows carry new/changed badges, and read marks of changed files are
-   cleared and marked ↻.
+   cleared and marked ↻. **A PR split into parts** (step 1) shows its parts as
+   tabs grouped under it; a file other parts change too carries an "also in parts"
+   chip and a whole-PR diff toggle.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -109,6 +111,20 @@ For each PR record: key (short, e.g. `M`, `S`, `A`, `B`), display name
 - Fetch first. If a branch moves later, regenerate (step 7); do not patch data by hand.
 
 List the PRs in merge order; edges may only point to the same or an earlier PR.
+
+**A very large PR** (over 100 changed files or 60 graph nodes; build_graph.py
+prints a hint) reads better as a virtual stack of parts cut from its commits:
+
+```bash
+python3 $SKILL/scripts/chunks.py propose --repo /abs/repo --range develop...feat/x \
+  --key M --name "#251" --out $SCRATCH/chunks.json
+```
+
+It groups consecutive commits by scope and prints a table. Show it to the user and
+let them confirm or adjust `chunks.json` (merge, split, relabel); never rewrite
+their history. Then pass `--chunks $SCRATCH/chunks.json` to build_graph.py and
+gen_diffs.py in place of that PR's `--pr`, and fan out one change map per part.
+Details, warnings, and the overlay's parent-key references: `references/chunks.md`.
 
 ### 2. Fan out change maps (parallel, read-only)
 
@@ -192,8 +208,10 @@ branch names to their current tips (read-only, prints old → new per PR), and
 builds the page against the previous version (`previous.json`): changed-file
 banner and badges, read marks of changed files cleared, notes moved or flagged.
 It never edits the narrative; it warns which stack cards still show an old tip
-and prints new counts. Update those cards and every claim the new commits
-change, run `refresh.py $SCRATCH --assemble-only`, and republish. refresh.py
+and prints new counts. Parts survive: new commits become a new part, a rebase is
+remapped by patch-id or subject, and it stops when that fails. Update those cards
+and every claim the new commits change, run `refresh.py $SCRATCH --assemble-only`,
+and republish. refresh.py
 trusts `review-map.json` as far as reading the files it names (overlay,
 narrative, strings, template): run it only on a manifest your own runs wrote.
 It refuses PR keys, repositories, and ranges git could read as options and

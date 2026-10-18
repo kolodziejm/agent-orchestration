@@ -54,6 +54,20 @@ PR fields:
   name (anything else is refused, since it lands in CSS); by default PR *n* gets
   palette slot `--pal-n` (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
+- `chunk` — only on a part of a PR split by its commits (`--chunks`,
+  `references/chunks.md`): `{"of": "M", "index": 2, "count": 5, "from": "<sha>",
+  "to": "<sha>", "commits": 4, "subjects": ["first five", "…"], "label": "web"}`, with
+  full SHAs; the part's diff is `from..to`. The parts of one parent follow each other
+  in the PR list, numbered 1..n, each starting where the one before ends, and their
+  keys end in a letter (`Ma`, `Mb`), so node ids cannot collide. A part's default
+  `name` is `#251 2/5 web`.
+
+With parts, the top level also holds `"parents": [{"key": "M", "name": "#251",
+"title": "…", "repo": "acme/web", "base": "1a2b3c4", "tip": "9f8e7d6", "parts": ["Ma",
+"Mb", …]}]`: the whole PR, whose key is no PR of the graph (overlay references and
+migrated notes use it), `base` the first part's start, `tip` the last part's end.
+`assemble.py` and `validate.py` refuse a broken chain. A graph without `parents` and
+`chunk` renders exactly as before.
 
 Node fields:
 
@@ -210,7 +224,12 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 
 `nodes` may set `role`, `note`, `layer`, `label`, and `hub` (`true` or `false`, see
 Shared dependencies). An `extraNodes` entry is an
-unchanged reference file (`unchanged: true` is implied). Overlay edges replace a
+unchanged reference file (`unchanged: true` is implied). For a PR split into parts,
+the parent key (`M:path`) names the path in every part: `nodes` apply to each part's
+node, an edge starts at the last part that changes its `from` and ends at the last
+part up to that one with its `to` (skipped with a warning when none has it),
+`dropEdges` drop it in every part, and `extraNodes` go to the first part. A part key
+(`Mb:path`) names one part. Overlay edges replace a
 weaker edge between the same nodes (`test > route > di > http > config > import`).
 A reference to a path the PR does not change (a typo, or a file a moved branch
 dropped) and an `extraNodes` file the PR now changes are skipped with a warning,
@@ -250,6 +269,9 @@ gen_diffs.py reads a tag that git cut at 80 bytes, that hides a `>` in an attrib
 or that spans lines from the file's old version), which the viewer uses to highlight
 a hunk in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
 language (it falls back to the tags inside the hunks and a guess for diffs without it).
+A file that two or more parts of a PR change has, on the entry of the last part that
+changes it, `"whole": {"diff": "…", "truncated"?: n}`: its diff over the whole PR (first
+part's start to last part's end), shown read-only by the viewer's whole-PR toggle.
 `fp` fingerprints the file's change: 12 hex digits of SHA-256 over the full diff body
 with every `@@` line reduced to `@@` (lines that only shift do not count), plus the
 header lines for a mode change (and a new or deleted file's mode unless 100644), a
@@ -266,11 +288,17 @@ record the inputs of their last run in `review-map.json`: PR keys, repositories
 (absolute), ranges, names, titles, labels, aliases, groups, overlay, context, line
 cap, strictness, narrative, title, language, strings, target, template (when not the
 default), output, the storage key as resolved, the previous-version file, and each
-PR's full tip SHA. Paths inside the directory are relative to it. `--no-manifest`
-skips the record.
+PR's full tip SHA. With `--chunks`, build_graph's section also has `"chunks": [{"path":
+"chunks.json", "parent": "M", "tip": "<full sha of the branch tip>"}]` and gen_diffs's
+`"chunks": ["chunks.json"]`. Paths inside the directory are relative to it.
+`--no-manifest` skips the record.
 
 `refresh.py DIR` replays the three runs (into side files, swapped in only when
-both data steps succeed), then validates. Before rebuilding it keeps the current
+both data steps succeed), then validates. For a PR split into parts it first fits `chunks.json`
+to the branch (`chunks.advance`): commits after the last part become a new part, a
+rewritten history is remapped by patch-id or subject, and a part it cannot map stops
+it before anything is rebuilt; the new `chunks.json` replaces the old one with the
+data. Before rebuilding it keeps the current
 build's generation, tips, and file fingerprints in `previous.json`
 (`{"generation": n, "tips": {KEY: short sha}, "files": {KEY: {path: fp}}}`), which
 `assemble.py --previous` embeds in the page config. Every page also carries its own

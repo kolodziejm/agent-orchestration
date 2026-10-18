@@ -298,9 +298,11 @@ Nothing in this repository rewrites those files for you.
   of the changed files with their real dependencies drawn as arcs, links across
   the stack, an optional map, and each file's neighbourhood and side-by-side diff
   beside it, review notes on lines, files, or whole PRs that copy as Markdown for
-  an agent, plus architecture, rules, risks, and verification; `refresh.py`
-  rebuilds it after the branches move, flagging changed files and moved or stale
-  notes; it carries its viewer
+  an agent, plus architecture, rules, risks, and verification; `chunks.py` splits
+  a pull request too large for one map into parts cut from its commits, shown as
+  tabs grouped under it with each shared file's whole-PR diff a toggle away;
+  `refresh.py` rebuilds it after the branches move, flagging changed files and
+  moved or stale notes and keeping the parts; it carries its viewer
   template, Python scripts, and subagent prompts as supporting files and is covered
   by `tests/test_pr_review_map.py`. Every generator except DeepSeek Harness
   copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers

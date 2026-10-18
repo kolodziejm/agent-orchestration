@@ -4,6 +4,12 @@ Send one copy per PR, in parallel. Fill every `<…>`. The subagent only reads; 
 writes one markdown file and returns a short result, so the orchestrator never
 loads the diff itself.
 
+For a PR split into parts (`references/chunks.md`), send one copy per part instead:
+the part's range from `chunks.py expand` (`from..to`), the part's tip as Tip SHA,
+`<pr name> part <i>/<n>: <label>` as the PR line, the earlier parts under "Earlier PRs
+in the stack", and `pr-<part key>.md` as the output. Each part reads like a PR of a
+stack.
+
 ```text
 Read-only task. Do not edit, commit, check out, stash, or push anything in the repository.
 

@@ -19,7 +19,8 @@ Steps:
      --pr <KEY REPO RANGE> --name <KEY NAME> [... one pair per PR] \
      [--title <KEY "PR title">] [--repo <KEY owner/name> when origin does not name it] \
      [--alias SPEC=PATH for workspace packages / tsconfig paths] \
-     [--groups <scratch dir>/groups.json] --overlay <scratch dir>/overlay.json
+     [--groups <scratch dir>/groups.json] --overlay <scratch dir>/overlay.json \
+     [--chunks <scratch dir>/chunks.json for a PR split into parts, in place of its --pr]
    Start with an empty overlay ({}). Resolve package aliases from package.json
    "exports"/"name" and tsconfig "paths" at the tip with `git show`, not by guessing.
 2. Read the printed summary and the generated graphs.json. For each PR check:
@@ -32,6 +33,9 @@ Steps:
      earlier PR (`http`), a base class or router a changed file depends on as an
      unchanged reference node (`extraNodes` + `import`).
    - Tests point at their subject with kind `test` (add the edge when the stems differ).
+   - For a PR split into parts, each part is a PR (`Ma`, `Mb`, …). Put what holds for a
+     file in every part under the parent key (`M:path`), what holds in one part under
+     the part key (`Mb:path`); see <skill dir>/references/chunks.md.
    - The summary names each PR's shared dependencies (`hub`). Keep a file there only
      when most of the PR uses it as a utility (i18n, error text, shared types); set
      `nodes.<ref>.hub` to false for a central file whose links carry the flow, or to
@@ -44,7 +48,7 @@ Steps:
    is real or drop the wrong edge with `dropEdges`.
 5. Generate diffs and confirm every node has one:
    python3 <skill dir>/scripts/gen_diffs.py --graph <scratch dir>/graphs.json \
-     --out <scratch dir>/diffs.json --pr <KEY REPO RANGE> [...] --strict
+     --out <scratch dir>/diffs.json --pr <KEY REPO RANGE> [...] [--chunks <same file>] --strict
    Keep both outputs in <scratch dir>: the scripts record their arguments in
    <scratch dir>/review-map.json, which refresh.py replays when a branch moves.
    An overlay reference to a file the PR does not change is skipped with a

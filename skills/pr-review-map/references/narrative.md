@@ -39,6 +39,28 @@ Take files, +/−, and tip SHA from `git diff --shortstat <range>` and
 `<code>`: when a branch moves, `refresh.py` finds the cards that still show an
 old tip, prints the new tip and counts, and leaves the edit to you.
 
+A PR split into parts (`references/chunks.md`) gets one card for the whole PR,
+with class `c-<parent key>` (its first part's colour) and its parts in a nested
+`ol.parts`, one row per part with its open button (`data-gopen` with the part key,
+labelled with the part number), label, file count, and commit range:
+
+```html
+<div class="pr-card c-M">
+  <span class="k">M · one PR in 5 parts</span>
+  <span class="t"><a href="https://github.com/org/repo/pull/251">repo#251</a></span>
+  <span class="meta">base <code>develop</code> · 219 files · +9100/−420 · tip <code>9f8e7d6</code></span>
+  <ol class="parts">
+    <li><button type="button" class="tag c-Ma" data-gopen="Ma">1/5</button><span>client-core</span><span class="meta">34 files · <code>1a2b3c4..5d6e7f8</code></span></li>
+    <!-- one row per part, in order -->
+  </ol>
+</div>
+<div class="callout warn"><strong>Parts:</strong> read them in order, since each builds on the ones before. They are commit ranges of one PR that merges as a whole, so there is no merge order to keep.</div>
+```
+
+Take each part's files from `chunks.py expand` and its range from the `from..to`
+it prints. `refresh.py` names the rows that still show a part's old end after a
+rebase and a new part the list does not have yet.
+
 ```html
 <!-- review-map:graph -->
 ```
@@ -185,7 +207,7 @@ State only what was actually run. A suite you did not run goes under "Not run".
 
 ## Available classes
 
-`panel`, `grid-4`, `pr-card` (`k`, `t`, `meta`), `tag`, `tbl` + `table`,
+`panel`, `grid-4`, `pr-card` (`k`, `t`, `meta`, `ol.parts`), `tag`, `tbl` + `table`,
 `td.num`, `callout warn|risk|ok`, `details > summary + .body`, `files`
 (`path`, `d`, `role`), `steps`, `risk-list` + `sev-h|sev-m|sev-l` + `who`,
 `diagram` + `pre.mermaid`, `pre.code`, `cols-2`, `pill ok|warn|risk`, `lead`, `sub`.
