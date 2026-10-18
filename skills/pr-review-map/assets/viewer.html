@@ -819,6 +819,27 @@ details.nt-panel{margin:0}
     if(!s||s.k!==k){s=assess(n);s.k=k;STATE[n.id]=s;}
     return s;
   }
+  /* One-time note migration from the map of a whole PR to its parts. A note stored under a parent's key (written on
+     the whole PR's map, whose key is no tab here) moves to the part that holds its code: a new-side line note to the
+     last part changing its file, whose tip has the PR tip's version of it, or, when that part's diff does not show the
+     note's code at its lines, to the latest part whose diff does (else the latest that shows it moved unchanged,
+     whose lines it takes); an old-side note likewise from the first part changing the file, whose start has the base
+     version; a file note to the last part changing the file. Text, kind, side, and code stay as written. A PR note
+     stays on the parent, and a note on a file no part changes stays where it is (it shows as "file gone"). Returns
+     {pr, node, a?, b?} or null for a note that stays. */
+  function chunkHome(n){
+    var q=PARENTS[n.pr];if(!q||n.scope==='pr')return null;
+    var ks=q.parts.filter(function(k){return PARTOF[k]&&fileOf(k,n.path);});if(!ks.length)return null;
+    if(n.scope==='file'||n.side!=='old')ks.reverse();
+    if(n.scope==='file')return {pr:ks[0],node:fileOf(ks[0],n.path).id};
+    var moved=null;
+    for(var i=0;i<ks.length;i++){
+      var s=assess(Object.assign({},n,{pr:ks[i]}));
+      if(s.st==='ok')return {pr:ks[i],node:fileOf(ks[i],n.path).id};
+      if(!moved&&s.st==='moved'&&s.how==='exact')moved={pr:ks[i],node:fileOf(ks[i],n.path).id,a:s.a,b:s.b};
+    }
+    return moved||{pr:ks[0],node:fileOf(ks[0],n.path).id};
+  }
   /* The lines a note shows and copies at: where a move put it, else its own. */
   function span(n){var s=stateOf(n);return s.st==='moved'?s:n;}
   /* A note that still marks code in the diff: not dismissed, not stale, not on a gone file. */
@@ -1277,7 +1298,15 @@ details.nt-panel{margin:0}
     }),no);
     nClear.hidden=true;nConfirm.hidden=false;no.focus();
   });
-  window.addEventListener('storage',function(e){if(e.key===KEY+NKEY){loadNotes();editing=null;refreshNotes();paintAll();}});
+  /* Notes from the whole PR's map move to its parts once (chunkHome); the banner says how many moved. */
+  function migrateNotes(){
+    var moved=0;
+    notes.forEach(function(n){var h=chunkHome(n);if(!h)return;n.pr=h.pr;n.node=h.node;if(h.a){n.a=h.a;n.b=h.b;}moved++;});
+    if(moved)saveNotes();
+    return moved;
+  }
+  var migrated=migrateNotes();
+  window.addEventListener('storage',function(e){if(e.key===KEY+NKEY){loadNotes();migrateNotes();editing=null;refreshNotes();paintAll();}});
   refreshNotes();
 
   /* Reading graph. The default view is the step list: one row per reading step (read mark, step number, layer colour,
@@ -1424,9 +1453,23 @@ details.nt-panel{margin:0}
      changed since (unread again, each a link), and the removed files. */
   var chgBox=document.getElementById('g-chg');
   function setOnlyChg(v){onlyChg=v;var c=document.getElementById('g-changed');if(c)c.checked=v;}
+  /* Read marks made on the map of a whole PR before it was split into parts (marks under the parent's key) are not
+     carried into the parts, whose diffs differ; the banner lists them as "read on the whole PR", each a link to the
+     last part's node of that file, until the file is marked read in one of its parts. The marks stay stored as they
+     were, for the whole PR's map. */
+  var PARTNODES=Object.create(null);
+  Object.keys(all).forEach(function(id){var c=PARTOF[all[id].pr],k=c&&c.of+'\n'+all[id].path;if(k)(PARTNODES[k]=PARTNODES[k]||[]).push(id);});
+  function wholeRead(){
+    var out=[];
+    Object.keys(PARENTS).forEach(function(k){
+      var m=own(marks,k);if(!m||typeof m!=='object')return;
+      Object.keys(m).sort().forEach(function(path){var ids=own(PARTNODES,k+'\n'+path);if(ids&&!ids.some(isDone))out.push(ids[ids.length-1]);});
+    });
+    return out;
+  }
   function paintChanges(){
-    var wr=Object.keys(all).filter(wasRead).sort(function(a,b){return prIdx(all[a].pr)-prIdx(all[b].pr)||all[a].order-all[b].order;});
-    if(!PREV&&!cleared&&!wr.length){chgBox.hidden=true;return;}
+    var wr=Object.keys(all).filter(wasRead).sort(function(a,b){return prIdx(all[a].pr)-prIdx(all[b].pr)||all[a].order-all[b].order;}),wh=wholeRead();
+    if(!PREV&&!cleared&&!wr.length&&!wh.length&&!migrated){chgBox.hidden=true;return;}
     var total=CHGN.new+CHGN.changed+CHGN.removed,h=[];chgBox.hidden=false;chgBox.className='g-chg callout '+(total||!PREV?'warn':'ok');
     /* A page built without a previous version (by hand, not by refresh.py) still says which read marks it cleared. */
     if(PREV){
@@ -1440,6 +1483,8 @@ details.nt-panel{margin:0}
     if(cleared)h.push('<p>'+esc(fmt(S.chgCleared,{n:cleared}))+'</p>');
     if(wr.length)h.push('<details><summary>'+esc(fmt(S.chgWasRead,{n:wr.length}))+'</summary><p class="nt-hint">'+esc(S.chgWasReadTitle)+'</p><ul>'+wr.map(function(id){return '<li><button type="button" class="nt-b lnk" data-go="'+esc(id)+'">'+esc(prName(all[id].pr)+' · '+all[id].path)+'</button></li>';}).join('')+'</ul></details>');
     if(REMOVED.length)h.push('<details><summary>'+esc(fmt(S.chgRemoved,{n:REMOVED.length}))+'</summary><ul>'+REMOVED.map(function(r){return '<li>'+esc(prName(r.pr)+' · '+r.path)+'</li>';}).join('')+'</ul></details>');
+    if(migrated)h.push('<p>'+esc(fmt(S.chunkMigrated,{n:migrated}))+'</p>');
+    if(wh.length)h.push('<details><summary>'+esc(fmt(S.chunkWholeRead,{n:wh.length}))+'</summary><p class="nt-hint">'+esc(S.chunkWholeReadTitle)+'</p><ul>'+wh.map(function(id){return '<li><button type="button" class="nt-b lnk" data-go="'+esc(id)+'">'+esc(prName(all[id].pr)+' · '+all[id].path)+'</button></li>';}).join('')+'</ul></details>');
     var open=[].map.call(chgBox.querySelectorAll('details'),function(d){return d.open;});
     chgBox.innerHTML=h.join('');
     [].forEach.call(chgBox.querySelectorAll('details'),function(d,i){if(open[i])d.open=true;});
@@ -1795,7 +1840,7 @@ details.nt-panel{margin:0}
     saveDone();
     var r=rowEl[id];if(r){r.li.classList.toggle('done',v);r.cb.checked=v;}
     if(MAP&&MAP.nd[id])MAP.nd[id].classList.toggle('done',v);
-    if(w!==wasRead(id)){paintMarks();paintChanges();}else paintHeads();
+    if(w!==wasRead(id)){paintMarks();paintChanges();}else{paintHeads();if(PARTOF[n.pr])paintChanges();}
   }
   function step(dir){var o=ordered();if(!o.length)return;var i=o.findIndex(function(n){return n.id===sel;});var j=i<0?0:Math.min(o.length-1,Math.max(0,i+dir));select(o[j].id,'list');}
   /* Open a file of any PR: switch to its tab (showing tests if it is one) and select it. */

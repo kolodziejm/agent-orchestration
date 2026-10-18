@@ -24,8 +24,10 @@ Part i is the range to(i-1)..to(i); part 1 starts at the merge base of the range
 for base..tip). Part keys end in a letter, so node ids (key + step number) of two parts cannot collide, and differ from
 the parent key, which overlay references use for every part. `expand` checks the chain (each `to` comes after the one
 before it on the branch) and prints each part's range, commits, files, and `--pr` arguments; build_graph.py and
-gen_diffs.py take the file as --chunks (expand() and stack() below). See references/chunks.md. Only reads the
-repository (log, rev-parse, merge-base, diff). Python 3 standard library only.
+gen_diffs.py take the file as --chunks (expand() and stack() below). refresh.py fits the parts to a moved branch with
+advance(): commits after the last part become a new part, a rewritten history is remapped by patch-id or subject, and
+it stops when that fails. See references/chunks.md. Only reads the repository (log, rev-parse, rev-list, merge-base,
+diff, patch-id). Python 3 standard library only.
 """
 
 from __future__ import annotations
@@ -501,6 +503,83 @@ def cmd_expand(args) -> int:
     for part in parts:
         print(f"  --pr {part['key']} {repo} {part['range']} --name {part['key']} {json.dumps(part_name(name, part['chunk']), ensure_ascii=False)}")
     return 0
+
+
+# --- refresh ---------------------------------------------------------------------------------------------------------
+
+def patch_ids(repo: str, rev: str, single: bool = False) -> dict[str, str]:
+    """{commit: patch-id} of the first-parent commits of the range `rev` (of the commit `rev` alone with `single`),
+    each against its first parent; a commit with an empty diff has none."""
+    log = git(repo, "log", "--first-parent", "-m", "-p", "--no-color", "--full-index", "--format=commit %H",
+              *(["-1"] if single else []), "--end-of-options", rev) or ""
+    out = git(repo, "patch-id", "--stable", stdin=log, check=False) or ""
+    return {fields[1]: fields[0] for fields in (line.split() for line in out.splitlines()) if len(fields) >= 2}
+
+
+def base_merges(repo: str, rng: str, base: str) -> list[str]:
+    """The first-parent merges in `rng` that bring in the base branch."""
+    log = git(repo, "log", "--first-parent", "--merges", "--format=%H%x1f%P", "--end-of-options", rng, check=False) or ""
+    found = []
+    for line in log.splitlines():
+        sha, parents = (line.split("\x1f") + [""])[:2]
+        if base_merge(repo, {"parents": parents.split()}, base):
+            found.append(sha)
+    return found
+
+
+def advance(data: dict, tip: str, label: str, where: str = "chunks.json") -> tuple[dict, list[str], list[tuple[str, str, str]]]:
+    """Fit the parts to the branch's tip `tip`: (data, messages, boundaries that moved [(part key, old to, new to)]).
+
+    The data comes back unchanged when the last part ends at the tip. When every part's end is still an ancestor of
+    the tip, the commits after the last one become a new part labelled `label`; earlier parts stay as they are. Else
+    the history was rewritten (a rebase or force-push): each part's end maps to the commit on the new first-parent line
+    with the same patch-id, else with the same subject, the only one after the previous part's end, and commits after
+    the last mapped end become a new part. A part whose end cannot be mapped stops it with SystemExit.
+    """
+    parent, repo = data["parent"], data["parent"]["repo"]
+    key = parent["key"]
+    ends = [commit(repo, part["to"]) for part in data["parts"]]
+    base = sides(parent["range"])[0]
+    if ends[-1] == tip:
+        return data, [], []
+    if all(end and ancestor(repo, end, tip) for end in ends):
+        new = next_key(data)
+        count = len((git(repo, "rev-list", "--first-parent", "--end-of-options", f"{ends[-1]}..{tip}") or "").split())
+        messages = [f"PR {key}: {count} commit(s) after part {data['parts'][-1]['key']} became the new part {new} "
+                    f"({ends[-1][:7]}..{tip[:7]}); earlier parts are kept"]
+        if base_merges(repo, f"{ends[-1]}..{tip}", base):
+            messages.append(f"PR {key}: the new part {new} holds a merge of {base}, so its diff includes the base's changes")
+        return {**data, "parts": data["parts"] + [{"key": new, "to": tip, "label": label}]}, messages, []
+    start = start_of(repo, parent["range"], tip)
+    log = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x1f%s", "--end-of-options", f"{start}..{tip}") or ""
+    line = [tuple((entry.split("\x1f", 1) + [""])[:2]) for entry in log.splitlines() if entry]
+    ids = patch_ids(repo, f"{start}..{tip}")
+    mapped, position = [], -1
+    for part, end in zip(data["parts"], ends):
+        if not end:
+            raise SystemExit(f"{where}: PR {key}'s history was rewritten and part {part['key']} ends at {part['to'][:7]}, "
+                             "which this repository no longer has; re-run chunks.py propose and confirm the parts again")
+        subject = (git(repo, "log", "-1", "--format=%s", "--end-of-options", end) or "").strip()
+        pid = patch_ids(repo, end, single=True).get(end)
+        rest = line[position + 1:]
+        found = [i for i, (sha, _s) in enumerate(rest) if pid and ids.get(sha) == pid]
+        if len(found) != 1:
+            found = [i for i, (_sha, s) in enumerate(rest) if s == subject]
+        if len(found) != 1:
+            raise SystemExit(f"{where}: PR {key}'s history was rewritten and part {part['key']} (ending at {end[:7]} "
+                             f"\"{subject}\") matches {len(found) or 'no'} commit(s) on the new branch by patch-id or subject; "
+                             f"re-run chunks.py propose for {parent['range']} and confirm the parts again")
+        position += 1 + found[0]
+        mapped.append(line[position][0])
+    parts = [{**part, "to": sha} for part, sha in zip(data["parts"], mapped)]
+    moved = [(part["key"], end, sha) for part, end, sha in zip(data["parts"], ends, mapped) if end != sha]
+    messages = [f"PR {key}: the history was rewritten; {len(moved)} of {len(parts)} part ends remapped by patch-id or subject"]
+    out = {**data, "parts": parts}
+    if mapped[-1] != tip:
+        new = next_key(out)
+        out = {**out, "parts": parts + [{"key": new, "to": tip, "label": label}]}
+        messages.append(f"PR {key}: the commits after part {parts[-1]['key']} became the new part {new}")
+    return out, messages, moved
 
 
 def main() -> int:

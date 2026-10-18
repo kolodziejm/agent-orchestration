@@ -123,6 +123,39 @@ const stateOf = new Function('data', 'DIFFS', code + '\nreturn stateOf;')(input.
 process.stdout.write(JSON.stringify(input.notes.map((n) => { const s = stateOf(n); return Object.fromEntries(Object.entries(s).filter(([k]) => k !== 'k')); })));
 """
 
+# Runs the viewer's note migration (chunkHome(), with the parent/part lookups and the note-state code it uses), cut out
+# of assets/viewer.html, over a graph, diffs, and notes, and prints each note's new home with the graph's parents and
+# without them.
+CHUNK_HOME = r"""
+const fs = require('fs');
+const [template, inputFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+function between(from, to) {
+  const start = html.indexOf(from), end = html.indexOf(to, start);
+  if (start < 0 || end < 0) throw new Error(from + ' not found in the viewer');
+  return html.slice(start, end);
+}
+const code = [cut('  function own(o,k)', 'function own(o,k)'), between('  var PR=Object.create(null)', '  function layerOf(l)'),
+  cut('  function parse(diff){', 'function parse(diff){'), cut('  /* FILE[pr+', 'function chunkHome(n){')].join('\n');
+const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+function homes(graph) {
+  const cfg = {prs: graph.prs.map((p) => ({key: p.key, name: p.key}))};
+  const chunkHome = new Function('CFG', 'data', 'DIFFS', 'S', code + '\nreturn chunkHome;')(cfg, graph, input.diffs, {});
+  return input.notes.map((n) => chunkHome(JSON.parse(JSON.stringify(n))));
+}
+const plain = Object.assign({}, input.graph);
+delete plain.parents;
+process.stdout.write(JSON.stringify({parts: homes(input.graph), plain: homes(plain)}));
+"""
 
 
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -1544,6 +1577,144 @@ class ChunkTests(unittest.TestCase):
                 checked = run_script("validate.py", str(bad), "--skip-node", check=False)
                 self.assertEqual(checked.returncode, 1, checked.stdout)
                 self.assertIn(message, checked.stdout)
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's note migration")
+    def test_notes_from_a_whole_pr_map_move_to_their_parts(self):
+        """This test will fail when the viewer stops moving a note written on the whole PR's map (stored under the parent's key) to the part that holds its code: a new-side line note to the last part changing its file, or to the latest part that still shows its code at its lines, or at other lines (taking them); an old-side note likewise from the first part; a file note to the last part. Or when it moves a PR note, a note on a file no part changes, or a note already on a part, or moves anything on a page without parents."""
+        lines = ["const a = 1;", "const b = 2;", "const c = 3;", "const d = 4;", "const e = 5;", "const f = 6;"]
+        base_g = [f"export const g{i} = {i};" for i in range(1, 13)]
+        diffs = {
+            "Ma1": [{"path": "f.ts", "diff": added(lines).replace("+++ b/f", "+++ b/f.ts")}],
+            "Mb1": [{"path": "g.ts", "diff": "--- a/g.ts\n+++ b/g.ts\n@@ -1,3 +1,3 @@\n export const g1 = 1;\n-export const g2 = 2;\n+export const g2 = 20;\n export const g3 = 3;"}],
+            "Mc1": [{"path": "f.ts", "diff": "--- a/f.ts\n+++ b/f.ts\n@@ -1,0 +1,2 @@\n+// x\n+// y"}],
+            "Mc2": [{"path": "g.ts", "diff": "--- a/g.ts\n+++ b/g.ts\n@@ -9,3 +9,2 @@\n export const g9 = 9;\n-export const g10 = 10;\n export const g11 = 11;"}],
+        }
+        graph = {"prs": [{"key": k, "chunk": {"of": "M", "index": i, "count": 3}, "nodes": [{"id": n, "path": diffs[n][0]["path"]} for n in diffs if n.startswith(k)], "edges": []}
+                         for i, k in enumerate(("Ma", "Mb", "Mc"), 1)],
+                 "parents": [{"key": "M", "name": "#9", "parts": ["Ma", "Mb", "Mc"]}]}
+
+        def line(path, side, a, code, pr="M"):
+            return {"id": f"{path}{side}{a}", "scope": "line", "pr": pr, "path": path, "side": side, "a": a, "b": a, "code": [code]}
+
+        notes = [
+            line("f.ts", "new", 1, "// x"),          # shown by the last part: it goes there
+            line("f.ts", "new", 5, "const c = 3;"),   # the last part does not show it; part 1 has it at line 3
+            line("g.ts", "old", 2, base_g[1]),        # old side, shown by the first part changing g.ts
+            line("g.ts", "old", 10, base_g[9]),       # old side, only the last part shows it
+            line("f.ts", "new", 2, "gone code"),      # nowhere: the last part changing the file
+            {"id": "file", "scope": "file", "pr": "M", "path": "g.ts"},
+            {"id": "pr", "scope": "pr", "pr": "M"},
+            line("h.ts", "new", 1, "x"),              # no part changes h.ts
+            line("f.ts", "new", 1, "// x", pr="Mb"),  # already on a part
+        ]
+        script = self.root / "chunk-home.js"
+        script.write_text(CHUNK_HOME, encoding="utf-8")
+        inputs = self.root / "chunk-home.json"
+        inputs.write_text(json.dumps({"graph": graph, "diffs": diffs, "notes": notes}), encoding="utf-8")
+        result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(inputs)], capture_output=True, text=True, check=True)
+        homes = json.loads(result.stdout)
+        self.assertEqual(homes["parts"], [
+            {"pr": "Mc", "node": "Mc1"}, {"pr": "Ma", "node": "Ma1", "a": 3, "b": 3}, {"pr": "Mb", "node": "Mb1"},
+            {"pr": "Mc", "node": "Mc2"}, {"pr": "Mc", "node": "Mc1"}, {"pr": "Mc", "node": "Mc2"}, None, None, None,
+        ])
+        self.assertEqual(homes["plain"], [None] * len(notes))
+
+
+class ChunkRefreshTests(unittest.TestCase):
+    """A map split into parts, refreshed after its branch gained commits, was rebased, or was rewritten past mapping."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        repo, d = cls.root / "repo", cls.root / "scratch"
+        cls.shas = chunk_repo(repo)
+        d.mkdir()
+        run_script("chunks.py", "propose", "--repo", str(repo), "--range", "main...feat", "--key", "M", "--name", "#9",
+                   "--out", str(d / "chunks.json"), "--min-files", "1")
+        (d / "overlay.json").write_text(json.dumps({"nodes": {"M:src/core/service.ts": {"role": "Service"}}}), encoding="utf-8")
+        run_script("build_graph.py", "--out", str(d / "graphs.json"), "--chunks", str(d / "chunks.json"), "--overlay", str(d / "overlay.json"))
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--chunks", str(d / "chunks.json"), "--strict")
+        (d / "narrative.html").write_text(
+            '<section id="stack"><h2>Stack</h2><div class="pr-card c-M"><span class="meta">tip <code>%s</code></span>\n'
+            '<ol class="parts"><li><button type="button" class="tag c-Ma" data-gopen="Ma">1/3</button><code>%s..%s</code></li></ol></div></section>\n'
+            "<!-- review-map:graph -->\n<footer>x</footer>\n" % (cls.shas[4][:7], cls.shas[0][:7], cls.shas[1][:7]), encoding="utf-8")
+        run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                   "--title", "Parts", "--lang", "pl", "--target", "local", "--out", str(d / "review.html"))
+        cls.repo, cls.scratch = repo, d
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def copy(self, name: str) -> tuple[Path, Path]:
+        """A copy of the repository and the scratch directory whose manifest and chunks.json point at the copy."""
+        repo, d = self.root / f"{name}-repo", self.root / f"{name}-scratch"
+        shutil.copytree(self.repo, repo)
+        shutil.copytree(self.scratch, d)
+        chunks = json.loads((d / "chunks.json").read_text(encoding="utf-8"))
+        chunks["parent"]["repo"] = str(repo.resolve())
+        (d / "chunks.json").write_text(json.dumps(chunks, indent=1), encoding="utf-8")
+        return repo, d
+
+    def parts(self, d: Path) -> list[dict]:
+        return json.loads((d / "chunks.json").read_text(encoding="utf-8"))["parts"]
+
+    @unittest.skipUnless(NODE, "node is required to validate the refreshed page")
+    def test_new_commits_become_a_new_part_and_earlier_parts_stay(self):
+        """This test will fail when refresh.py does not turn commits after the last part into a new part labelled in the page's language, changes an earlier part's range or fingerprints (which would clear its read marks), forgets to record the new tip, misses the narrative's missing part, or writes to the repository."""
+        repo, d = self.copy("append")
+        before = self.parts(d)
+        old = {e["path"] + "@" + k: e["fp"] for k, entries in json.loads((d / "diffs.json").read_text(encoding="utf-8")).items() for e in entries}
+        commit_files(repo, {"web/extra.ts": "export const extra = 1;\n"}, "feat(web): extra")
+        tip = git(repo, "rev-parse", "feat").strip()
+        refs = git(repo, "for-each-ref"), git(repo, "status", "--porcelain")
+        out = run_script("refresh.py", str(d)).stdout
+        self.assertEqual(self.parts(d), before + [{"key": "Md", "to": tip, "label": "nowe od ostatniej wersji"}])
+        self.assertIn(f"1 commit(s) after part Mc became the new part Md ({self.shas[4][:7]}..{tip[:7]})", out)
+        self.assertIn(f"PR M: the new part Md (to {tip[:7]}) is not in the narrative; add it to the parts card", out)
+        self.assertIn("changed since the previous version: 1 files (1 new, 0 changed, 0 removed)", out)
+        graph = json.loads((d / "graphs.json").read_text(encoding="utf-8"))
+        self.assertEqual([pr["key"] for pr in graph["prs"]], ["Ma", "Mb", "Mc", "Md"])
+        new = {e["path"] + "@" + k: e["fp"] for k, entries in json.loads((d / "diffs.json").read_text(encoding="utf-8")).items() for e in entries}
+        self.assertEqual({k: v for k, v in new.items() if not k.endswith("@Md1")}, old)
+        self.assertEqual(json.loads((d / "previous.json").read_text(encoding="utf-8"))["files"].keys(), {"Ma", "Mb", "Mc"})
+        self.assertEqual(json.loads((d / "review-map.json").read_text(encoding="utf-8"))["build_graph"]["chunks"],
+                         [{"path": "chunks.json", "parent": "M", "tip": tip}])
+        self.assertEqual((git(repo, "for-each-ref"), git(repo, "status", "--porcelain")), refs)
+        self.assertFalse(list(d.glob("*.new")))
+
+    @unittest.skipUnless(NODE, "node is required to validate the refreshed page")
+    def test_a_rebase_remaps_every_part_by_patch_id_or_subject(self):
+        """This test will fail when refresh.py, after the branch was rebased onto a moved base, does not map each part's end to the rewritten commit with the same patch-id (or subject), keeps a key or label from carrying over, adds a part nobody asked for, or does not name the narrative lines that still show a part's old end."""
+        repo, d = self.copy("rebase")
+        before = self.parts(d)
+        git(repo, "checkout", "-q", "main")
+        commit_files(repo, {"base.txt": "base moved\n"}, "chore: base moves")
+        git(repo, "rebase", "-q", "main", "feat")
+        out = run_script("refresh.py", str(d)).stdout
+        after = self.parts(d)
+        self.assertEqual([(p["key"], p["label"]) for p in after], [(p["key"], p["label"]) for p in before])
+        subject = lambda sha: git(repo, "log", "-1", "--format=%s", sha).strip()  # noqa: E731
+        self.assertEqual([subject(p["to"]) for p in after], [subject(p["to"]) for p in before])
+        self.assertTrue(all(a["to"] != b["to"] for a, b in zip(after, before)))
+        self.assertEqual(after[-1]["to"], git(repo, "rev-parse", "feat").strip())
+        self.assertIn("the history was rewritten; 3 of 3 part ends remapped", out)
+        self.assertIn(f"part Ma now ends at {after[0]['to'][:7]}, not {before[0]['to'][:7]}; the narrative still shows {before[0]['to'][:7]} at narrative.html:2", out)
+        self.assertIn("changed since the previous version: 0 files", out)
+
+    def test_a_history_it_cannot_map_stops_the_refresh_before_anything_changes(self):
+        """This test will fail when refresh.py rebuilds a map whose part ends no longer exist on the rewritten branch (the commit was dropped or reworded and changed) instead of stopping with a request to propose the parts again, or when it touches chunks.json, the data, or the page on the way."""
+        repo, d = self.copy("rewrite")
+        git(repo, "reset", "-q", "--hard", self.shas[2])
+        commit_files(repo, {"web/page.spec.tsx": "test('another', () => 1);\n"}, "test(web): rewritten spec")
+        files = {name: (d / name).read_bytes() for name in ("chunks.json", "graphs.json", "diffs.json", "review.html", "review-map.json")}
+        result = run_script("refresh.py", str(d), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("part Mb (ending at", result.stderr)
+        self.assertIn("re-run chunks.py propose for main...feat", result.stderr)
+        self.assertEqual({name: (d / name).read_bytes() for name in files}, files)
+        self.assertFalse(list(d.glob("*.new")))
 
 
 if __name__ == "__main__":
