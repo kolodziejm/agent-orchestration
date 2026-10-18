@@ -71,6 +71,11 @@ migrated notes use it), `base` the first part's start, `tip` the last part's end
 `assemble.py` and `validate.py` refuse a broken chain. A graph without `parents` and
 `chunk` renders exactly as before.
 
+With tours (see Tours below) the top level also holds `"tours": [{"id": "apple-web",
+"name": "…", "steps": [{"node": "Mc4", "path": "app/…/AppleController.php", "side": "new",
+"a": 12, "b": 30, "note": "…", "ref": "M:app/…/AppleController.php", "lines": "12-30",
+"code": ["…"]}]}]`; a graph without them has no picker.
+
 Node fields:
 
 | Field | Meaning |
@@ -237,6 +242,50 @@ buttons, keys `+` `-` `0`, Shift+arrows; the arrow keys move between the areas a
 files of expanded ones (one Tab stop), Enter or Space acts, and expanding is announced.
 Expanded areas are kept per PR under `mapx`, zoom and pan under `mapz`.
 
+### Tours (Trasy)
+
+A tour walks one flow of the change (web sign-in, a token exchange, a deletion) step
+by step across PRs and parts. Author one per distinct flow, at most 8, each of 3 to 15
+steps, in the overlay:
+
+```json
+{"tours": [{"id": "apple-web", "name": "Web sign-in with Apple", "steps": [
+  {"ref": "M:app/Http/Controllers/AppleAuthenticationController.php", "side": "new", "lines": "12-30",
+   "note": "Redirects to Apple with state and nonce"},
+  {"ref": "M:app/Services/AppleTokenVerifier.php", "lines": "40-58", "note": "Checks the id token's signature"}]}]}
+```
+
+`ref` names a file like any overlay reference (a parent-key reference reaches the parts:
+the last part that changes the file on the new side, the first on the old side; not a
+`#group`). `side` is `new` (default; lines at the PR's tip) or `old` (at its base, for
+code the PR removes). `lines` is a line or a range on that side; without it the step
+opens the whole file. `note` (report language) says what to look at in 80 characters or
+fewer. The id takes an area id's form. build_graph.py reads each step's lines with `git
+show` and writes graphs.json `tours` (above); an unknown key, a path no node of the PR
+has, a file missing on that side, lines outside the file, and a tour list beyond the
+limits stop it. validate.py checks each step's node and path against the diff data and
+warns when a step's lines lie outside every hunk on their side (the viewer then opens the
+whole file) and when a narrative `data-tour` button names no tour.
+
+After a branch moves, `refresh.py` gives build_graph.py the graphs.json it replaces as
+`--previous`: a step whose tour, ref, side, and lines are unchanged follows the code it was
+resolved on with the viewer's note matcher (exact, white space ignored, or a close fuzzy
+match, found once on the same side; scripts/tours.py ports it). Moved code moves the step
+("moved 12-30 → 18-36"); code that changed leaves it stale, a warning, and the viewer opens
+the whole file with "code changed". The overlay is never rewritten: change a step's
+`lines` there to anchor it afresh. A step whose file left the PR stops the refresh; fix
+the overlay and run it again.
+
+The viewer puts a tour picker beside the view toggle. A chosen tour shows a bar at the
+foot of the graph, held at the bottom of the window: "Krok 3 z 8" / "Step 3 of 8", the
+note, the step's file and lines (and "moved from :12-30" or "code changed"), Previous and
+Next (keys `[` `]`), and Exit (Esc). Each step switches to its tab, selects its node,
+opens its diff, and scrolls to and flashes its lines; the shown tab's rows carry the step
+numbers of their files, the map draws the tour's path with numbered marks (the overview
+of areas opens the areas on it), each step is announced in a live region, and the tour
+and step persist under the `tour` localStorage key. A narrative button with
+`data-tour="<id>"` starts a tour.
+
 ## overlay.json
 
 Everything git cannot tell the script. References are `KEY:path` (a changed file
@@ -263,12 +312,14 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
     {"from": "S:libs/x/infra/monolith.client.ts", "to": "M:src/Api/Controller/GetServicesController.php", "kind": "http"},
     {"from": "M:src/Api/Controller/GetServicesController.php", "to": "M:src/Api/Controller/ApiController.php", "kind": "import"}
   ],
-  "dropEdges": [{"from": "A:apps/api/src/app.ts", "to": "A:#docs"}]
+  "dropEdges": [{"from": "A:apps/api/src/app.ts", "to": "A:#docs"}],
+  "tours": [{"id": "services", "name": "Services request", "steps": [{"ref": "S:libs/x/infra/monolith.client.ts", "lines": "10-24", "note": "…"}, "…"]}]
 }
 ```
 
 `nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
 Shared dependencies), and `cluster` (an id from the overlay's `clusters`, see Areas).
+`tours` are described under Tours.
 An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,
 the parent key (`M:path`) names the path in every part: `nodes` apply to each part's
@@ -340,7 +391,8 @@ PR's full tip SHA. With `--chunks`, build_graph's section also has `"chunks": [{
 `--no-manifest` skips the record.
 
 `refresh.py DIR` replays the three runs (into side files, swapped in only when
-both data steps succeed), then validates. For a PR split into parts it first fits `chunks.json`
+both data steps succeed; build_graph.py gets the graphs.json it replaces as
+`--previous`, so tour steps follow their code), then validates. For a PR split into parts it first fits `chunks.json`
 to the branch (`chunks.advance`): commits after the last part become a new part, a
 rewritten history is remapped by patch-id or subject, and a part it cannot map stops
 it before anything is rebuilt; the new `chunks.json` replaces the old one with the

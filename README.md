@@ -299,14 +299,15 @@ Nothing in this repository rewrites those files for you.
   the stack, an optional map that above 40 core files opens on a zoomable overview
   of areas (authored clusters, else folders) expanding in place, and each file's
   neighbourhood and side-by-side diff beside it, the list grouped by folder or by
-  area on request, review notes on lines, files, or whole PRs that copy as Markdown for
-  an agent, plus architecture, rules, risks, and verification; `chunks.py` splits
-  a pull request too large for one map into parts cut from its commits, shown as
-  tabs grouped under it with each shared file's whole-PR diff a toggle away;
-  `refresh.py` rebuilds it after the branches move, flagging changed files and
-  moved or stale notes and keeping the parts; it carries its viewer
-  template, Python scripts, and subagent prompts as supporting files and is covered
-  by `tests/test_pr_review_map.py`. Every generator except DeepSeek Harness
+  area on request, tours that walk each flow step by step across tabs and parts with
+  their path on the map, review notes on lines, files, or whole PRs that copy as
+  Markdown for an agent, plus architecture, rules, risks, and verification;
+  `chunks.py` splits a pull request too large for one map into parts cut from its
+  commits, shown as tabs grouped under it with each shared file's whole-PR diff a
+  toggle away; `refresh.py` rebuilds it after the branches move, flagging changed
+  files and moved or stale notes, keeping the parts, and moving tour steps with
+  their code; it carries its viewer template, Python scripts, and subagent prompts
+  as supporting files and is covered by `tests/test_pr_review_map.py`. Every generator except DeepSeek Harness
   copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers
   install them into the harness's skills directory, and Codex takes a manual copy.
 - `evaluations/` — versioned evaluation configuration validated by `validate.py`.

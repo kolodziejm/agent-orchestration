@@ -34,8 +34,11 @@ Write the map to <scratch dir>/pr-<key>.md with exactly these sections:
    i18n, docs). One line each: what changed in it. Group translations, catalogs,
    lockfiles, deploy config, and docs into one line per group with a file count.
    For a lockfile, list intended entries and every unrelated side effect.
-4. Flow in reading order: the path of a request or event through the changed
-   code, entry point first, as a numbered list with `path:line` for each step.
+4. Flows: each distinct flow the PR adds or changes (a request, an event, a job,
+   a sign-in), named in a heading, entry point first, as a numbered list of steps
+   `path:start-end — note` (lines at the tip from `git show <tip>:<path>`; `old:path:
+   start-end` with lines at the base for code the PR removes; the note at most 80
+   characters, report language). These become the graph's tours.
 5. Wire shapes: request and response (or event) fields at this PR's boundary,
    with renames, defaults, and dropped fields. Cite the schema file:line.
 6. Error mapping: each failure (not found, upstream 5xx, timeout, bad payload,
@@ -65,4 +68,5 @@ Rules:
   per-PR sections, risks. Re-check any claim you put in the report against the
   code before writing it.
 - Graph overlay: `role` per file from "Files by layer", `note` from "Per-file
-  notes", HTTP/DI/route/config edges from "Flow" and "Config and wiring".
+  notes", HTTP/DI/route/config edges from "Flows" and "Config and wiring", and one
+  tour per flow from "Flows".

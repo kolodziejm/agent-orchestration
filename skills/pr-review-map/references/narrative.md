@@ -168,6 +168,11 @@ Every rule gets a concrete example row, and its source as `path:line`.
 
 - The empty `data-gopen` button gets the "open on the reading graph" label and
   switches the graph to that PR (`data-order="bottom"` opens it in dependency order).
+- Optionally, a button per tour of the PR (`tours` in the overlay):
+  `<button type="button" class="tag c-S" data-tour="apple-web"></button>`. Empty, it is
+  labelled "Take the tour: <name>" (Polish "Przejdź trasę: …") and starts that tour on
+  the graph; one naming no tour of the page is hidden (validate.py warns). It fits the
+  request-flow section too.
 - No numbered reading-order list here: the graph owns the reading order, and
   per-file explanations live in the graph's `note` fields.
 - Collapse long file lists; group siblings on one line

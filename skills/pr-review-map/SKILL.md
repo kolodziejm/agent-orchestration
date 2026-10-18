@@ -79,7 +79,9 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    files"), rows carry new/changed badges, and read marks of changed files are
    cleared and marked ↻. **A PR split into parts** (step 1) shows its parts as
    tabs grouped under it; a file other parts change too carries an "also in parts"
-   chip and a whole-PR diff toggle.
+   chip and a whole-PR diff toggle. **Tours** ("Trasy", step 3): a picker beside the
+   view toggle walks one flow ("Step 3 of 8 · note", Prev/Next, `[` `]`, Esc), opening
+   each step's lines on its tab and drawing the path on the map.
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -132,7 +134,7 @@ Details, warnings, and the overlay's parent-key references: `references/chunks.m
 
 Start one read-only subagent per PR with the prompt in
 `references/change-map-prompt.md`. Each writes `$SCRATCH/pr-<key>.md` (purpose,
-files by layer with +/−, flow in reading order with `file:line`, wire shapes,
+files by layer with +/−, named flows as `path:start-end — note` steps, wire shapes,
 error mapping, config, tests, ranked risks, per-file notes) and returns only a
 short summary. Read the summaries; open a map only for the section you are
 writing.
@@ -145,8 +147,9 @@ checkout (numstat, grouping, a first-guess layer, JS/TS imports with aliases,
 Python imports, PHP `use`, test → subject, dependency order), then records what
 git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,
 unchanged reference files, a `role` for every node, `note`s from the change
-maps, a `hub` override where the shared-dependency rule misjudges a file, and for a
-PR above 40 core files 8-12 areas (`clusters`). The schema and overlay format are in `references/graph-schema.md`.
+maps, a `hub` override where the shared-dependency rule misjudges a file, for a
+PR above 40 core files 8-12 areas (`clusters`), and one tour per flow (`tours`, lines
+checked with `git show`). The schema and overlay format are in `references/graph-schema.md`.
 
 ### 4. Generate the diffs
 
@@ -211,7 +214,7 @@ branch names to their current tips (read-only, prints old → new per PR), and
 builds the page against the previous version (`previous.json`): changed-file
 banner and badges, read marks of changed files cleared, notes moved or flagged.
 It never edits the narrative; it warns which stack cards still show an old tip
-and prints new counts. Parts survive: new commits become a new part, a rebase is
+and prints new counts. Tour steps follow their code (moved, or stale: whole file). Parts survive: new commits become a new part, a rebase is
 remapped by patch-id or subject, and it stops when that fails. Update those cards
 and every claim the new commits change, run `refresh.py $SCRATCH --assemble-only`,
 and republish. refresh.py

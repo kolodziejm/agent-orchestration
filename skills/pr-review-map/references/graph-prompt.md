@@ -49,9 +49,16 @@ Steps:
    report language, order as the flow reads) and `nodes.<ref>.cluster` on each core
    file. Shared dependencies, tests, and docs/config/i18n need none. For parts use the
    parent key, so an area spans the parts.
+   Author one tour per distinct flow in the change maps' "Flows" section (at most 8, each
+   of 3 to 15 steps): overlay `tours` ([{"id": "apple-web", "name": "...", "steps":
+   [{"ref": "M:path", "side": "new", "lines": "12-30", "note": "..."}]}], name and notes
+   in the report language, a note at most 80 characters, a parent key for parts). Check
+   every step's lines with `git show <tip>:<path>` (`side: "old"` and the base for code
+   the PR removes): they must show the code the note names. Leave `lines` out only when
+   the whole file is the step.
 4. Re-run build_graph.py with the overlay until the summary shows no missing roles,
-   no core files without an area where you authored areas, and no warnings you have
-   not checked. If it reports a dependency cycle, confirm it is real or drop the wrong
+   no core files without an area where you authored areas, every tour with its step
+   count, and no warnings you have not checked. If it reports a dependency cycle, confirm it is real or drop the wrong
    edge with `dropEdges`.
 5. Generate diffs and confirm every node has one:
    python3 <skill dir>/scripts/gen_diffs.py --graph <scratch dir>/graphs.json \
@@ -59,9 +66,11 @@ Steps:
    Keep both outputs in <scratch dir>: the scripts record their arguments in
    <scratch dir>/review-map.json, which refresh.py replays when a branch moves.
    An overlay reference to a file the PR does not change is skipped with a
-   warning; fix it rather than leave it.
+   warning; fix it rather than leave it. Then assemble a page and run validate.py: a tour
+   step whose lines lie outside every hunk of its diff is a warning (the viewer opens the
+   whole file); move it onto changed lines unless the unchanged code is the point.
 
 Return only: node and edge counts per PR, cross-PR edge count, the areas per PR with
-their file counts, the overlay path, and anything you could not resolve (unmatched
-files, edges you were unsure about).
+their file counts, the tours with their step counts, the overlay path, and anything you
+could not resolve (unmatched files, edges you were unsure about).
 ```
