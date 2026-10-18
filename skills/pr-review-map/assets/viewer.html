@@ -350,7 +350,7 @@ table.dt tr.nt-bar td{white-space:normal;word-break:normal;font-family:var(--f-b
 .nt-b.pri{background:var(--accent-ink);border-color:var(--accent-ink);color:var(--surface)}
 .nt-b.dng{background:var(--risk-fg);border-color:var(--risk-fg);color:var(--surface)}
 .nt-b.lnk{border-color:transparent;background:none;color:var(--accent-ink)}
-.nt-b:disabled{opacity:.5;cursor:default}
+.nt-b:disabled,.nt-b[aria-disabled="true"]{opacity:.5;cursor:default}
 .nt-ed textarea,.nt-list textarea,.nt-manual textarea{font:inherit;font-size:14px;line-height:1.45;width:100%;min-height:72px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg);resize:vertical}
 .nt-manual textarea{font-family:var(--f-mono);font-size:12.5px;min-height:160px}
 .nt-ed textarea:focus-visible,.nt-list textarea:focus-visible,.nt-manual textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -389,6 +389,24 @@ details.nt-panel{margin:0}
 .g-cb.new{color:var(--ok-fg);background:var(--ok-bg)} .g-cb.changed{color:var(--warn-fg);background:var(--warn-bg)}
 .g-was{font-size:12px;font-weight:700;color:var(--accent-ink);line-height:1}
 .g-row.was input{outline:2px dashed var(--accent);outline-offset:1px}
+/* Tours: the picker beside the view toggle, the bar at the foot of the graph (held at the bottom of the window while the
+   graph is in view), each row's step numbers, and the tour's path on the map */
+.g-tools select{font:inherit;font-size:13px;max-width:260px;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.g-tour{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:4;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent-ink);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.14);font-size:14px}
+.g-tour[hidden]{display:none}
+.g-tour .tn{font-weight:700;color:var(--accent-ink)}
+.g-tour .ts{font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.g-tour .tx{flex:1 1 280px;min-width:0;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;overflow-wrap:anywhere}
+.g-tour .tl{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.g-tour .acts{display:inline-flex;flex-wrap:wrap;gap:6px}
+.g-tour .tk{font-size:12px;color:var(--muted)}
+#graph.touring .g-side{max-height:calc(100vh - 96px)}
+.g-tb{font-size:11px;font-weight:700;line-height:1.45;padding:0 5px;border-radius:999px;border:1px solid var(--accent-ink);color:var(--accent-ink);background:var(--surface);white-space:nowrap}
+.g-tb.on{background:var(--accent-ink);color:var(--surface)}
+svg .tp{fill:none;stroke:var(--accent-ink);stroke-width:3;stroke-dasharray:8 6;stroke-linecap:round;stroke-linejoin:round;opacity:.7;pointer-events:none}
+svg .tpn{pointer-events:none} svg .tpn rect{fill:var(--surface);stroke:var(--accent-ink);stroke-width:1.5}
+svg .tpn text{font-family:var(--f-mono);font-size:10.5px;font-weight:700;fill:var(--accent-ink)}
+svg .tpn.on rect{fill:var(--accent-ink)} svg .tpn.on text{fill:var(--surface)}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 {{PR_CSS}}
@@ -416,6 +434,7 @@ details.nt-panel{margin:0}
   <div class="nt-pred" id="nt-pred" hidden></div>
   <div class="g-tools">
     <span class="dv-mode" role="group" aria-label="{{S:viewLabel}}"><button type="button" data-v="list">{{S:viewList}}</button><button type="button" data-v="map">{{S:viewMap}}</button></span>
+    <label id="g-tourl" title="{{S:tourKeys}}" hidden>{{S:tours}} <select id="g-tour"><option value="">{{S:tourPick}}</option></select></label>
     <span class="dv-mode" role="group" aria-label="{{S:orderLabel}}"><button type="button" data-o="top">{{S:fromEntry}}</button><button type="button" data-o="bottom">{{S:fromDeps}}</button></span>
     <label id="g-pathl"><input type="checkbox" id="g-path"> {{S:showPath}}</label>
     <label title="{{S:allLinksTitle}}"><input type="checkbox" id="g-all"> {{S:allLinks}}</label>
@@ -465,6 +484,11 @@ details.nt-panel{margin:0}
         <div id="dv-files"><div class="dv-empty">{{S:diffEmpty}}</div></div>
       </div>
     </div>
+  </div>
+  <div class="g-tour" id="g-tourbar" role="region" aria-label="{{S:tours}}" hidden>
+    <strong class="tn" id="g-tourn"></strong><span class="ts" id="g-tours"></span><span class="tx" id="g-tourx"></span>
+    <span class="acts"><button type="button" class="nt-b" id="g-tprev">{{S:tourPrev}}</button><button type="button" class="nt-b pri" id="g-tnext">{{S:tourNext}}</button><button type="button" class="nt-b lnk" id="g-texit">{{S:tourExit}}</button></span>
+    <span class="tk">{{S:tourKeys}}</span>
   </div>
 </section>
 
@@ -1144,8 +1168,10 @@ details.nt-panel{margin:0}
   }
   function flash(els){els.forEach(function(c){c.classList.add('nf');});setTimeout(function(){els.forEach(function(c){c.classList.remove('nf');});},1600);}
   /* Show a note's place: a PR note's tab; a file note's file; a line note's lines (where a move put it). A stale line
-     note opens its file, since the code it was written on is no longer there; a note on a gone file says so. */
-  function jump(n){
+     note opens its file, since the code it was written on is no longer there; a note on a gone file says so. A tour
+     step (`tour`) goes the same way, but keeps the focus where it is, leaves the notes panel's status alone, and opens
+     its file when the diff shows none of its lines. */
+  function jump(n,tour){
     if(n.scope==='pr'){
       /* A note on a whole PR split into parts opens the part on show, or else its first part. */
       var k=PARENTS[n.pr]?(PARTOF[cur]&&PARTOF[cur].of===n.pr?cur:PARENTS[n.pr].parts[0]):n.pr;
@@ -1156,21 +1182,23 @@ details.nt-panel{margin:0}
       if(tb){flash([tb]);tb.focus({preventScroll:true});}
       return;
     }
-    var state=stateOf(n).st,id=resolveNode(n);if(!id){status(state==='gone'?S.noteGoneJump:S.noteMissing);return;}
+    var state=stateOf(n).st,id=resolveNode(n);if(!id){if(!tour)status(state==='gone'?S.noteGoneJump:S.noteMissing);return;}
     var nd=all[id],again=false;
     if(nd.layer==='test'&&!showTests){showTests=true;document.getElementById('g-tests').checked=true;again=true;}
     if(onlyChg&&!CHG[id]){setOnlyChg(false);again=true;}
     if(cur!==nd.pr){cur=nd.pr;sel=null;again=true;}
     if(again)render();
     if(sel!==id||!VIEW[n.path])window.__gsel(id);
-    var V=VIEW[n.path];if(!V){status(S.noteMissing);return;}
+    var V=VIEW[n.path];if(!V){if(!tour)status(S.noteMissing);return;}
     partDiff(V);V.det.open=true;V.fill();
-    if(n.scope==='file'||state==='stale'){var sm=V.det.querySelector('summary');flash([sm]);sm.focus({preventScroll:true});sm.scrollIntoView({block:'center',behavior:smooth()});if(state==='stale')status(S.noteStaleJump);return;}
+    var sm=V.det.querySelector('summary');
+    function head(){flash([sm]);if(!tour)sm.focus({preventScroll:true});sm.scrollIntoView({block:'center',behavior:smooth()});}
+    if(n.scope==='file'||state==='stale'){head();if(state==='stale'&&!tour)status(S.noteStaleJump);return;}
     var cells=[],first=null,at=span(n);
     if(V.t)[].forEach.call(V.t.querySelectorAll('td.ln[data-s="'+n.side+'"]'),function(td){var l=+td.dataset.l;if(l>=at.a&&l<=at.b){if(!first)first=td;cells=cells.concat(rowCells(V,td));}});
-    if(!first){status(S.noteMissing);return;}
+    if(!first){if(tour)head();else status(S.noteMissing);return;}
     flash(cells);
-    focusCell(first,true);first.scrollIntoView({block:'center',behavior:smooth()});
+    if(tour)rove(first);else focusCell(first,true);first.scrollIntoView({block:'center',behavior:smooth()});
   }
   /* A Markdown code span whose backtick run is longer than any run inside the text (CommonMark). */
   function mdCode(s){var runs=s.match(/`+/g)||[],n=1;runs.forEach(function(r){n=Math.max(n,r.length+1);});var f=new Array(n+1).join('`'),pad=/^`|`$/.test(s)?' ':'';return f+pad+s+pad+f;}
@@ -1810,6 +1838,8 @@ details.nt-panel{margin:0}
       var al=alsoIn(id);
       if(al.length){var pc=document.createElement('span');pc.className='g-pc';pc.textContent='⇄'+al.map(function(x){return x.i;}).join(',');pc.title=fmt(S.chunkAlso,{list:al.map(function(x){return x.i;}).join(', ')});pc.setAttribute('role','img');pc.setAttribute('aria-label',pc.title);ix.appendChild(pc);}
       xChips(id).forEach(function(c){ix.appendChild(c);});
+      var ts=TOUR?own(TSTEP,id)||[]:[];
+      if(ts.length){var tb=document.createElement('span'),nums=ts.map(function(i){return i+1;});tb.className='g-tb'+(ts.indexOf(TI)>=0?' on':'');tb.textContent='▸'+nums.join(',');tb.title=fmt(S.tourBadge,{list:nums.join(', '),name:TOUR.name});tb.setAttribute('role','img');tb.setAttribute('aria-label',tb.title);ix.insertBefore(tb,ix.firstChild);}
     });
     paintHeads(mine);shareChip();ovChips(mine);
   }
@@ -2199,6 +2229,7 @@ details.nt-panel{margin:0}
     ordered().forEach(function(n){node(n,P[n.id]);});
     mapRove(sel&&MAP.nd[sel]?sel:MAP.seq[0]);
     if(showPath){var dd='';ordered().forEach(function(n){var p=P[n.id];dd+=(dd?' L':'M')+(p.x+p.w/2)+','+(p.y+p.h/2);});if(dd.indexOf('L')>0)el('path',{class:'rp',d:dd},pg);}
+    if(TOUR)drawTour(function(id){return own(P,id);},pg,el('g',{},svg));
   }
   /* Map keyboard: one Tab stop (the selected node, else the first); the arrow keys, Home, and End move through the
      earlier-PR band and then the steps in reading order, Enter or Space opens a node. */
@@ -2466,7 +2497,8 @@ details.nt-panel{margin:0}
   }
   function renderOverview(keep){
     cv.textContent='';MAP=null;
-    var X=ovOpen(),L=ovLayout(CG,X,byId),bar=document.createElement('div');
+    var X=ovOpen();tourAreas(X);
+    var L=ovLayout(CG,X,byId),bar=document.createElement('div');
     bar.className='g-ovt';
     bar.innerHTML='<strong>'+esc(S.mapAreas)+'</strong><span class="dv-mode" role="group" aria-label="'+esc(S.zoomLabel)+'">'
       +[['out','−',S.zoomOut],['in','+',S.zoomIn],['fit',S.zoomFit,S.zoomFit]].map(function(z){return '<button type="button" data-z="'+z[0]+'" title="'+esc(z[2])+'" aria-label="'+esc(z[2])+'">'+esc(z[1])+'</button>';}).join('')
@@ -2543,6 +2575,7 @@ details.nt-panel{margin:0}
     function end(ev){delete P[ev.pointerId];if(!pts().length){drag=null;pinch=null;svg.classList.remove('drag');setTimeout(function(){M.drag=0;},0);}}
     svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
     mapRove(ovKey(sel)||M.seq[0]);paintOv();if(showPath)ovPath();
+    if(TOUR)drawTour(ovBox,ig,M.pg);
   }
 
   function select(id,how){
@@ -2573,6 +2606,137 @@ details.nt-panel{margin:0}
   }
   window.__gsel=function(id){select(id,'note');};
 
+  /* Tours (Trasy): named walks through the map, from the overlay (graphs.json "tours"; build_graph.py, tours.py). The
+     picker beside the view toggle starts one and the bar at the foot of the graph, held at the bottom of the window,
+     shows "Step 3 of 8 · note" with the step's file and lines, Previous and Next (keys [ and ]), and Exit (Esc). A step
+     opens like a note's jump(): its tab, its node, its diff, its lines scrolled to and flashed; a step without lines, a
+     stale one (its code changed after the overlay named it), or one whose lines the diff does not show opens its file,
+     and one on an unchanged file selects its node. The shown tab's rows carry the numbers of their steps, the map draws
+     the tour's path (the overview opens the areas on it once per tour and tab), each step is announced, and the tour
+     and step persist under "tour" ({id, i}). Without tours there is no picker and none of this runs. readTours keeps
+     the steps whose node this page has. */
+  function readTours(list){
+    var out=[],by=Object.create(null);
+    (Array.isArray(list)?list:[]).forEach(function(t){
+      if(!t||typeof t.id!=='string'||!t.id||by[t.id]||!Array.isArray(t.steps))return;
+      var steps=[];
+      t.steps.forEach(function(s){
+        if(!s||typeof s.node!=='string'||!own(all,s.node)||typeof s.path!=='string')return;
+        var a=s.a,b=s.b,ok=!s.stale&&Number.isInteger(a)&&Number.isInteger(b)&&a>0&&b>=a;
+        steps.push({node:s.node,path:s.path,side:s.side==='old'?'old':'new',a:ok?a:0,b:ok?b:0,note:typeof s.note==='string'?s.note:'',lines:typeof s.lines==='string'?s.lines:'',stale:!!s.stale});
+      });
+      if(steps.length){var T={id:t.id,name:typeof t.name==='string'&&t.name.trim()?t.name:t.id,steps:steps};out.push(T);by[t.id]=T;}
+    });
+    return {list:out,by:by};
+  }
+  /* A tour's path over a drawing: pos(id) is a node's box ({x, y, w, h}) or null, and steps in one box in a row make one
+     point. {pts: ["x,y"], marks: [{x, y, steps: [index]}]}: one mark per box, at its top right corner. */
+  function tourPath(T,pos){
+    var pts=[],marks=[],at=[],last=null;
+    T.steps.forEach(function(s,i){
+      var b=pos(s.node);if(!b)return;
+      var k=at.indexOf(b);if(k<0){at.push(b);marks.push({x:b.x+b.w,y:b.y,steps:[i]});}else marks[k].steps.push(i);
+      if(b!==last){pts.push(Math.round(b.x+b.w/2)+','+Math.round(b.y+b.h/2));last=b;}
+    });
+    return {pts:pts,marks:marks};
+  }
+  var TB=readTours(data.tours),TOUR=null,TI=0,TSTEP=Object.create(null),tourOv=Object.create(null);
+  var tSel=document.getElementById('g-tour'),tBar=document.getElementById('g-tourbar'),tPrev=document.getElementById('g-tprev'),tNext=document.getElementById('g-tnext');
+  function drawTour(pos,pg,mg){
+    var R=tourPath(TOUR,pos);MAP.tp=[];
+    if(R.pts.length>1)el('path',{class:'tp',d:'M'+R.pts.join(' L'),'aria-hidden':'true'},pg);
+    R.marks.forEach(function(m){
+      var t=m.steps.map(function(i){return i+1;}).join(','),w=Math.max(18,t.length*6.6+10),g=el('g',{class:'tpn','aria-hidden':'true',transform:'translate('+Math.round(m.x-w+8)+','+Math.round(m.y-9)+')'},mg);
+      el('rect',{width:w,height:16,rx:8},g);el('text',{x:w/2,y:12,'text-anchor':'middle'},g).textContent=t;
+      MAP.tp.push({g:g,steps:m.steps});
+    });
+    paintTourMap();
+  }
+  function paintTourMap(){if(MAP&&MAP.tp)MAP.tp.forEach(function(x){x.g.classList.toggle('on',!!TOUR&&x.steps.indexOf(TI)>=0);});}
+  /* The overview opens the areas of the tour's files on the shown tab, once per tour and tab. */
+  function tourAreas(X){
+    if(!TOUR||tourOv[TOUR.id+'\n'+cur])return;
+    tourOv[TOUR.id+'\n'+cur]=1;var add=0;
+    TOUR.steps.forEach(function(s){var c=all[s.node].pr===cur?CG.of[s.node]:null;if(c&&!X[c]&&CG.by[c]){X[c]=1;add++;}});
+    if(add)ovSaveOpen(X);
+  }
+  function tourLoc(s){return s.path+(s.a?':'+(s.a===s.b?s.a:s.a+'-'+s.b):'');}
+  /* "moved from :12-30" when a refresh moved the step off the lines the overlay names, "code changed" when stale. */
+  function tourState(s){
+    if(s.stale)return S.tourStale;
+    var m=/^(\d+)(?:-(\d+))?$/.exec(s.lines);
+    return m&&s.a&&(+m[1]!==s.a||+(m[2]||m[1])!==s.b)?fmt(S.tourMoved,{loc:s.lines}):'';
+  }
+  function tourSave(){save('tour',TOUR?JSON.stringify({id:TOUR.id,i:TI}):'');}
+  function tourUse(T,i){
+    TOUR=T;TI=Math.max(0,Math.min(T.steps.length-1,i));TSTEP=Object.create(null);
+    T.steps.forEach(function(s,k){(TSTEP[s.node]=TSTEP[s.node]||[]).push(k);});
+  }
+  function paintTour(){
+    document.getElementById('graph').classList.toggle('touring',!!TOUR);tBar.hidden=!TOUR;tSel.value=TOUR?TOUR.id:'';
+    if(!TOUR)return;
+    var s=TOUR.steps[TI],st=tourState(s),last=TOUR.steps.length-1;
+    document.getElementById('g-tourn').textContent=TOUR.name;
+    document.getElementById('g-tours').textContent=fmt(S.tourStep,{i:TI+1,n:TOUR.steps.length});
+    var pr=all[s.node].pr,c=PARTOF[pr];
+    document.getElementById('g-tourx').innerHTML=(s.note?'<span>· '+esc(s.note)+'</span>':'')+'<span class="tl">'+esc((c?fmt(S.chunkOf,{i:c.index,n:c.count}):prName(pr))+' · '+tourLoc(s)+(s.side==='old'?' · '+S.sideOld:''))+'</span>'
+      +(st?'<span class="nt-st st-'+(s.stale?'stale':'moved')+'">'+esc(st)+'</span>':'');
+    tPrev.setAttribute('aria-disabled',TI<=0?'true':'false');tNext.setAttribute('aria-disabled',TI>=last?'true':'false');
+    paintTourMap();
+  }
+  /* Go to step i of the tour: like jump() for a note on the step's lines (its file for a step without lines). */
+  function tourGo(i){
+    if(!TOUR)return;
+    TI=Math.max(0,Math.min(TOUR.steps.length-1,i));tourSave();paintTour();
+    var s=TOUR.steps[TI],n=all[s.node],st=tourState(s);
+    if(fileOf(n.pr,s.path))jump({id:'tour\n'+TOUR.id+'\n'+TI,scope:s.a?'line':'file',pr:n.pr,node:s.node,path:s.path,side:s.side,a:s.a||1,b:s.b||1,code:null},true);
+    else{
+      var again=false;
+      if(n.layer==='test'&&!showTests){showTests=true;document.getElementById('g-tests').checked=true;again=true;}
+      if(onlyChg&&!CHG[s.node]){setOnlyChg(false);again=true;}
+      if(cur!==n.pr){cur=n.pr;sel=null;again=true;}
+      if(again)render();
+      select(s.node,'note');detEl.scrollIntoView({block:'start',behavior:smooth()});
+    }
+    paintTour();paintMarks();
+    say(TOUR.name+' · '+fmt(S.tourStep,{i:TI+1,n:TOUR.steps.length})+(s.note?' · '+s.note:'')+(st?' · '+st:''));
+  }
+  function tourStart(id){var T=own(TB.by,id);if(!T)return;tourUse(T,0);paintTour();render();tourGo(0);}
+  function tourExit(){
+    if(!TOUR)return;
+    var back=tBar.contains(document.activeElement);TOUR=null;TSTEP=Object.create(null);tourSave();paintTour();render();say(S.tourEnded);
+    if(back)tSel.focus();
+  }
+  /* A narrative button with data-tour="<id>" starts that tour; one that names no tour on this page is hidden. */
+  [].forEach.call(document.querySelectorAll('[data-tour]'),function(b){
+    var T=own(TB.by,b.dataset.tour);if(!T){b.hidden=true;return;}
+    if(!b.textContent.trim())b.textContent=fmt(S.tourOpen,{name:T.name});
+    b.addEventListener('click',function(){tourStart(T.id);});
+  });
+  if(TB.list.length){
+    document.getElementById('g-tourl').hidden=false;
+    TB.list.forEach(function(T){var o=document.createElement('option');o.value=T.id;o.textContent=T.name+' · '+T.steps.length;tSel.appendChild(o);});
+    tSel.addEventListener('change',function(){if(tSel.value)tourStart(tSel.value);else tourExit();});
+    tPrev.addEventListener('click',function(){tourGo(TI-1);});
+    tNext.addEventListener('click',function(){tourGo(TI+1);});
+    document.getElementById('g-texit').addEventListener('click',tourExit);
+    /* [ and ] step, Esc exits, except while typing or in a note editor (whose Esc closes it first). */
+    document.addEventListener('keydown',function(ev){
+      if(!TOUR||ev.defaultPrevented||ev.altKey||ev.ctrlKey||ev.metaKey)return;
+      var t=ev.target,tag=t&&t.tagName||'';
+      if(t&&(t.isContentEditable||(t.closest&&t.closest('.nt-ed'))||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||''))))return;
+      if(ev.key===']'){ev.preventDefault();tourGo(TI+1);}
+      else if(ev.key==='['){ev.preventDefault();tourGo(TI-1);}
+      else if(ev.key==='Escape'){ev.preventDefault();tourExit();}
+    });
+    /* A tour left open resumes on its step's tab with its file selected, without scrolling the page. */
+    (function(){
+      var v=null;try{v=JSON.parse(load('tour','null'));}catch(e){}
+      var T=v&&typeof v==='object'&&typeof v.id==='string'?own(TB.by,v.id):null;if(!T)return;
+      tourUse(T,Number.isInteger(v.i)?v.i:0);var s=T.steps[TI];cur=all[s.node].pr;sel=s.node;selBy[cur]=sel;
+    })();
+  }
+
   function render(){
     if(!cur)return;
     [].forEach.call(tabs.querySelectorAll('[role="tab"]'),function(b){b.setAttribute('aria-selected',b.dataset.k===cur?'true':'false');});
@@ -2588,7 +2752,7 @@ details.nt-panel{margin:0}
     cv.hidden=view!=='map';MAP=null;if(view==='map'){if(ov)renderOverview();else renderMap();}else cv.textContent='';
     select(sel);
   }
-  render();
+  render();paintTour();
   if(window.ResizeObserver){new ResizeObserver(function(){drawLane();}).observe(stepOl);new ResizeObserver(function(){drawNb();}).observe(detEl);}
   else window.addEventListener('resize',function(){drawLane();drawNb();});
   var mq=window.matchMedia('(prefers-color-scheme: dark)');if(mq.addEventListener)mq.addEventListener('change',render);

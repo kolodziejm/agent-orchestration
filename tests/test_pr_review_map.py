@@ -220,6 +220,30 @@ const cases = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
 process.stdout.write(JSON.stringify(cases.map(([start, adj, max]) => Object.assign({}, hops(start, adj, max == null ? Infinity : max)))));
 """
 
+# Runs the viewer's readTours() and tourPath(), cut out of assets/viewer.html, over {"all": {id: node}, "tours": [...],
+# "boxes": {id: box name}, "named": {box name: {x, y, w, h}}} and prints the tours it keeps and each tour's path.
+VIEWER_TOURS = r"""
+const fs = require('fs');
+const [template, inputFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+const code = [cut('  function own(o,k)', 'function own(o,k)'), cut('  function readTours(list){', 'function readTours(list){'),
+  cut('  function tourPath(T,pos){', 'function tourPath(T,pos){')].join('\n');
+const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+const api = new Function('all', code + '\nreturn {readTours: readTours, tourPath: tourPath};')(input.all);
+const TB = api.readTours(input.tours);
+const pos = (id) => Object.prototype.hasOwnProperty.call(input.boxes, id) ? input.named[input.boxes[id]] : null;
+process.stdout.write(JSON.stringify({tours: TB.list, ids: Object.keys(TB.by), paths: TB.list.map((T) => api.tourPath(T, pos))}));
+"""
+
 
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
@@ -2108,7 +2132,7 @@ TOURS = [
 
 class TourTests(unittest.TestCase):
     """Tours ("Trasy"): the overlay's named walks, resolved by build_graph.py, checked by validate.py and assemble.py,
-    and followed across a refresh."""
+    followed across a refresh, and read and drawn by the viewer."""
 
     @classmethod
     def setUpClass(cls):
@@ -2273,6 +2297,45 @@ class TourTests(unittest.TestCase):
         fresh = run_script("refresh.py", str(d)).stdout
         self.assertNotIn("stale", fresh)
         self.assertEqual((steps()[1]["a"], steps()[1]["code"]), (1, [b_v1.replace("[o, l]", "[o, o + l]")]))
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's tour code")
+    def test_viewer_keeps_well_formed_tours_and_draws_their_path_through_boxes(self):
+        """This test will fail when the viewer's readTours() keeps a tour or step this page cannot show (no id, a duplicate id, no steps, a node the page lacks or one named after an Object.prototype property, a path that is not text) or keeps lines it must not trust (a stale step's, a reversed range), or when tourPath() stops joining consecutive steps in one box into one point, skipping steps with no box, and giving each box one mark with all of its step numbers."""
+        nodes = {k: {"id": k, "pr": "P", "path": f"src/{k}.ts"} for k in ("P1", "P2", "P3", "P4")}
+        tours = [
+            {"id": "a", "name": "A", "steps": [
+                {"node": "P1", "path": "src/P1.ts", "a": 3, "b": 5, "note": "one", "lines": "3-5"},
+                {"node": "P2", "path": "src/P2.ts", "side": "old", "a": 2, "b": 2},
+                {"node": "P3", "path": "src/P3.ts", "a": 4, "b": 4, "stale": True},
+                {"node": "P9", "path": "src/P9.ts"},
+                {"node": "constructor", "path": "x"},
+                {"node": "P4", "path": 7},
+                {"node": "P4", "path": "src/P4.ts", "a": 5, "b": 2, "side": "weird"},
+                {"node": "P1", "path": "src/P1.ts"}]},
+            {"id": "a", "name": "Again", "steps": [{"node": "P1", "path": "src/P1.ts"}]},
+            {"id": "", "steps": [{"node": "P1", "path": "src/P1.ts"}]},
+            {"id": "empty", "name": "Empty", "steps": [{"node": "P9", "path": "x"}]},
+            {"id": "b", "steps": [{"node": "P2", "path": "src/P2.ts"}]},
+            None,
+        ]
+        inputs = Path(tempfile.mkdtemp())
+        (inputs / "tours.js").write_text(VIEWER_TOURS, encoding="utf-8")
+        (inputs / "in.json").write_text(json.dumps({
+            "all": nodes, "tours": tours, "boxes": {"P1": "one", "P2": "area", "P3": "area", "P4": "four"},
+            "named": {"one": {"x": 0, "y": 0, "w": 100, "h": 40}, "area": {"x": 200, "y": 100, "w": 200, "h": 60},
+                      "four": {"x": 500, "y": 0, "w": 100, "h": 40}}}), encoding="utf-8")
+        result = subprocess.run(["node", str(inputs / "tours.js"), str(SKILL / "assets" / "viewer.html"), str(inputs / "in.json")],
+                                capture_output=True, text=True, check=True)
+        shutil.rmtree(inputs)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["ids"], ["a", "b"])
+        first, second = out["tours"]
+        self.assertEqual([(s["node"], s["side"], s["a"], s["b"], s["stale"]) for s in first["steps"]],
+                         [("P1", "new", 3, 5, False), ("P2", "old", 2, 2, False), ("P3", "new", 0, 0, True), ("P4", "new", 0, 0, False), ("P1", "new", 0, 0, False)])
+        self.assertEqual((first["name"], first["steps"][0]["note"], first["steps"][0]["lines"], second["name"]), ("A", "one", "3-5", "b"))
+        self.assertEqual(out["paths"][0], {"pts": ["50,20", "300,130", "550,20", "50,20"],
+                                           "marks": [{"x": 100, "y": 0, "steps": [0, 4]}, {"x": 400, "y": 100, "steps": [1, 2]}, {"x": 600, "y": 0, "steps": [3]}]})
+        self.assertEqual(out["paths"][1], {"pts": ["300,130"], "marks": [{"x": 400, "y": 100, "steps": [0]}]})
 
 
 if __name__ == "__main__":
