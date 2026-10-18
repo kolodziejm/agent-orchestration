@@ -8,8 +8,9 @@ The file is written with sorted keys, so the same inputs give the same bytes.
 
 It also holds the checks every script applies to the PR keys, ranges, and
 repositories it hands to git (check_pr), so a value from the command line or a
-manifest can never become a git option, and the page history assemble.py and
-refresh.py number builds by (history). Python 3 standard library only.
+manifest can never become a git option, the form of an area (cluster) id, and the
+page history assemble.py and refresh.py number builds by (history). Python 3
+standard library only.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ KEY = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")  # also a command-line value, so
 # A revision as git takes it on the command line: no white space or control character anywhere, and no leading "-",
 # which git would read as an option (`--output=<file>` writes a file).
 REV = re.compile(r"[^\s\x00-\x1f\x7f-][^\s\x00-\x1f\x7f]*")
+# An area (cluster) id from the overlay: graphs.json, the viewer's localStorage, and its areas' ids ("d:" + folder for a
+# folder area, ":shared", ":late") keep it apart from those, since it never holds ":".
+CLUSTER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
 
 
 def check_pr(key: str, repo: str, rng: str) -> None:

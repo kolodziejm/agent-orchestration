@@ -19,6 +19,10 @@ Checks, each an error unless noted:
     with a string diff; a node without a diff is a warning
   * parts of a PR split by its commits (`parents`, `chunk`): contiguous, numbered
     1..n, each starting where the one before ends, keys ending in a letter
+  * areas (`clusters` per PR, node `cluster`): well-formed, unique ids, and every
+    node's cluster listed by its PR; fewer than 4 or more than 15 areas, an area
+    with no core node (not a test, hub, or docs/config/i18n), or a PR above 40 core
+    nodes without areas is a warning
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
     review-config "generation", when present, an integer from 0 to 2**31
@@ -39,6 +43,7 @@ from urllib.parse import urlparse
 
 sys.dont_write_bytecode = True  # importing chunks.py must not leave a __pycache__ in the skill
 import chunks  # noqa: E402
+import manifest  # noqa: E402
 
 SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
 BALANCED = ("div", "section", "details", "table", "main", "nav", "ul", "ol", "pre")
@@ -59,6 +64,46 @@ process.stdout.write(JSON.stringify(errors));
 
 def reject_constant(name: str) -> None:
     raise ValueError(f"non-standard JSON constant {name}")
+
+
+LATE = {"docs", "config", "i18n"}
+OVERVIEW_CORE = 40  # build_graph.py and the viewer: above this many core nodes the map opens on its overview of areas
+
+
+def cluster_problems(pr: dict) -> tuple[list[str], list[str]]:
+    """Errors and warnings about one PR's areas: its `clusters` list and its nodes' `cluster`."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    key, listed = pr.get("key"), pr.get("clusters")
+    ids: dict[str, int] = {}
+    if listed is not None:
+        if not isinstance(listed, list):
+            return [f'PR {key}: "clusters" must be a list of {{"id", "label", "order"}}'], []
+        for item in listed:
+            if not (isinstance(item, dict) and isinstance(item.get("id"), str) and manifest.CLUSTER.fullmatch(item["id"])
+                    and isinstance(item.get("label"), str) and isinstance(item.get("order"), int) and not isinstance(item.get("order"), bool)):
+                errors.append(f"PR {key}: cluster {item!r} needs an id (letters, digits, '_', '.', '-'), a label, and an integer order")
+            elif item["id"] in ids:
+                errors.append(f"PR {key}: cluster id {item['id']!r} is listed twice")
+            else:
+                ids[item["id"]] = 0
+    nodes = [node for node in pr.get("nodes", []) if isinstance(node, dict)]
+    core = [node for node in nodes if node.get("layer") != "test" and node.get("layer") not in LATE]
+    for node in nodes:
+        if "cluster" not in node:
+            continue
+        if not isinstance(node["cluster"], str) or node["cluster"] not in ids:
+            errors.append(f"node {node.get('id')} in PR {key}: unknown cluster {node['cluster']!r}")
+        elif node.get("layer") != "test" and node.get("layer") not in LATE and not node.get("hub"):
+            ids[node["cluster"]] += 1
+    if ids and not 4 <= len(ids) <= 15:
+        warnings.append(f"PR {key}: {len(ids)} clusters; 4 to 15 (8 to 12 reads best) keep the map overview readable")
+    empty = [cid for cid, n in ids.items() if not n]
+    if empty:
+        warnings.append(f"PR {key}: clusters with no core node (only tests, hubs, or docs/config/i18n): {empty}")
+    if not ids and len(core) > OVERVIEW_CORE:
+        warnings.append(f"PR {key}: {len(core)} core nodes and no clusters; the map overview groups them by folder")
+    return errors, warnings
 
 
 def main() -> int:
@@ -169,6 +214,10 @@ def main() -> int:
             if without:
                 warnings.append(f"nodes without a diff: {without[:20]}")
         errors.extend(f"parts: {problem}" for problem in chunks.graph_errors(graph))
+        for pr in graph["prs"]:
+            found, notes = cluster_problems(pr) if isinstance(pr, dict) else ([], [])
+            errors.extend(found)
+            warnings.extend(notes)
     else:
         warnings.append("no graph-data block found; graph checks skipped")
 

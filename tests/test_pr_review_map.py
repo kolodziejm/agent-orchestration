@@ -1374,6 +1374,183 @@ def chunk_repo(repo: Path) -> list[str]:
     return shas
 
 
+# Feature folders of the large-PR fixture, each after the folders it uses (so a split by commits never imports forward).
+AREAS = {"auth": [], "catalog": [], "billing": ["auth"], "profile": ["auth"], "search": ["catalog"],
+         "checkout": ["billing", "catalog", "auth"], "notify": ["auth", "profile"], "reports": ["billing", "catalog", "search"],
+         "admin": ["auth", "profile", "reports"]}
+
+
+def area_files(name: str, uses: list[str]) -> dict[str, str]:
+    """One feature folder of the large-PR fixture: 15 linked files (types, api, store, service, hooks, components,
+    routes, index) and 3 tests; its service uses each used folder's service and its view their types."""
+    a, base = name.capitalize(), f"src/{name}"
+    up, up2 = "import { t } from '../shared/i18n';\n", "import { t } from '../../shared/i18n';\n"
+    fail, fail2 = "import { fail } from '../shared/errors';\n", "import { fail } from '../../shared/errors';\n"
+    return {
+        f"{base}/types.ts": f"export type {a}Id = string;\n",
+        f"{base}/api/client.ts": f"import type {{ {a}Id }} from '../types';\nexport const get = (id: {a}Id) => id;\n",
+        f"{base}/api/endpoints.ts": f"import {{ get }} from './client';\nimport type {{ {a}Id }} from '../types';\nexport const one = (id: {a}Id) => get(id);\n",
+        f"{base}/store/state.ts": f"import type {{ {a}Id }} from '../types';\nexport const state: {a}Id[] = [];\n",
+        f"{base}/store/actions.ts": "import { state } from './state';\nimport { one } from '../api/endpoints';\n" + fail2
+        + "export const load = () => state.map(one).concat(fail());\n",
+        f"{base}/store/selectors.ts": "import { state } from './state';\nexport const all = () => state;\n",
+        f"{base}/service.ts": "import { load } from './store/actions';\nimport { all } from './store/selectors';\n" + up + fail
+        + "".join(f"import {{ run as {u}Run }} from '../{u}/service';\n" for u in uses) + f"export const run = () => [load(), all(), t('{name}'), fail()];\n",
+        f"{base}/hooks/use{a}.ts": "import { run } from '../service';\n" + up2 + f"export const use{a} = () => [run(), t('x')];\n",
+        f"{base}/hooks/use{a}List.ts": "import { run } from '../service';\nimport { all } from '../store/selectors';\n"
+        + f"export const use{a}List = () => [run(), all()];\n",
+        f"{base}/components/{a}View.tsx": f"import {{ use{a} }} from '../hooks/use{a}';\n" + up2 + fail2
+        + "".join(f"import type {{ {u.capitalize()}Id }} from '../../{u}/types';\n" for u in uses) + f"export const {a}View = () => use{a}();\n",
+        f"{base}/components/{a}List.tsx": f"import {{ use{a}List }} from '../hooks/use{a}List';\n" + up2
+        + f"import {{ format }} from '../../shared/format';\nexport const {a}List = () => use{a}List();\n",
+        f"{base}/components/{a}Item.tsx": f"import type {{ {a}Id }} from '../types';\nexport const {a}Item = (id: {a}Id) => id;\n",
+        f"{base}/components/{a}Form.tsx": f"import {{ use{a} }} from '../hooks/use{a}';\n" + up2 + fail2 + f"export const {a}Form = () => use{a}();\n",
+        f"{base}/routes.ts": "".join(f"import {{ {a}{c} }} from './components/{a}{c}';\n" for c in ("View", "List", "Item", "Form"))
+        + f"export const routes = [{a}View, {a}List, {a}Item, {a}Form];\n",
+        f"{base}/index.ts": "export { routes } from './routes';\nexport { run } from './service';\n",
+        f"{base}/service.test.ts": "import { run } from './service';\ntest('run', () => run());\n",
+        f"{base}/store/actions.test.ts": "import { load } from './actions';\ntest('load', () => load());\n",
+        f"{base}/components/{a}View.test.tsx": f"import {{ {a}View }} from './{a}View';\ntest('view', () => {a}View());\n",
+    }
+
+
+def area_repo(repo: Path) -> None:
+    """The large-PR fixture: one commit per feature folder (AREAS, scope = folder) after the shared files, then docs:
+    168 nodes, 138 of them core, with src/shared/i18n.ts and src/shared/errors.ts used by most files (hubs)."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    commit_files(repo, {"README.md": "# x\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    commit_files(repo, {"src/shared/i18n.ts": "export const t = (k: string) => k;\n",
+                        "src/shared/errors.ts": "import { t } from './i18n';\nexport const fail = () => t('failed');\n",
+                        "src/shared/format.ts": "export const format = (v: string) => v.trim();\n"}, "feat(shared): i18n, errors, format")
+    for name, uses in AREAS.items():
+        commit_files(repo, area_files(name, uses), f"feat({name}): {name} feature")
+    commit_files(repo, {"docs/areas.md": "# areas\n", "package.json": '{"name": "areas"}\n',
+                        "locales/en.json": '{"x": "x"}\n', "locales/pl.json": '{"x": "x"}\n'}, "docs: areas")
+
+
+def area_overlay(path: Path, key: str = "P") -> None:
+    """Areas for six of the fixture's nine folders (the rest fall back to folders), plus a hub and the docs given an
+    area they cannot keep."""
+    authored = ["auth", "billing", "catalog", "checkout", "profile", "search"]
+    nodes = {f"{key}:{f}": {"cluster": name} for name in authored for f in area_files(name, AREAS[name]) if ".test." not in f}
+    nodes[f"{key}:src/shared/i18n.ts"] = {"cluster": "auth"}
+    nodes[f"{key}:#docs"] = {"cluster": "auth"}
+    path.write_text(json.dumps({"clusters": {name: {"label": name.capitalize(), "order": i} for i, name in enumerate(authored, 1)},
+                                "nodes": nodes}), encoding="utf-8")
+
+
+class AreaTests(unittest.TestCase):
+    """Areas ("clusters") of a large PR: the overlay, build_graph.py and validate.py, and the viewer's areas and overview."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = cls.root / "repo"
+        area_repo(cls.repo)
+        cls.overlay = cls.root / "overlay.json"
+        area_overlay(cls.overlay)
+        cls.out = {}
+        for name, extra in (("areas", ["--overlay", str(cls.overlay)]), ("plain", [])):
+            graph, diffs = cls.root / f"{name}.json", cls.root / f"{name}-diffs.json"
+            cls.out[name] = run_script("build_graph.py", "--out", str(graph), "--pr", "P", str(cls.repo), "main...feat", "--no-manifest", *extra).stdout
+            run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "P", str(cls.repo), "main...feat", "--no-manifest")
+        cls.graph = json.loads((cls.root / "areas.json").read_text(encoding="utf-8"))
+        cls.plain = json.loads((cls.root / "plain.json").read_text(encoding="utf-8"))
+        cls.narrative = cls.root / "narrative.html"
+        cls.narrative.write_text('<section id="s"><h2>S</h2></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def page(self, graph: dict, name: str) -> Path:
+        path, out = self.root / f"{name}-graph.json", self.root / f"{name}.html"
+        path.write_text(json.dumps(graph), encoding="utf-8")
+        run_script("assemble.py", "--graph", str(path), "--diffs", str(self.root / "areas-diffs.json"), "--narrative", str(self.narrative),
+                   "--title", "Areas", "--out", str(out), "--no-manifest")
+        return out
+
+    def test_overlay_areas_reach_their_nodes_and_each_pr_lists_the_ones_it_uses(self):
+        """This test will fail when build_graph.py stops copying an overlay area onto its nodes and listing, per PR, the areas its nodes use in their order with their labels, keeps an area on a shared dependency or a docs/config/i18n node instead of warning, gives a test an area it was not given, stops naming the core files without an area or the large PR without areas, or accepts an unknown area, a malformed id, or a non-integer order."""
+        pr = self.graph["prs"][0]
+        self.assertEqual(pr["clusters"], [{"id": name, "label": name.capitalize(), "order": i}
+                                          for i, name in enumerate(["auth", "billing", "catalog", "checkout", "profile", "search"], 1)])
+        by_path = {node["path"]: node for node in pr["nodes"]}
+        self.assertEqual(by_path["src/checkout/service.ts"]["cluster"], "checkout")
+        self.assertEqual(by_path["src/auth/components/AuthView.tsx"]["cluster"], "auth")
+        for path in ("src/checkout/service.test.ts", "src/admin/service.ts", "src/shared/format.ts", "src/shared/i18n.ts", "docs/areas.md"):
+            with self.subTest(path=path):
+                self.assertNotIn("cluster", by_path.get(path) or next(n for n in pr["nodes"] if path in n.get("files", [])))
+        self.assertTrue(by_path["src/shared/i18n.ts"]["hub"])
+        out = self.out["areas"]
+        self.assertIn("overlay cluster 'auth' ignored for src/shared/i18n.ts: it is a shared dependency", out)
+        self.assertIn("overlay cluster 'auth' ignored for docs/areas.md: it is docs", out)
+        self.assertIn("areas: auth 15, billing 15, catalog 15, checkout 15, profile 15, search 15", out)
+        self.assertIn("hint: PR P: 46 core files have no area, so the map groups them by folder", out)
+        self.assertNotIn("clusters", self.plain["prs"][0])
+        self.assertFalse([n for n in self.plain["prs"][0]["nodes"] if "cluster" in n])
+        self.assertIn("hint: PR P has 138 core files; above 40 its map opens on an overview of areas", self.out["plain"])
+        for name, overlay, message in (
+            ("unknown", {"clusters": {"a": {}}, "nodes": {"P:src/auth/types.ts": {"cluster": "b"}}}, "unknown cluster 'b'"),
+            ("bad id", {"clusters": {"a b": {}}}, "overlay cluster id 'a b'"),
+            ("order", {"clusters": {"a": {"order": "1"}}}, "order must be an integer"),
+            ("shape", {"clusters": ["a"]}, 'overlay "clusters" must be an object'),
+        ):
+            with self.subTest(case=name):
+                path = self.root / "bad-overlay.json"
+                path.write_text(json.dumps(overlay), encoding="utf-8")
+                result = run_script("build_graph.py", "--out", str(self.root / "never.json"), "--pr", "P", str(self.repo), "main...feat",
+                                    "--overlay", str(path), "--no-manifest", check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_validate_rejects_unknown_areas_and_warns_about_too_few_or_empty_ones(self):
+        """This test will fail when validate.py passes a node whose area its PR does not list or a malformed area list, or stays silent about fewer than 4 areas, an area with no core node (only tests, hubs, or docs/config/i18n), or a PR above 40 core nodes without areas; or when it flags a well-formed page."""
+        good = run_script("validate.py", str(self.page(self.graph, "good")), check=False)
+        self.assertEqual(good.returncode, 0, good.stdout)
+        self.assertNotIn("cluster", good.stdout)
+        plain = run_script("validate.py", str(self.page(self.plain, "plain")), check=False)
+        self.assertEqual(plain.returncode, 0, plain.stdout)
+        self.assertIn("warning: PR P: 138 core nodes and no clusters; the map overview groups them by folder", plain.stdout)
+
+        def broken(change):
+            graph = json.loads(json.dumps(self.graph))
+            change(graph["prs"][0])
+            return run_script("validate.py", str(self.page(graph, "broken")), check=False)
+
+        unknown = broken(lambda pr: pr["nodes"][0].update(cluster="nope"))
+        self.assertEqual(unknown.returncode, 1)
+        self.assertIn("unknown cluster 'nope'", unknown.stdout)
+        twice = broken(lambda pr: pr["clusters"].append(dict(pr["clusters"][0])))
+        self.assertIn("cluster id 'auth' is listed twice", twice.stdout)
+        self.assertEqual(broken(lambda pr: pr["clusters"][0].update(order="1")).returncode, 1)
+
+        def few(pr):
+            keep = {"auth", "billing", "catalog"}
+            pr["clusters"] = [c for c in pr["clusters"] if c["id"] in keep] + [{"id": "tests", "label": "Tests", "order": 9}]
+            for node in pr["nodes"]:
+                if node.get("cluster") not in keep:
+                    node.pop("cluster", None)
+            next(n for n in pr["nodes"] if n["layer"] == "test")["cluster"] = "tests"
+
+        warned = broken(few)
+        self.assertEqual(warned.returncode, 0, warned.stdout)
+        self.assertNotIn("4 clusters;", warned.stdout)
+        self.assertIn("clusters with no core node (only tests, hubs, or docs/config/i18n): ['tests']", warned.stdout)
+
+        def three(pr):
+            pr["clusters"] = pr["clusters"][:3]
+            for node in pr["nodes"]:
+                if node.get("cluster") not in (None, "auth", "billing", "catalog"):
+                    del node["cluster"]
+
+        self.assertIn("warning: PR P: 3 clusters; 4 to 15", broken(three).stdout)
+
+
 class ChunkTests(unittest.TestCase):
     """One PR split into parts cut from its commits: chunks.py propose and expand, build_graph.py and gen_diffs.py --chunks."""
 
@@ -1523,6 +1700,25 @@ class ChunkTests(unittest.TestCase):
         graph = json.loads(dropped.read_text(encoding="utf-8"))
         by_id = {n["id"]: n["path"] for pr in graph["prs"] for n in pr["nodes"]}
         self.assertFalse([e for pr in graph["prs"] for e in pr["edges"] if (by_id[e["from"]], by_id[e["to"]]) == ("src/core/service.ts", "src/core/types.ts")])
+
+    def test_areas_given_with_the_parent_key_reach_every_part_and_each_part_lists_its_own(self):
+        """This test will fail when an overlay area given with the PR's key (M:path) does not reach that file's node in every part that changes it, an area given with a part key reaches another part, or a part lists an area none of its nodes use."""
+        overlay = self.root / "areas-overlay.json"
+        overlay.write_text(json.dumps({"clusters": {"core": {"label": "Core"}, "web": {"label": "Web", "order": 0}},
+                                       "nodes": {"M:src/core/service.ts": {"cluster": "core"}, "M:src/core/types.ts": {"cluster": "core"},
+                                                 "Mb:web/page.tsx": {"cluster": "web"}}}), encoding="utf-8")
+        out = self.root / "areas-graph.json"
+        run_script("build_graph.py", "--out", str(out), "--chunks", str(self.scratch / "chunks.json"), "--overlay", str(overlay), "--no-manifest")
+        parts = {pr["key"]: pr for pr in json.loads(out.read_text(encoding="utf-8"))["prs"]}
+
+        def area(key, path):
+            return next(n for n in parts[key]["nodes"] if n["path"] == path).get("cluster")
+
+        self.assertEqual([area("Ma", "src/core/service.ts"), area("Mc", "src/core/service.ts"), area("Ma", "src/core/types.ts")], ["core"] * 3)
+        self.assertEqual((area("Mb", "web/page.tsx"), area("Mb", "web/page.spec.tsx"), area("Ma", "src/core/util.ts")), ("web", None, None))
+        self.assertEqual({key: pr.get("clusters") for key, pr in parts.items()},
+                         {"Ma": [{"id": "core", "label": "Core", "order": 1}], "Mb": [{"id": "web", "label": "Web", "order": 0}],
+                          "Mc": [{"id": "core", "label": "Core", "order": 1}]})
 
     def test_broken_chunks_and_part_chains_are_rejected(self):
         """This test will fail when a chunks file with parts out of order, a part key that ends in a digit or repeats, or a parent key that is also a PR key is accepted, or when assemble.py or validate.py accept graphs.json parts whose chain is broken (a part that does not start where the one before ends, a wrong index, a parent that lists other parts)."""

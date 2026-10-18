@@ -34,8 +34,15 @@ What the script resolves on its own:
     (the merge base for `A...B`), so copied review notes can name them
 
 What it cannot see (DI wiring, routing, HTTP calls between services, config
-readers, roles, per-file notes, unchanged reference files) goes in the overlay,
+readers, roles, per-file notes, unchanged reference files, areas) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
+
+Areas ("clusters"): the overlay's `clusters` ({id: {label, order}}) and each node's
+`cluster` (a parent-key reference reaches every part) become each PR's `clusters`
+list (the areas its nodes use, by order) and the node's `cluster`. A hub or a
+docs/config/i18n node keeps none, with a warning (the viewer puts them in its
+shared and late areas); the viewer groups core files without one by folder. A PR
+above 40 core files without areas gets a hint: its map opens on an overview of areas.
 
 --chunks FILE (chunks.py, references/chunks.md) splits one PR into parts cut from
 its commits: each part becomes a PR of its own (key, range from..to, `chunk`
@@ -112,6 +119,7 @@ PRIO = {"contract": 0, "domain": 1, "data": 1, "logic": 2, "infra": 3, "rest": 4
         "wiring": 6, "test": 7, "config": 8, "i18n": 8, "docs": 9}
 LATE = {"docs", "config", "i18n"}
 HUB_MIN, HUB_SHARE = 4, 4  # a hub: at least 4 dependents and at least a quarter of the linked core files
+OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1}
 KINDS = set(KIND_RANK)
 GENERIC_NAMES = re.compile(r"^(index|types?|context|handlers?|routes?|utils?|helpers?|constants?|config|main|app|mod|lib|__init__|package|README|readme|schema|models?)\.[^.]+$")
@@ -356,6 +364,26 @@ def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced:
     return hubs
 
 
+def read_clusters(overlay: dict) -> dict[str, dict]:
+    """The overlay's areas, {id: {"id", "label", "order"}}; `order` defaults to the area's place in the overlay."""
+    raw = overlay.get("clusters", {})
+    if not isinstance(raw, dict):
+        raise SystemExit('overlay "clusters" must be an object: {"auth": {"label": "Sign-in", "order": 1}}')
+    out = {}
+    for position, (cid, fields) in enumerate(raw.items(), 1):
+        if not manifest.CLUSTER.fullmatch(cid):
+            raise SystemExit(f"overlay cluster id {cid!r}: up to 40 letters, digits, '_', '.', or '-', starting with a letter or digit")
+        if not isinstance(fields, dict):
+            raise SystemExit(f"overlay cluster {cid!r} must be an object with an optional label and order")
+        label, order = fields.get("label", cid), fields.get("order", position)
+        if not isinstance(label, str) or not label.strip() or chunks.CONTROL.search(label):
+            raise SystemExit(f"overlay cluster {cid!r}: label must be non-empty text")
+        if not isinstance(order, int) or isinstance(order, bool):
+            raise SystemExit(f"overlay cluster {cid!r}: order must be an integer")
+        out[cid] = {"id": cid, "label": label.strip(), "order": order}
+    return out
+
+
 def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_cycle=None) -> list[str]:
     """Dependency-first reading order of one PR's nodes; `edges` are its same-PR (from, to, kind).
 
@@ -459,6 +487,7 @@ def main() -> int:
     if not args.no_default_groups:
         rules = rules + DEFAULT_GROUPS
     overlay = json.loads(args.overlay.read_text(encoding="utf-8")) if args.overlay else {}
+    clusters = read_clusters(overlay)
 
     keys = [key for key, _repo, _rng in args.pr]
     for key, repo, rng in args.pr:
@@ -616,6 +645,10 @@ def main() -> int:
                 if not isinstance(fields["hub"], bool):
                     raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
                 node["forced_hub"] = fields["hub"]
+            if "cluster" in fields:
+                if not isinstance(fields["cluster"], str) or fields["cluster"] not in clusters:
+                    raise SystemExit(f"overlay nodes {text!r}: unknown cluster {fields['cluster']!r}; define it under clusters")
+                node["cluster"] = fields["cluster"]
     for edge in overlay.get("edges", []):
         kind = edge.get("kind", "import")
         if kind not in KINDS:
@@ -647,6 +680,11 @@ def main() -> int:
                 warnings.append(f"{pr['key']}: overlay hub ignored for {nodes[nk]['path']} ({nodes[nk]['layer']} is not a core layer)")
         for nk in find_hubs(nodes, same_pr, forced):
             nodes[nk]["hub"] = True
+        for nk in sorted(nk for nk, node in nodes.items() if "cluster" in node and (node.get("hub") or node["layer"] in LATE)):
+            node = nodes[nk]
+            where = "a shared dependency (the viewer's shared area; set hub false to keep it in an area)" if node.get("hub") \
+                else f"{node['layer']} (the viewer's docs, config, and i18n area)"
+            warnings.append(f"{pr['key']}: overlay cluster {node.pop('cluster')!r} ignored for {node['path']}: it is {where}")
         order = reading_order(nodes, same_pr, lambda near: warnings.append(
             f"{pr['key']}: dependency cycle broken near {near}"))
         for position, nk in enumerate(order, 1):
@@ -672,6 +710,9 @@ def main() -> int:
                  "repo": pr["label"], **range_commits(pr["repo"], pr["range"])}
         if pr["chunk"]:
             entry["chunk"] = pr["chunk"]
+        used = {node["cluster"] for node in nodes.values() if "cluster" in node}
+        if used:
+            entry["clusters"] = sorted((clusters[cid] for cid in used), key=lambda c: (c["order"], c["id"]))
         entry.update({"nodes": [], "edges": []})
         for nk in pr["order"]:
             node = nodes[nk]
@@ -688,6 +729,8 @@ def main() -> int:
                 item["unchanged"] = True
             if node.get("hub"):
                 item["hub"] = True
+            if "cluster" in node:
+                item["cluster"] = node["cluster"]
             if not item["role"]:
                 missing_roles += 1
             entry["nodes"].append(item)
@@ -728,8 +771,18 @@ def main() -> int:
         manifest.record(here, "build_graph", section)
     for index, entry in enumerate(out["prs"]):
         hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
+        core = [node for node in entry["nodes"] if node["layer"] != "test" and node["layer"] not in LATE]
+        areas = {c["id"]: sum(1 for node in core if node.get("cluster") == c["id"]) for c in entry.get("clusters", [])}
         print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
-              + (f"; shared dependencies: {', '.join(hubs)}" if hubs else ""))
+              + (f"; shared dependencies: {', '.join(hubs)}" if hubs else "")
+              + (f"; areas: {', '.join(f'{cid} {n}' for cid, n in areas.items())}" if areas else ""))
+        loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]
+        if areas and loose:
+            print(f"hint: PR {entry['key']}: {len(loose)} core files have no area, so the map groups them by folder: "
+                  + ", ".join(loose[:5]) + (", …" if len(loose) > 5 else ""))
+        elif not areas and len(core) > OVERVIEW_CORE:
+            print(f"hint: PR {entry['key']} has {len(core)} core files; above {OVERVIEW_CORE} its map opens on an overview of areas: "
+                  "give 8-12 of them by feature or flow in the overlay (clusters, nodes.<ref>.cluster), else it groups by folder")
         changed = len([path for path, nk in prs[index]["owner"].items() if not prs[index]["nodes"][nk].get("unchanged")])
         if "chunk" not in entry and (changed > chunks.SUGGEST_FILES or len(entry["nodes"]) > chunks.SUGGEST_NODES):
             print(f"hint: PR {entry['key']} changes {changed} files in {len(entry['nodes'])} nodes; above {chunks.SUGGEST_FILES} files "
