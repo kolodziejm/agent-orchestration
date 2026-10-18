@@ -58,6 +58,9 @@ pre.code{background:var(--code-bg);padding:14px 16px;border-radius:8px;overflow-
 .pr-card .t{font-weight:700;font-size:17px;line-height:1.3}
 .pr-card .meta{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pr-card ul{margin:4px 0 0;padding-left:18px;font-size:14px}
+.pr-card ol.parts{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:5px;font-size:14px}
+.pr-card ol.parts>li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;max-width:none}
+.pr-card ol.parts .meta{font-size:12.5px}
 .tag{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--soft);color:var(--c,var(--muted));border:1px solid var(--line);vertical-align:middle}
 button.tag{cursor:pointer;font:inherit;font-size:13px;font-weight:700}
 .arrow{color:var(--muted);text-align:center;font-size:14px}
@@ -103,6 +106,9 @@ footer{color:var(--muted);font-size:13px}
 .g-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
 .g-tabs button{font:inherit;font-size:14px;font-weight:600;padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
 .g-tabs button[aria-selected="true"]{background:var(--c);border-color:var(--c);color:var(--surface)}
+/* The parts of a PR split by its commits: one group of tabs after the parent's name */
+.g-tgrp{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;padding:3px 4px 3px 10px;border:1px dashed var(--c,var(--line));border-radius:999px}
+.g-tgl{font-size:13.5px;font-weight:700;color:var(--c,var(--muted));white-space:nowrap}
 .g-tools{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;font-size:14px;color:var(--muted);margin:0 0 10px}
 .g-tools label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
 .g-tools button{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
@@ -151,6 +157,7 @@ footer{color:var(--muted);font-size:13px}
 .g-row .ix{display:inline-flex;gap:3px;align-items:center}
 .g-nk{font-size:11px;padding:0 5px;line-height:1.45}
 .g-xc{font:inherit;font-size:11px;font-weight:700;line-height:1.45;padding:0 5px;border-radius:999px;border:1px dashed var(--c);color:var(--c);background:var(--surface);cursor:pointer;white-space:nowrap}
+.g-pc{font-size:11px;font-weight:700;line-height:1.45;padding:0 5px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--soft);white-space:nowrap}
 .g-lane{position:absolute;top:0;right:0;width:var(--lw);pointer-events:none;overflow:visible}
 .g-lane .arc{fill:none;stroke:var(--muted);stroke-opacity:.38;stroke-width:1.2}
 .g-lane .arc.http{stroke-dasharray:4 3}
@@ -173,6 +180,9 @@ footer{color:var(--muted);font-size:13px}
 .g-xr .no{font-family:var(--f-mono);font-size:11.5px;color:var(--c);font-weight:700}
 .g-xg li.dep{background:var(--soft);box-shadow:inset 0 0 0 1px var(--dep)}
 .g-xg .cnt{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+.g-xgh{cursor:pointer;font:inherit;font-size:12px;font-weight:700}
+.g-xg ul[hidden]{display:none}
+.g-xgh.dep{box-shadow:inset 0 0 0 1px var(--dep)}
 /* Detail panel with the selected file's neighbourhood: dependencies | file | dependents */
 .g-detail{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:14px;scroll-margin-top:12px;container-type:inline-size}
 .g-detail h4{margin:0 0 6px;font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg);overflow-wrap:anywhere}
@@ -180,6 +190,8 @@ footer{color:var(--muted);font-size:13px}
 .g-detail .p{font-family:var(--f-mono);font-size:12px;overflow-wrap:anywhere;color:var(--muted)}
 .g-detail .muted{margin:0;color:var(--muted)}
 .g-detail .g-role{margin:8px 0} .g-detail .g-note{margin:0 0 8px}
+.g-detail .g-also{margin:0 0 8px;font-size:13px;color:var(--muted)}
+.g-detail .g-also .nt-b.lnk{padding:0 3px;font-size:13px}
 .g-nb{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 34px;align-items:center;margin:10px 0;padding:10px 0;border-block:1px solid var(--line)}
 .g-nbc{min-width:0}
 .g-nbc>.k-dep,.g-nbc>.k-use{font-size:12px;text-transform:uppercase;letter-spacing:.05em}
@@ -292,7 +304,8 @@ button.nt-k{cursor:pointer}
 button.nt-k[aria-pressed="true"]{background:var(--kc);color:var(--surface)}
 button.nt-k:disabled{opacity:.45;cursor:default}
 .df-r{display:inline-flex;gap:8px;align-items:center;flex-shrink:0}
-.df>summary .nt-fadd{font-family:var(--f-body);font-size:12.5px;padding:0 6px}
+.df>summary .nt-fadd,.df>summary .g-wd{font-family:var(--f-body);font-size:12.5px;padding:0 6px}
+.df>summary .g-wd[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-radius:6px}
 .df>summary.nf,.g-tabs button.nf{background-image:linear-gradient(var(--d-sel),var(--d-sel))}
 .nt-fed{padding:10px 12px;background:var(--soft);border-bottom:1px solid var(--line)}
 .g-tabs-row{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 0 12px}
@@ -444,10 +457,20 @@ details.nt-panel{margin:0}
      are looked up through it, so "constructor" or "__proto__" never reach Object.prototype. */
   function own(o,k){return o&&Object.prototype.hasOwnProperty.call(o,k)?o[k]:null;}
   var PR=Object.create(null);(CFG.prs||[]).forEach(function(p){PR[p.key]=p;});
-  function prName(k){return PR[k]?PR[k].name:k;}
+  /* A PR split into parts by its commits (chunks.py): data.parents lists each parent ({key, name, title, repo, base,
+     tip, parts: [part keys]}) and each part is a PR with chunk {of, index, count, from, to, commits, subjects, label}.
+     PARENTS[parent key] and PARTOF[part key] hold them; a page without them has neither and nothing below changes.
+     A parent is named and coloured like its first part's PR (its key is no tab of this page). */
+  var PARENTS=Object.create(null),PARTOF=Object.create(null);
+  (Array.isArray(data.parents)?data.parents:[]).forEach(function(q){if(q&&typeof q.key==='string'&&!PR[q.key]&&Array.isArray(q.parts)&&q.parts.length)PARENTS[q.key]=q;});
+  data.prs.forEach(function(p){var c=p.chunk;if(c&&typeof c==='object'&&typeof c.of==='string'&&PARENTS[c.of]&&PARENTS[c.of].parts.indexOf(p.key)>=0)PARTOF[p.key]=c;});
+  function prName(k){return PR[k]?PR[k].name:PARENTS[k]?String(PARENTS[k].name||k):k;}
   /* A PR's colour lands in CSS: only a palette slot, a hex colour, or a colour name (assemble.py checks it too). */
   var COLOR_OK=/^(var\(--pal-[1-8]\)|#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20})$/;
-  function prColor(k){var c=PR[k]&&PR[k].color;return typeof c==='string'&&COLOR_OK.test(c)?c:'var(--accent)';}
+  function prColor(k){if(PARENTS[k])k=PARENTS[k].parts[0];var c=PR[k]&&PR[k].color;return typeof c==='string'&&COLOR_OK.test(c)?c:'var(--accent)';}
+  function sha7(s){return String(s||'').slice(0,7);}
+  /* A part named for copied notes: "#251 · part 2/5 (abc1234..def5678)". */
+  function partRef(k){var c=PARTOF[k];return c?prName(c.of)+' · '+fmt(S.chunkOf,{i:c.index,n:c.count})+' ('+sha7(c.from)+'..'+sha7(c.to)+')':prName(k);}
   function layerOf(l){return [own(S.layers,l)||l||'?',own(LAYER_COLORS,l)||'#888'];}
   var KEY='review-map:'+(CFG.storageKey||CFG.title||document.title||location.pathname||'review')+':';
   function load(k,d){try{var v=localStorage.getItem(KEY+k);return v==null?d:v;}catch(e){return d;}}
@@ -528,7 +551,7 @@ details.nt-panel{margin:0}
       var V=VIEW[p];if(!V.body.dataset.f||V.body.querySelector('.nt-ed'))return;
       if(lang(V.f.path)!==l&&!/\.(vue|svelte|astro)$/i.test(V.f.path))return;
       var x=V.body.scrollLeft,y=V.body.scrollTop,a=document.activeElement,fc=a&&V.body.contains(a)&&a.matches('td.ln[data-l]')?[a.dataset.s,a.dataset.l]:null;
-      V.body.innerHTML=table(V.f);decorate(V);V.body.scrollLeft=x;V.body.scrollTop=y;
+      V.body.innerHTML=V.whole?wholeHtml(V):table(V.f);decorate(V);V.body.scrollLeft=x;V.body.scrollTop=y;
       if(fc)focusCell(cellFor(V,fc[0],fc[1]),true);
     });
   }
@@ -612,10 +635,11 @@ details.nt-panel{margin:0}
     }
     return out;
   }
-  /* data-s/data-l on a line-number cell name its side ("old"/"new") and line; review notes select and mark lines by them. */
-  function at(s,n){return n?' data-s="'+s+'" data-l="'+n+'"':'';}
-  function table(f){
-    var l=lang(f.path),hs=parse(f.diff);sfcLangs(f.path,hs);
+  /* data-s/data-l on a line-number cell name its side ("old"/"new") and line; review notes select and mark lines by them.
+     A read-only table (the whole-PR diff of a file split across parts) has neither, so no line can be selected. */
+  function atCell(s,n){return n?' data-s="'+s+'" data-l="'+n+'"':'';}
+  function table(f,ro){
+    var l=lang(f.path),hs=parse(f.diff),at=ro?function(){return '';}:atCell;sfcLangs(f.path,hs);
     if(!hs.length)return '<div class="df-note">'+esc(S.noHunks)+'</div>';
     var html='<table class="dt '+(mode==='sbs'?'sbs':'uni')+'">';
     if(mode==='sbs')html+='<colgroup><col style="width:46px"><col><col style="width:46px"><col></colgroup>';
@@ -640,6 +664,13 @@ details.nt-panel{margin:0}
     return html;
   }
   function stat(d){var a=0,r=0;parse(d).forEach(function(h){h.rows.forEach(function(x){if(x.t==='add')a++;else if(x.t==='del')r++;});});return [a,r];}
+  /* A file that two or more parts of a PR change carries its diff over the whole PR (gen_diffs.py puts it on the last
+     part's entry as `whole`); WHOLE[parent+"\n"+path] holds it, and the "Whole-PR diff" toggle in the file's header
+     shows it read-only in place of the part's diff (notes are added on the part's diff). */
+  var WHOLE=Object.create(null);
+  data.prs.forEach(function(p){var c=PARTOF[p.key];if(c)p.nodes.forEach(function(n){(own(DIFFS,n.id)||[]).forEach(function(f){if(f&&f.whole&&typeof f.whole.diff==='string')WHOLE[c.of+'\n'+f.path]=f.whole;});});});
+  function wholeOf(pr,path){var c=PARTOF[pr];return c?own(WHOLE,c.of+'\n'+path):null;}
+  function wholeHtml(V){var q=PARENTS[PARTOF[V.pr].of];return '<div class="df-note">'+esc(fmt(S.chunkWholeNote,{from:sha7(q.base),to:sha7(q.tip)}))+'</div>'+table({path:V.f.path,diff:V.wf.diff,truncated:V.wf.truncated},true);}
   function showDiff(id,node){
     last=[id,node];
     var files=DIFFS[id]||[],box=document.getElementById('dv-files');
@@ -651,16 +682,22 @@ details.nt-panel{margin:0}
     files.forEach(function(f,i){
       var s=stat(f.diff),lines=f.diff.split('\n').length,big=lines>400||(files.length>4&&i>0);
       var det=document.createElement('details');det.className='df';if(!big)det.open=true;
-      det.innerHTML='<summary><span class="pth">'+esc(f.path)+'</span><span class="df-r"><span class="nt-fk-slot"></span><button type="button" class="nt-b lnk nt-fadd">'+esc(S.noteFileAdd)+'</button><span class="st"><span class="a">+'+s[0]+'</span> <span class="r">−'+s[1]+'</span></span></span></summary><div class="df-body"></div>';
-      var body=det.querySelector('.df-body'),V={det:det,body:body,node:id,pr:node.pr,f:f,fill:fill};
+      var wf=wholeOf(node.pr,f.path);
+      det.innerHTML='<summary><span class="pth">'+esc(f.path)+'</span><span class="df-r"><span class="nt-fk-slot"></span>'+(wf?'<button type="button" class="nt-b lnk g-wd" aria-pressed="false" title="'+esc(S.chunkWholeDiffTitle)+'">'+esc(S.chunkWholeDiff)+'</button>':'')+'<button type="button" class="nt-b lnk nt-fadd">'+esc(S.noteFileAdd)+'</button><span class="st"><span class="a">+'+s[0]+'</span> <span class="r">−'+s[1]+'</span></span></span></summary><div class="df-body"></div>';
+      var body=det.querySelector('.df-body'),V={det:det,body:body,node:id,pr:node.pr,f:f,fill:fill,wf:wf,whole:false};
       VIEW[f.path]=V;
-      function fill(){if(!body.dataset.f){body.innerHTML=table(f);body.dataset.f=1;decorate(V);}}
+      function fill(){if(!body.dataset.f){body.innerHTML=V.whole?wholeHtml(V):table(f);body.dataset.f=1;decorate(V);}}
       var fadd=det.querySelector('.nt-fadd');fadd.setAttribute('aria-label',S.noteFileAdd+': '+f.path);
       fadd.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();openFileNote(V);});
+      if(wf){var wb=det.querySelector('.g-wd');wb.setAttribute('aria-label',S.chunkWholeDiff+': '+f.path);wb.addEventListener('click',function(ev){
+        ev.preventDefault();ev.stopPropagation();V.whole=!V.whole;wb.setAttribute('aria-pressed',V.whole?'true':'false');delete body.dataset.f;det.open=true;fill();
+      });}
       if(det.open)fill();det.addEventListener('toggle',function(){if(det.open)fill();});
       paintFile(V);box.appendChild(det);
     });
   }
+  /* Back from the whole-PR diff to the part's own, where notes sit. */
+  function partDiff(V){if(!V.whole)return;V.whole=false;var b=V.det.querySelector('.g-wd');if(b)b.setAttribute('aria-pressed','false');delete V.body.dataset.f;}
   function clearDiff(){last=null;VIEW={};document.getElementById('dv-title').textContent=S.diffTitle;document.getElementById('dv-meta').textContent=S.diffPick;document.getElementById('dv-files').innerHTML='<div class="dv-empty">'+esc(S.diffEmpty)+'</div>';}
 
   /* Review notes. A note has a kind (issue, question, suggestion, ok) and a scope: a line range, a whole file,
@@ -945,7 +982,8 @@ details.nt-panel{margin:0}
   function filtered(){return KINDS.some(function(k){return kf[k];});}
   function changedNote(n){return !n.dismissed&&stateOf(n).st!=='ok';}
   function status(t){nStatus.textContent=t;clearTimeout(stTimer);if(t)stTimer=setTimeout(function(){nStatus.textContent='';},5000);}
-  function prIdx(k){var i=data.prs.findIndex(function(p){return p.key===k;});return i<0?1e9:i;}
+  /* A PR's place in the stack; a parent sits just before its first part. */
+  function prIdx(k){var j=PARENTS[k]?PARENTS[k].parts[0]:k,i=data.prs.findIndex(function(p){return p.key===j;});return i<0?1e9:j!==k?i-0.5:i;}
   function cmp(x,y){return x<y?-1:x>y?1:0;}
   /* PR, then the PR's own notes, then file path, the file's own notes before its line notes, then line (where the note
      shows, after a move). */
@@ -1054,9 +1092,11 @@ details.nt-panel{margin:0}
      note opens its file, since the code it was written on is no longer there; a note on a gone file says so. */
   function jump(n){
     if(n.scope==='pr'){
-      if(!data.prs.some(function(p){return p.key===n.pr;})){status(S.noteMissing);return;}
-      if(cur!==n.pr){cur=n.pr;sel=null;render();}
-      var tb=[].find.call(tabs.children,function(b){return b.dataset.k===n.pr;});
+      /* A note on a whole PR split into parts opens the part on show, or else its first part. */
+      var k=PARENTS[n.pr]?(PARTOF[cur]&&PARTOF[cur].of===n.pr?cur:PARENTS[n.pr].parts[0]):n.pr;
+      if(!data.prs.some(function(p){return p.key===k;})){status(S.noteMissing);return;}
+      if(cur!==k){cur=k;sel=null;render();}
+      var tb=tabFor(k);
       document.getElementById('graph').scrollIntoView({behavior:'smooth'});
       if(tb){flash([tb]);tb.focus({preventScroll:true});}
       return;
@@ -1069,7 +1109,7 @@ details.nt-panel{margin:0}
     if(again)render();
     if(sel!==id||!VIEW[n.path])window.__gsel(id);
     var V=VIEW[n.path];if(!V){status(S.noteMissing);return;}
-    V.det.open=true;V.fill();
+    partDiff(V);V.det.open=true;V.fill();
     if(n.scope==='file'||state==='stale'){var sm=V.det.querySelector('summary');flash([sm]);sm.focus({preventScroll:true});sm.scrollIntoView({block:'center',behavior:'smooth'});if(state==='stale')status(S.noteStaleJump);return;}
     var cells=[],first=null,at=span(n);
     if(V.t)[].forEach.call(V.t.querySelectorAll('td.ln[data-s="'+n.side+'"]'),function(td){var l=+td.dataset.l;if(l>=at.a&&l<=at.b){if(!first)first=td;cells=cells.concat(rowCells(V,td));}});
@@ -1154,8 +1194,11 @@ details.nt-panel{margin:0}
     return out.join('\n');
   }
   function mdLang(p){var e=p.split('/').pop().toLowerCase().split('.').pop();return own({html:'html',htm:'html',vue:'vue',svelte:'svelte',astro:'astro',svg:'svg',toml:'toml',xml:'xml',env:'dotenv',proto:'protobuf',tf:'hcl',hcl:'hcl',tfvars:'hcl'},e)||lang(p)||'';}
+  /* A part is named with its parent, number, and commits ("#251 · part 2/5 (abc..def)") and its label; a parent (the
+     whole PR, for notes moved from its map) with its own repo, title, base, and tip. */
   function prHead(k){
-    var p=PR[k]||{},head=[prName(k)];if(p.repo)head.push(p.repo);if(p.title&&p.title!==prName(k))head.push(p.title);
+    var p=PR[k]||PARENTS[k]||{},c=PARTOF[k],head=[partRef(k)];if(c&&c.label)head.push(c.label);if(p.repo)head.push(p.repo);
+    var t=c&&PARENTS[c.of]?PARENTS[c.of].title:p.title;if(t&&t!==prName(k)&&t!==prName(c?c.of:k))head.push(t);
     if(p.base)head.push(fmt(S.notesMdBase,{sha:mdCode(p.base)}));if(p.tip)head.push(fmt(S.notesMdTip,{sha:mdCode(p.tip)}));
     return head.join(' · ');
   }
@@ -1179,14 +1222,16 @@ details.nt-panel{margin:0}
     if(list.some(function(n){return stateOf(n).st!=='ok';}))out.push('',S.notesMdStatus);
     out.push('',S.notesMdKinds,'');
     KINDS.forEach(function(k){out.push('- **'+KIND[k].l+'**: '+KIND[k].a+'.');});
-    out.push('',S.notesMdRefs,'',S.notesMdPrs,'');
+    out.push('',S.notesMdRefs);
+    if(keys.some(function(k){return PARTOF[k];}))out.push('',S.chunkMdTip);
+    out.push('',S.notesMdPrs,'');
     keys.forEach(function(k){out.push('- '+prHead(k));});
     KINDS.forEach(function(k){
       var items=list.filter(function(n){return n.kind===k;});if(!items.length)return;
       out.push('','## '+KIND[k].l+' ('+items.length+'): '+KIND[k].a);
       keys.forEach(function(pk){
         var mine=items.filter(function(n){return n.pr===pk;});if(!mine.length)return;
-        out.push('','### '+prName(pk));
+        out.push('','### '+partRef(pk));
         mine.forEach(function(n){
           no++;
           out.push('','#### '+no+'. '+(n.scope==='pr'?S.notesMdWholePr:n.scope==='file'?mdCode(n.path)+' · '+S.scopeFile:mdCode(refOf(n))+' · '+sideText(n.side))+mdState(n));
@@ -1324,11 +1369,29 @@ details.nt-panel{margin:0}
   var tabs=document.getElementById('g-tabs'),stepOl=document.getElementById('g-order'),obox=document.getElementById('g-orderbox'),lane=document.getElementById('g-lane');
   var xl=document.getElementById('g-xlist'),cv=document.getElementById('g-canvas'),detEl=document.getElementById('g-detail');
   var G=null,byId={},OUT={},INC={},rowEl={},xEl={},secEl={},SEC={},MAP=null,COL={},MAIN={},NCOL=1,NBMAX=8;
+  /* One tab per PR. The parts of a PR split by its commits form one group after the parent's name ("#251 ▸ 1/5
+     client-core · 34"), with the part's commits and first subjects in the tooltip. */
+  var tgrp=Object.create(null);
+  function partTip(k){
+    var c=PARTOF[k];
+    return [prName(c.of)+' · '+fmt(S.chunkOf,{i:c.index,n:c.count})+(c.label?' · '+c.label:''),fmt(S.chunkRange,{from:sha7(c.from),to:sha7(c.to),n:c.commits})]
+      .concat((Array.isArray(c.subjects)?c.subjects:[]).map(function(x){return '• '+x;})).join('\n');
+  }
   data.prs.forEach(function(p){
-    var b=document.createElement('button');b.type='button';b.setAttribute('role','tab');b.textContent=prName(p.key)+' · '+p.nodes.length;
-    b.style.setProperty('--c',prColor(p.key));b.dataset.k=p.key;if(p.title)b.title=p.title;
-    b.addEventListener('click',function(){openPr(p.key);});tabs.appendChild(b);
+    var b=document.createElement('button'),c=PARTOF[p.key],box=tabs;b.type='button';b.setAttribute('role','tab');
+    if(c){
+      box=tgrp[c.of];
+      if(!box){
+        var q=PARENTS[c.of],lb=document.createElement('span');box=tgrp[c.of]=document.createElement('span');box.className='g-tgrp';box.setAttribute('role','presentation');box.style.setProperty('--c',prColor(c.of));
+        lb.className='g-tgl';lb.setAttribute('aria-hidden','true');lb.textContent=prName(c.of)+' ▸';if(q.title)lb.title=q.title;box.appendChild(lb);tabs.appendChild(box);
+      }
+      b.textContent=c.index+'/'+c.count+(c.label?' '+c.label:'')+' · '+p.nodes.length;b.title=partTip(p.key);
+      b.setAttribute('aria-label',prName(c.of)+', '+fmt(S.chunkOf,{i:c.index,n:c.count})+(c.label?': '+c.label:'')+' · '+p.nodes.length);
+    }else{b.textContent=prName(p.key)+' · '+p.nodes.length;if(p.title)b.title=p.title;}
+    b.style.setProperty('--c',prColor(p.key));b.dataset.k=p.key;
+    b.addEventListener('click',function(){openPr(p.key);});box.appendChild(b);
   });
+  function tabFor(k){return [].find.call(tabs.querySelectorAll('[role="tab"]'),function(b){return b.dataset.k===k;})||null;}
   /* Switching tabs brings back the file last selected on that tab. */
   function openPr(k){cur=k;sel=selBy[k]||null;nbAll={};render();}
   var lg=document.getElementById('g-legend'),seen={};
@@ -1583,9 +1646,24 @@ details.nt-panel{margin:0}
         var c=kindChip(k,KIND[k].i+(ks.length>1?ks.length:''));c.classList.add('g-nk');c.setAttribute('role','img');
         c.setAttribute('aria-label',KIND[k].l+': '+ks.length);c.title=ks.map(function(x){return KIND[k].l+': '+x.text;}).join('\n\n');ix.appendChild(c);
       });
+      var al=alsoIn(id);
+      if(al.length){var pc=document.createElement('span');pc.className='g-pc';pc.textContent='⇄'+al.map(function(x){return x.i;}).join(',');pc.title=fmt(S.chunkAlso,{list:al.map(function(x){return x.i;}).join(', ')});pc.setAttribute('role','img');pc.setAttribute('aria-label',pc.title);ix.appendChild(pc);}
       xChips(id).forEach(function(c){ix.appendChild(c);});
     });
     paintHeads(mine);shareChip();
+  }
+  /* The other parts of the same PR that change one of a node's files, in part order: [{k: part key, i: its number,
+     id: its node of that file}]. Each part has its own node, diff, and read mark for such a file. */
+  var ALSO=Object.create(null);
+  function alsoIn(id){
+    var n=all[id],c=n&&PARTOF[n.pr];if(!c)return [];if(ALSO[id])return ALSO[id];
+    var out=[];
+    PARENTS[c.of].parts.forEach(function(k){
+      if(k===n.pr||!PARTOF[k])return;var hit=null;
+      (own(DIFFS,id)||[]).some(function(f){var e=fileOf(k,f.path);if(e)hit=e.id;return !!e;});
+      if(hit)out.push({k:k,i:PARTOF[k].index,id:hit});
+    });
+    return (ALSO[id]=out);
   }
   /* "→A": the file uses files of PR A; "←B": files of PR B use it. A click opens the first one on its PR's tab. */
   function xChips(id){
@@ -1594,21 +1672,30 @@ details.nt-panel{margin:0}
       var by={};d[0].forEach(function(x){(by[all[x].pr]=by[all[x].pr]||[]).push(x);});
       Object.keys(by).sort(function(a,b){return prIdx(a)-prIdx(b);}).forEach(function(k){
         var c=document.createElement('button');c.type='button';c.className='g-xc';c.tabIndex=-1;c.style.setProperty('--c',prColor(k));
-        c.textContent=d[1]+trunc(k,6);c.title=by[k].map(function(x){return fmt(d[2],{pr:prName(k),path:all[x].path});}).join('\n');c.setAttribute('aria-label',c.title);
+        c.textContent=d[1]+(PARTOF[k]?PARTOF[k].index+'/'+PARTOF[k].count:trunc(k,6));c.title=by[k].map(function(x){return fmt(d[2],{pr:prName(k),path:all[x].path});}).join('\n');c.setAttribute('aria-label',c.title);
         c.addEventListener('click',function(ev){ev.stopPropagation();goto(by[k][0]);});
         out.push(c);
       });
     });
     return out;
   }
-  /* Header group: the files of earlier PRs that this PR uses, one sub-group per PR, each with the steps that use it. */
+  /* Header group: the files of earlier PRs that this PR uses, one sub-group per PR, each with the steps that use it.
+     The groups of earlier parts of the same PR start collapsed (xOpen remembers the ones opened, per tab, until the
+     page closes); a collapsed group's header takes the blue mark of the selected file's dependencies in it. */
+  var xOpen=Object.create(null),xHead={};
   function renderExt(){
-    xl.textContent='';xEl={};xl.hidden=!G.ext.length;if(!G.ext.length)return;
+    xl.textContent='';xEl={};xHead={};xl.hidden=!G.ext.length;if(!G.ext.length)return;
     var h=document.createElement('div'),groups={},keys=[];h.className='g-xh';h.textContent=S.showExternal;xl.appendChild(h);
     G.ext.forEach(function(n){if(!groups[n.pr]){groups[n.pr]=[];keys.push(n.pr);}groups[n.pr].push(n);});
     keys.forEach(function(k){
-      var g=document.createElement('div'),ul=document.createElement('ul'),tag=document.createElement('span');
-      g.className='g-xg';g.style.setProperty('--c',prColor(k));tag.className='tag';tag.textContent=prName(k);g.append(tag,ul);
+      var g=document.createElement('div'),ul=document.createElement('ul'),tag=document.createElement('span'),sib=PARTOF[k]&&PARTOF[cur]&&PARTOF[k].of===PARTOF[cur].of;
+      g.className='g-xg';g.style.setProperty('--c',prColor(k));tag.className='tag';tag.textContent=prName(k);
+      if(sib){
+        var ok=cur+'\n'+k,hb=document.createElement('button');hb.type='button';hb.className='tag g-xgh';
+        var sync=function(){var open=!!xOpen[ok];ul.hidden=!open;hb.setAttribute('aria-expanded',open?'true':'false');hb.textContent=(open?'− ':'+ ')+prName(k)+' · '+groups[k].length;};
+        hb.addEventListener('click',function(){xOpen[ok]=!xOpen[ok];sync();});sync();
+        g.append(hb,ul);xHead[k]={h:hb,ids:groups[k].map(function(n){return n.id;})};
+      }else g.append(tag,ul);
       groups[k].forEach(function(n){
         var li=document.createElement('li'),b=document.createElement('button'),cnt=document.createElement('span');
         var steps=(INC[n.id]||[]).map(function(u){return ON[u];}).sort(function(a,c){return a-c;}).join(', ');
@@ -1718,7 +1805,7 @@ details.nt-panel{margin:0}
     if(onlyChg&&!CHG[id])setOnlyChg(false);
     var moved=n.pr!==cur;cur=n.pr;sel=id;nbAll={};render();select(id,'jump');
     if(rowEl[id])rowEl[id].b.focus({preventScroll:true});
-    var tb=[].find.call(tabs.children,function(b){return b.dataset.k===cur;});if(moved&&tb)flash([tb]);
+    var tb=tabFor(cur);if(moved&&tb)flash([tb]);
   }
 
   /* Detail panel: the file, then its neighbourhood (dependencies | file | dependents; files of other PRs in their PR
@@ -1753,7 +1840,8 @@ details.nt-panel{margin:0}
     if(!id){detEl.innerHTML='<p class="muted">'+esc(S.detailEmpty)+'</p>';return;}
     var n=byId[id],L=layerOf(n.layer),o=ordered(),i=o.findIndex(function(x){return x.id===id;}),pv=o[i-1],nx=o[i+1];
     function pn(m,which){if(!m)return '<span></span>';var t=which==='prev'?S.prev+' '+ON[m.id]+' · '+m.label:ON[m.id]+' · '+m.label+' '+S.next;return '<button type="button" class="nt-b" data-go="'+esc(m.id)+'" data-pn="'+which+'" title="'+esc(m.path)+'">'+esc(t)+'</button>';}
-    detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+safeHtml(n.note)+'</p>':'')+
+    var al=alsoIn(id),also=al.length?'<p class="g-also">'+esc(S.chunkAlsoLine)+' '+al.map(function(x){var c=PARTOF[x.k],t=partRef(x.k)+(c.label?' · '+c.label:'');return '<button type="button" class="nt-b lnk" data-go="'+esc(x.id)+'" title="'+esc(t)+'" aria-label="'+esc(t)+'">'+esc(c.index+'/'+c.count+(c.label?' '+c.label:''))+'</button>';}).join(', ')+'</p>':'';
+    detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+safeHtml(n.note)+'</p>':'')+also+
       '<p class="muted">'+esc(L[0])+' · +'+esc(n.added||0)+' / −'+esc(n.removed||0)+'</p>'+hood(id)+'<div class="g-pn">'+pn(pv,'prev')+pn(nx,'next')+'</div>';
     [].forEach.call(detEl.querySelectorAll('[data-go]'),function(b){b.addEventListener('click',function(){
       var t=b.dataset.go;if(all[t]&&all[t].pr!==cur){goto(t);return;}
@@ -1946,6 +2034,7 @@ details.nt-panel{margin:0}
     Object.keys(rowEl).forEach(function(k){var r=rowEl[k],on=k===id;r.li.classList.toggle('sel',on);r.li.classList.toggle('dep',!!deps[k]);r.li.classList.toggle('use',!!uses[k]);if(on)r.b.setAttribute('aria-current','step');else r.b.removeAttribute('aria-current');});
     markHeads();
     Object.keys(xEl).forEach(function(k){xEl[k].classList.toggle('dep',!!deps[k]);});
+    Object.keys(xHead).forEach(function(k){xHead[k].h.classList.toggle('dep',xHead[k].ids.some(function(x){return deps[x];}));});
     if(id&&rowEl[id])roveRow(id);
     shareChip();drawLane();if(MAP){paintMap(deps,uses);if(id)mapRove(id);}detail(id);
     if(!id){clearDiff();return;}
@@ -1965,7 +2054,7 @@ details.nt-panel{margin:0}
 
   function render(){
     if(!cur)return;
-    [].forEach.call(tabs.children,function(b){b.setAttribute('aria-selected',b.dataset.k===cur?'true':'false');});
+    [].forEach.call(tabs.querySelectorAll('[role="tab"]'),function(b){b.setAttribute('aria-selected',b.dataset.k===cur?'true':'false');});
     [].forEach.call(obtns,function(b){b.setAttribute('aria-pressed',b.dataset.o===omode?'true':'false');});
     [].forEach.call(vbtns,function(b){b.setAttribute('aria-pressed',b.dataset.v===view?'true':'false');});
     document.getElementById('g-pathl').hidden=view!=='map';

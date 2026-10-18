@@ -15,8 +15,10 @@ Checks, each an error unless noted:
   * external <script src>/<link href> hosts are on the allowlist (default cdnjs)
   * no unfilled `{{…}}` template placeholder
   * graph/diff consistency: unique node ids, edges to known nodes, integer order,
-    diff entries only for known nodes, string fingerprints; a node without a diff is
-    a warning
+    diff entries only for known nodes, string fingerprints, a whole-PR diff (`whole`)
+    with a string diff; a node without a diff is a warning
+  * parts of a PR split by its commits (`parents`, `chunk`): contiguous, numbered
+    1..n, each starting where the one before ends, keys ending in a letter
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
     review-config "generation", when present, an integer from 0 to 2**31
@@ -34,6 +36,9 @@ import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+
+sys.dont_write_bytecode = True  # importing chunks.py must not leave a __pycache__ in the skill
+import chunks  # noqa: E402
 
 SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
 BALANCED = ("div", "section", "details", "table", "main", "nav", "ul", "ol", "pre")
@@ -158,9 +163,12 @@ def main() -> int:
                 for entry in diffs[key] if isinstance(diffs[key], list) else []:
                     if "fp" in entry and not isinstance(entry["fp"], str):
                         errors.append(f"diff entry {key}:{entry.get('path')} has a non-string fingerprint")
+                    if "whole" in entry and not (isinstance(entry["whole"], dict) and isinstance(entry["whole"].get("diff"), str)):
+                        errors.append(f"diff entry {key}:{entry.get('path')} has a whole-PR diff without a string diff")
             without = [i for i, (_k, n) in nodes.items() if i not in diffs and not n.get("unchanged")]
             if without:
                 warnings.append(f"nodes without a diff: {without[:20]}")
+        errors.extend(f"parts: {problem}" for problem in chunks.graph_errors(graph))
     else:
         warnings.append("no graph-data block found; graph checks skipped")
 

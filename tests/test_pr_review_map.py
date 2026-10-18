@@ -124,6 +124,7 @@ process.stdout.write(JSON.stringify(input.notes.map((n) => { const s = stateOf(n
 """
 
 
+
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
         [sys.executable, str(SCRIPTS / name), *args], capture_output=True, text=True, env=ENV
@@ -1317,6 +1318,233 @@ class ReviewMapRefreshTests(unittest.TestCase):
                                     str(self.scratch / "narrative.html"), "--title", "c", "--out", str(self.root / "colour.html"),
                                     "--no-manifest", check=False)
                 self.assertEqual(result.returncode == 0, ok, result.stderr)
+
+
+def chunk_repo(repo: Path) -> list[str]:
+    """A PR whose commits go core, core, web, web, core: src/core/service.ts changes in the first and the last part."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    commit_files(repo, {"README.md": "# x\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    steps = [
+        ({"src/core/types.ts": "export type T = number;\n", "src/core/util.ts": "export const u = 1;\n"}, "feat(core): types"),
+        ({"src/core/service.ts": "import type { T } from './types';\nexport const one = (): T => 1;\n",
+          "src/core/types.ts": "export type T = number | string;\n"}, "feat(core): service"),
+        ({"web/page.tsx": "import { one } from '../src/core/service';\nexport const Page = () => one();\n"}, "feat(web): page"),
+        ({"web/page.spec.tsx": "import { Page } from './page';\ntest('page', () => Page());\n"}, "test(web): page spec"),
+        ({"src/core/service.ts": "import type { T } from './types';\nexport const one = (): T => 2;\n"}, "fix(core): service edge"),
+    ]
+    shas = []
+    for files, message in steps:
+        commit_files(repo, files, message)
+        shas.append(git(repo, "rev-parse", "HEAD").strip())
+    return shas
+
+
+class ChunkTests(unittest.TestCase):
+    """One PR split into parts cut from its commits: chunks.py propose and expand, build_graph.py and gen_diffs.py --chunks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = cls.root / "repo"
+        cls.shas = chunk_repo(cls.repo)
+        cls.scratch = d = cls.root / "scratch"
+        d.mkdir()
+        cls.refs = git(cls.repo, "for-each-ref"), git(cls.repo, "rev-parse", "HEAD"), git(cls.repo, "status", "--porcelain")
+        cls.propose = run_script("chunks.py", "propose", "--repo", str(cls.repo), "--range", "main...feat", "--key", "M",
+                                 "--name", "#9", "--out", str(d / "chunks.json"), "--min-files", "1").stdout
+        cls.chunks = json.loads((d / "chunks.json").read_text(encoding="utf-8"))
+        (d / "overlay.json").write_text(json.dumps({
+            "nodes": {"M:src/core/service.ts": {"role": "Service"}, "Mb:web/page.tsx": {"note": "Only in part 2."}},
+            "edges": [{"from": "M:web/page.tsx", "to": "M:src/core/types.ts", "kind": "config"},
+                      {"from": "M:src/core/service.ts", "to": "M:web/page.spec.tsx", "kind": "config"},
+                      {"from": "M:src/core/types.ts", "to": "M:web/page.tsx", "kind": "config"}],
+        }), encoding="utf-8")
+        cls.build = run_script("build_graph.py", "--out", str(d / "graphs.json"), "--chunks", str(d / "chunks.json"),
+                               "--overlay", str(d / "overlay.json")).stdout
+        cls.graph = json.loads((d / "graphs.json").read_text(encoding="utf-8"))
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--chunks", str(d / "chunks.json"), "--strict")
+        cls.diffs = json.loads((d / "diffs.json").read_text(encoding="utf-8"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def pr(self, key: str) -> dict:
+        return next(pr for pr in self.graph["prs"] if pr["key"] == key)
+
+    def node(self, key: str, path: str) -> dict:
+        return next(n for n in self.pr(key)["nodes"] if n["path"] == path)
+
+    def test_propose_groups_consecutive_commits_by_scope_deterministically(self):
+        """This test will fail when chunks.py propose stops grouping consecutive commits by their conventional-commit scope, cutting parts at the last commit of each group with keys that end in a letter, warning about a scope that comes back later (interleaved history), merging a group under --min-files into its neighbour, giving the same draft for the same history, refusing to overwrite a draft without --force, or when it writes to the repository."""
+        self.assertEqual([(p["key"], p["to"], p["label"]) for p in self.chunks["parts"]],
+                         [("Ma", self.shas[1], "core"), ("Mb", self.shas[3], "web"), ("Mc", self.shas[4], "core")])
+        self.assertEqual(self.chunks["parent"], {"key": "M", "repo": str(self.repo.resolve()), "range": "main...feat", "name": "#9"})
+        self.assertIn("1/3   Ma   2        3      core", self.propose)
+        self.assertIn("warning: scope 'core' appears in parts 1, 3 with other scopes between them (interleaved history)", self.propose)
+        again = self.root / "again.json"
+        run_script("chunks.py", "propose", "--repo", str(self.repo), "--range", "main...feat", "--key", "M", "--name", "#9",
+                   "--out", str(again), "--min-files", "1")
+        self.assertEqual(again.read_bytes(), (self.scratch / "chunks.json").read_bytes())
+        refused = run_script("chunks.py", "propose", "--repo", str(self.repo), "--range", "main...feat", "--key", "M", "--out", str(again), check=False)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn("--force", refused.stderr)
+        run_script("chunks.py", "propose", "--repo", str(self.repo), "--range", "main...feat", "--key", "M", "--out", str(again),
+                   "--min-files", "3", "--force")
+        merged = json.loads(again.read_text(encoding="utf-8"))["parts"]
+        self.assertEqual([(p["key"], p["to"], p["label"]) for p in merged], [("Ma", self.shas[1], "core"), ("Mb", self.shas[4], "web + core")])
+        self.assertEqual((git(self.repo, "for-each-ref"), git(self.repo, "rev-parse", "HEAD"), git(self.repo, "status", "--porcelain")), self.refs)
+
+    def test_propose_gives_a_base_merge_a_part_of_its_own(self):
+        """This test will fail when a merge of the base branch inside the PR lands in a part with the PR's own commits (that part's diff would show the base's changes) or goes without a warning."""
+        repo = self.root / "merges"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(repo, {"a.ts": "export const a = 1;\n"}, "feat(api): a")
+        git(repo, "checkout", "-q", "main")
+        commit_files(repo, {"base.ts": "export const b = 1;\n"}, "chore: base moves")
+        git(repo, "checkout", "-q", "feat")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "main")
+        commit_files(repo, {"a2.ts": "export const a2 = 1;\n"}, "feat(api): a2")
+        out = self.root / "merges.json"
+        result = run_script("chunks.py", "propose", "--repo", str(repo), "--range", "main...feat", "--key", "P", "--out", str(out), "--min-files", "5")
+        parts = json.loads(out.read_text(encoding="utf-8"))["parts"]
+        merge = git(repo, "rev-parse", "feat^").strip()
+        self.assertEqual([p["to"] for p in parts], [git(repo, "rev-parse", "feat~2").strip(), merge, git(repo, "rev-parse", "feat").strip()])
+        self.assertIn(f"part 2 (Pb) holds only the base merge {merge[:7]}", result.stdout)
+
+    def test_each_part_is_a_pr_with_its_chunk_and_the_parent_lists_them(self):
+        """This test will fail when build_graph.py --chunks does not turn each part into a PR with its from..to range and chunk metadata (contiguous, numbered, commit count, subjects, label) and a default name, list the parent under parents, record the chunks file relative to the scratch directory, accept a --pr with the parent's key as the parts' place, or stays silent about a PR above 100 files."""
+        self.assertEqual([pr["key"] for pr in self.graph["prs"]], ["Ma", "Mb", "Mc"])
+        starts = [git(self.repo, "merge-base", "main", "feat").strip(), *self.shas[1:4:2]]
+        for index, (key, start, end) in enumerate(zip(("Ma", "Mb", "Mc"), starts, (self.shas[1], self.shas[3], self.shas[4])), 1):
+            with self.subTest(part=key):
+                chunk = self.pr(key)["chunk"]
+                self.assertEqual((chunk["of"], chunk["index"], chunk["count"], chunk["from"], chunk["to"]), ("M", index, 3, start, end))
+                self.assertEqual(self.pr(key)["tip"], end[:len(self.pr(key)["tip"])])
+        self.assertEqual((self.pr("Mb")["chunk"]["commits"], self.pr("Mb")["chunk"]["subjects"], self.pr("Mb")["chunk"]["label"]),
+                         (2, ["feat(web): page", "test(web): page spec"], "web"))
+        self.assertEqual([pr["name"] for pr in self.graph["prs"]], ["#9 1/3 core", "#9 2/3 web", "#9 3/3 core"])
+        parent = self.graph["parents"][0]
+        self.assertEqual({k: parent[k] for k in ("key", "name", "parts")}, {"key": "M", "name": "#9", "parts": ["Ma", "Mb", "Mc"]})
+        self.assertEqual((parent["base"], parent["tip"]), (self.pr("Ma")["base"], self.pr("Mc")["tip"]))
+        record = json.loads((self.scratch / "review-map.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["build_graph"]["chunks"], [{"path": "chunks.json", "parent": "M", "tip": self.shas[4]}])
+        self.assertEqual(record["build_graph"]["prs"], [])
+        self.assertEqual(record["gen_diffs"]["chunks"], ["chunks.json"])
+        placed = self.root / "placed.json"
+        run_script("build_graph.py", "--out", str(placed), "--pr", "M", str(self.repo), "main...feat", "--chunks", str(self.scratch / "chunks.json"),
+                   "--overlay", str(self.scratch / "overlay.json"), "--no-manifest")
+        self.assertEqual(json.loads(placed.read_text(encoding="utf-8")), self.graph)
+        wrong = run_script("build_graph.py", "--out", str(placed), "--pr", "M", str(self.repo), "main..feat", "--chunks",
+                           str(self.scratch / "chunks.json"), "--no-manifest", check=False)
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("names another repository or range", wrong.stderr)
+        big = self.root / "big"
+        big.mkdir()
+        git(big, "init", "-q", "-b", "main")
+        commit_files(big, {"README.md": "# x\n"}, "base")
+        git(big, "checkout", "-q", "-b", "feat")
+        commit_files(big, {f"src/f{i:03}.ts": f"export const f{i} = {i};\n" for i in range(101)}, "feat: many")
+        hint = run_script("build_graph.py", "--out", str(self.root / "big.json"), "--pr", "B", str(big), "main...feat", "--no-manifest").stdout
+        self.assertIn("hint: PR B changes 101 files in 101 nodes", hint)
+        self.assertNotIn("hint:", self.build)
+
+    def test_a_file_in_two_parts_is_one_node_per_part_with_its_own_slice(self):
+        """This test will fail when a file that two parts change is not one node in each part with that part's own diff and fingerprint, or when the last part's entry loses the file's diff over the whole PR (or a file in one part gets one)."""
+        first, last = self.node("Ma", "src/core/service.ts"), self.node("Mc", "src/core/service.ts")
+        (a,), (c,) = self.diffs[first["id"]], self.diffs[last["id"]]
+        self.assertIn("+export const one = (): T => 1;", a["diff"])
+        self.assertIn("-export const one = (): T => 1;\n+export const one = (): T => 2;", c["diff"])
+        self.assertNotEqual(a["fp"], c["fp"])
+        self.assertNotIn("whole", a)
+        self.assertIn("+export const one = (): T => 2;", c["whole"]["diff"])
+        self.assertNotIn("-export const one", c["whole"]["diff"])
+        self.assertTrue(all("whole" not in e for entries in self.diffs.values() for e in entries if e["path"] != "src/core/service.ts"))
+
+    def test_cross_part_edges_are_external_and_parent_overlay_references_reach_every_part(self):
+        """This test will fail when an import into an earlier part is not an external cross-part edge, a parent-key overlay node does not reach every part's node of that path (or a part key reaches more than its part), a parent-key edge does not start at the last part changing its file and end at the latest part up to it, an edge with no such target is not skipped with a warning, or a parent-key dropEdges misses a part."""
+        ids = {n["id"]: (pr["key"], n["path"]) for pr in self.graph["prs"] for n in pr["nodes"]}
+
+        def edges(key):
+            return {(ids[e["from"]][1], ids[e["to"]], e["kind"], e["external"]) for e in self.pr(key)["edges"]}
+
+        self.assertIn(("web/page.tsx", ("Ma", "src/core/service.ts"), "import", True), edges("Mb"))
+        self.assertIn(("web/page.tsx", ("Ma", "src/core/types.ts"), "config", True), edges("Mb"))
+        self.assertIn(("src/core/service.ts", ("Mb", "web/page.spec.tsx"), "config", True), edges("Mc"))
+        self.assertIn(("src/core/service.ts", ("Ma", "src/core/types.ts"), "import", True), edges("Mc"))
+        self.assertEqual((self.node("Ma", "src/core/service.ts")["role"], self.node("Mc", "src/core/service.ts")["role"]), ("Service", "Service"))
+        self.assertEqual(self.node("Mb", "web/page.tsx")["note"], "Only in part 2.")
+        self.assertIn("is in no part up to the one M:src/core/types.ts is in; skipped", self.build)
+        self.assertEqual(self.graph["crossEdges"], [{"from": e["from"], "to": e["to"], "kind": e["kind"]}
+                                                    for pr in self.graph["prs"] for e in pr["edges"] if e["external"]])
+        overlay = self.root / "drop.json"
+        overlay.write_text(json.dumps({"dropEdges": [{"from": "M:src/core/service.ts", "to": "M:src/core/types.ts"}]}), encoding="utf-8")
+        dropped = self.root / "dropped.json"
+        run_script("build_graph.py", "--out", str(dropped), "--chunks", str(self.scratch / "chunks.json"), "--overlay", str(overlay), "--no-manifest")
+        graph = json.loads(dropped.read_text(encoding="utf-8"))
+        by_id = {n["id"]: n["path"] for pr in graph["prs"] for n in pr["nodes"]}
+        self.assertFalse([e for pr in graph["prs"] for e in pr["edges"] if (by_id[e["from"]], by_id[e["to"]]) == ("src/core/service.ts", "src/core/types.ts")])
+
+    def test_broken_chunks_and_part_chains_are_rejected(self):
+        """This test will fail when a chunks file with parts out of order, a part key that ends in a digit or repeats, or a parent key that is also a PR key is accepted, or when assemble.py or validate.py accept graphs.json parts whose chain is broken (a part that does not start where the one before ends, a wrong index, a parent that lists other parts)."""
+        good = self.chunks
+
+        def chunks_with(change):
+            data = json.loads(json.dumps(good))
+            change(data)
+            path = self.root / "bad-chunks.json"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            return path
+
+        for name, change, args, message in (
+            ("out of order", lambda d: d["parts"].reverse(), [], "does not come after"),
+            ("digit key", lambda d: d["parts"][0].update(key="M1"), [], "end in a letter"),
+            ("repeated key", lambda d: d["parts"][1].update(key="Ma"), [], "used twice"),
+            ("short sha", lambda d: d["parts"][0].update(to="abc"), [], "commit SHA"),
+            ("parent is a pr", lambda d: None, ["--pr", "Mb", str(self.repo), "main...feat"], "unique"),
+        ):
+            with self.subTest(case=name):
+                result = run_script("build_graph.py", "--out", str(self.root / "never.json"), "--chunks", str(chunks_with(change)), *args,
+                                    "--no-manifest", check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(message, result.stderr)
+        narrative = self.root / "narrative.html"
+        narrative.write_text('<section id="s"><h2>S</h2><div class="pr-card c-M">x</div></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+        page = self.root / "chunked.html"
+        run_script("assemble.py", "--graph", str(self.scratch / "graphs.json"), "--diffs", str(self.scratch / "diffs.json"), "--narrative", str(narrative),
+                   "--title", "Parts", "--out", str(page), "--no-manifest")
+        self.assertIn(".c-M{--c:var(--pal-1)}", page.read_text(encoding="utf-8"))
+        if NODE:
+            self.assertEqual(run_script("validate.py", str(page), check=False).returncode, 0)
+        text = page.read_text(encoding="utf-8")
+        for name, change, message in (
+            ("chain", lambda g: g["prs"][2]["chunk"].update({"from": g["prs"][0]["chunk"]["to"]}), "not where part Mb ends"),
+            ("index", lambda g: g["prs"][1]["chunk"].update(index=3), "index/count"),
+            ("parent parts", lambda g: g["parents"][0].update(parts=["Ma", "Mc"]), "are not its part PRs"),
+            ("orphan", lambda g: g["prs"][0]["chunk"].update(of="X"), "chunk names no parent"),
+        ):
+            with self.subTest(case=name):
+                graph = json.loads(json.dumps(self.graph))
+                change(graph)
+                broken = self.root / "broken-graph.json"
+                broken.write_text(json.dumps(graph), encoding="utf-8")
+                result = run_script("assemble.py", "--graph", str(broken), "--diffs", str(self.scratch / "diffs.json"), "--narrative", str(narrative),
+                                    "--title", "Parts", "--out", str(self.root / "never.html"), "--no-manifest", check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                bad = self.root / "broken-page.html"
+                bad.write_text(re.sub(r'(<script type="application/json" id="graph-data">).*?(</script>)',
+                                      lambda m: m.group(1) + json.dumps(graph).replace("</", "<\\/") + m.group(2), text, flags=re.DOTALL), encoding="utf-8")
+                checked = run_script("validate.py", str(bad), "--skip-node", check=False)
+                self.assertEqual(checked.returncode, 1, checked.stdout)
+                self.assertIn(message, checked.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

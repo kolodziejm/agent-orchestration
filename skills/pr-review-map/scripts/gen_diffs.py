@@ -4,7 +4,8 @@
 Usage:
   python3 gen_diffs.py --graph graphs.json --out diffs.json \\
       --pr S /path/to/repo main...feat/s \\
-      --pr A /path/to/repo feat/s...feat/a [--context 4] [--max-lines 2000] [--strict]
+      --pr A /path/to/repo feat/s...feat/a [--context 4] [--max-lines 2000] [--strict] \\
+      [--chunks chunks.json]
 
 Each --pr maps a PR key from graphs.json to a repository and a git range. Use
 `base...tip` (three dots) for the diff GitHub shows. When the base branch moved
@@ -20,9 +21,12 @@ build's to flag new and changed files and to clear read marks of changed ones. F
 Vue, Svelte, and Astro files each hunk's @@ line names the last block tag before
 the hunk, shortened to its name and lang (`<script lang="ts">`, `<template>`,
 `</script>`), so the viewer highlights a hunk in the middle of a block in that
-block's language. The arguments
-go in the `gen_diffs` section of review-map.json beside --graph (scripts/manifest.py),
-which refresh.py replays; --no-manifest skips that.
+block's language. --chunks FILE (chunks.py) gives the ranges of a PR split into
+parts, as for build_graph.py; a file that two or more parts change also gets its
+diff over the whole PR (first part's start to last part's end) as `whole` on the
+entry of the last part that changes it, for the viewer's whole-PR toggle. The
+arguments go in the `gen_diffs` section of review-map.json beside --graph
+(scripts/manifest.py), which refresh.py replays; --no-manifest skips that.
 Python 3 standard library only.
 """
 
@@ -40,6 +44,7 @@ import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import chunks  # noqa: E402
 import manifest  # noqa: E402
 
 HEADER_PREFIXES = (
@@ -249,17 +254,26 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--graph", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
-    parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), required=True)
+    parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), default=[])
     parser.add_argument("--context", type=int, default=4, help="context lines per hunk (default 4)")
     parser.add_argument("--max-lines", type=int, default=2000, help="truncate a file's diff after this many lines (default 2000)")
     parser.add_argument("--strict", action="store_true", help="fail when a changed file maps to no node")
+    parser.add_argument("--chunks", action="append", type=Path, default=[], metavar="FILE",
+                        help="the ranges of a PR split into parts (chunks.json, as given to build_graph.py)")
     parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
+    if not args.pr and not args.chunks:
+        parser.error("give at least one --pr or --chunks")
 
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     prs = {pr["key"]: pr for pr in graph["prs"]}
     ranges = {}
     for key, repo, rng in args.pr:
+        manifest.check_pr(key, repo, rng)
+    entries, parents = chunks.stack(args.pr, args.chunks)
+    parent_of = {entry["key"]: entry["parent"] for entry in entries if "parent" in entry}
+    for entry in entries:
+        key, repo, rng = entry["key"], entry["repo"], entry["range"]
         manifest.check_pr(key, repo, rng)
         if key not in prs:
             raise SystemExit(f"--pr {key}: no PR with that key in {args.graph}")
@@ -273,27 +287,51 @@ def main() -> int:
     out: dict[str, list[dict]] = {}
     unassigned: list[str] = []
     folder = tempfile.TemporaryDirectory(prefix="review-map-")
-    for key, pr in prs.items():
-        repo, rng = ranges[key]
+
+    def diff_of(repo: str, rng: str) -> list[tuple[str, str, bool, str]]:
+        """(path, body, binary, fp) per file of one range, Vue/Svelte/Astro hunk headers normalised."""
         diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "--full-index", "-M",
                    f"-U{args.context}", "--end-of-options", rng, "--")
+        files = []
         for path, body, binary, fp in split_files(diff):
-            node_id = assign(path, pr["nodes"])
-            if node_id is None:
-                unassigned.append(f"{key}:{path}")
-                continue
             if path.lower().endswith(SFC_EXT):
                 head = body.split("\n@@", 1)[0].split("\n")  # the file header lines before the first hunk
                 old = next((line[6:].rstrip("\t") for line in head if line.startswith("--- a/")), None)
                 body = normalise_sfc(body, lambda old=old, repo=repo, rng=rng: old_lines(repo, rng, old))
-            entry: dict = {"path": path, "diff": body, "fp": fp}
-            lines = body.split("\n")
-            if len(lines) > args.max_lines:
-                entry["diff"] = "\n".join(lines[: args.max_lines])
-                entry["truncated"] = len(lines)
+            files.append((path, body, binary, fp))
+        return files
+
+    def capped(body: str, entry: dict) -> dict:
+        lines = body.split("\n")
+        entry["diff"] = body
+        if len(lines) > args.max_lines:
+            entry["diff"] = "\n".join(lines[: args.max_lines])
+            entry["truncated"] = len(lines)
+        return entry
+
+    last_entry: dict[tuple[str, str], dict] = {}  # (parent, path) -> the entry of the last part that changes the file
+    parts_of: dict[tuple[str, str], int] = {}  # (parent, path) -> how many parts change the file
+    for key, pr in prs.items():
+        repo, rng = ranges[key]
+        for path, body, binary, fp in diff_of(repo, rng):
+            node_id = assign(path, pr["nodes"])
+            if node_id is None:
+                unassigned.append(f"{key}:{path}")
+                continue
+            entry: dict = capped(body, {"path": path, "diff": body, "fp": fp})
             if binary:
                 entry["binary"] = True
             out.setdefault(node_id, []).append(entry)
+            if key in parent_of and not binary:
+                last_entry[(parent_of[key], path)] = entry
+                parts_of[(parent_of[key], path)] = parts_of.get((parent_of[key], path), 0) + 1
+    for expanded in parents:
+        parent = expanded["parent"]
+        wanted = {path for (pk, path), n in parts_of.items() if pk == parent["key"] and n > 1}
+        if wanted:
+            for path, body, binary, _fp in diff_of(parent["repo"], f"{parent['start']}..{parent['end']}"):
+                if path in wanted and not binary:
+                    last_entry[(parent["key"], path)]["whole"] = capped(body, {})
 
     folder.cleanup()
     ordered = {
@@ -309,6 +347,7 @@ def main() -> int:
             "graph": manifest.stored(here, args.graph), "out": manifest.stored(here, args.out),
             "prs": [{"key": key, "repo": str(Path(repo).resolve()), "range": rng} for key, repo, rng in args.pr],
             "context": args.context, "maxLines": args.max_lines, "strict": args.strict,
+            **({"chunks": [manifest.stored(here, path) for path in args.chunks]} if args.chunks else {}),
         })
     without = [
         node["id"]

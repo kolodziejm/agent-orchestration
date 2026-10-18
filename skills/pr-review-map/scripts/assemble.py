@@ -37,7 +37,10 @@ with no readable page before it starts at 0 (or one above --previous). A generat
 an int from 0 to 2**31.
 
 A PR `color` must be a palette slot (`var(--pal-3)`), a hex colour, or a colour
-name: it lands in CSS.
+name: it lands in CSS. A PR split into parts (graphs.json `parents`, chunks.py)
+must have contiguous parts numbered 1..n, each starting where the one before ends,
+with keys that end in a letter; the parent's narrative class `c-<KEY>` takes its
+first part's colour.
 The arguments, with the storage key as resolved, go in the `assemble` section of
 review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -53,6 +56,7 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import chunks  # noqa: E402
 import manifest  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -150,6 +154,9 @@ def check_graph(graph: dict, diffs: dict) -> None:
     unknown = sorted(set(diffs) - ids)
     if unknown:
         raise SystemExit(f"diffs.json has entries for unknown nodes: {unknown[:10]}")
+    problems = chunks.graph_errors(graph)
+    if problems:
+        raise SystemExit("graphs.json parts: " + "; ".join(problems[:5]))
 
 
 def main() -> int:
@@ -187,6 +194,9 @@ def main() -> int:
         prs.append({"key": pr["key"], "name": pr.get("name", pr["key"]), "title": pr.get("title", ""),
                     "repo": pr.get("repo", ""), "base": pr.get("base", ""), "tip": pr.get("tip", ""), "color": color})
         pr_css.append(f".c-{pr['key']}{{--c:{color}}}")
+    first = {pr["key"]: prs[i]["color"] for i, pr in enumerate(graph["prs"])}
+    for parent in graph.get("parents") or []:
+        pr_css.append(f".c-{parent['key']}{{--c:{first[parent['parts'][0]]}}}")
     storage_key = args.storage_key or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:60] or "review"
     config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
     if previous is not None:

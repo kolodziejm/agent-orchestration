@@ -8,7 +8,8 @@ Usage:
       --pr A /path/repo feat/s...feat/a      --name A "A #12681" \\
       [--title KEY "longer title"] [--repo KEY owner/name] \\
       [--alias '@scope/pkg=libs/pkg/src/index.ts'] [--alias '@/=src/'] \\
-      [--groups groups.json] [--no-default-groups] [--overlay overlay.json]
+      [--groups groups.json] [--no-default-groups] [--overlay overlay.json] \\
+      [--chunks chunks.json]
 
 Give the PRs in merge order (earliest first); an edge from a later PR to a file an
 earlier PR changed becomes a dashed cross-PR edge. Files are read with `git show`
@@ -35,6 +36,15 @@ What the script resolves on its own:
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
+
+--chunks FILE (chunks.py, references/chunks.md) splits one PR into parts cut from
+its commits: each part becomes a PR of its own (key, range from..to, `chunk`
+metadata) in the place of a --pr with the parent's key, else after the --pr
+entries, and the output lists the parents under `parents`. An overlay reference
+with the parent's key (`M:path`) sets role and note on every part's node of that
+path; an edge from it starts at the last part that changes the file and ends at
+the last part up to that one that has its target. A PR above 100 files or 60
+nodes gets a hint to split it.
 Its arguments and each PR's full tip SHA go in the `build_graph` section of
 review-map.json beside --out (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -52,6 +62,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import chunks  # noqa: E402
 import manifest  # noqa: E402
 
 DEFAULT_GROUPS = [
@@ -416,7 +427,7 @@ def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), required=True)
+    parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), default=[])
     parser.add_argument("--name", action="append", nargs=2, metavar=("KEY", "NAME"), default=[])
     parser.add_argument("--title", action="append", nargs=2, metavar=("KEY", "TITLE"), default=[])
     parser.add_argument("--repo", action="append", nargs=2, metavar=("KEY", "REPO"), default=[],
@@ -426,9 +437,13 @@ def main() -> int:
     parser.add_argument("--groups", type=Path, help="JSON list of extra group rules, checked before the defaults")
     parser.add_argument("--no-default-groups", action="store_true")
     parser.add_argument("--overlay", type=Path, help="authored roles, notes, layers, extra nodes and edges")
+    parser.add_argument("--chunks", action="append", type=Path, default=[], metavar="FILE",
+                        help="split one PR into parts cut from its commits (chunks.json from chunks.py propose)")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
+    if not args.pr and not args.chunks:
+        parser.error("give at least one --pr or --chunks")
 
     names = dict(args.name)
     titles = dict(args.title)
@@ -450,10 +465,20 @@ def main() -> int:
         manifest.check_pr(key, repo, rng)
     if len(set(keys)) != len(keys):
         raise SystemExit(f"PR keys must be unique: {keys}")
+    entries, parents = chunks.stack(args.pr, args.chunks)
+    for entry in entries:
+        manifest.check_pr(entry["key"], entry["repo"], entry["range"])
+    parent_parts: dict[str, list[int]] = {}  # parent key -> indices of its parts in prs
+    for index, entry in enumerate(entries):
+        if "parent" in entry:
+            parent_parts.setdefault(entry["parent"], []).append(index)
+    parent_of = {p["parent"]["key"]: p["parent"] for p in parents}
 
     prs = []          # per PR: key, nodes {nk: node}, owner {path: nk}
     warnings: list[str] = []
-    for key, repo, rng in args.pr:
+    labels: dict[str, str] = {}
+    for entry in entries:
+        key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
         nodes: dict[str, dict] = {}
         owner: dict[str, str] = {}
@@ -478,16 +503,21 @@ def main() -> int:
                 node["path"] = group_path(node["files"])
                 if len(node["files"]) > 1:
                     node["label"] = f"{node['label']} ({len(node['files'])})"
-        prs.append({"key": key, "repo": repo, "label": repos.get(key) or repo_label(repo), "range": rng,
-                    "tip": tip_of(rng), "nodes": nodes, "owner": owner, "edges": {}})
+        if repo not in labels:
+            labels[repo] = repo_label(repo)
+        prs.append({"key": key, "repo": repo, "label": repos.get(key) or repos.get(entry.get("parent", "")) or labels[repo],
+                    "range": rng, "tip": tip_of(rng), "nodes": nodes, "owner": owner, "edges": {},
+                    "chunk": entry.get("chunk"), "parent": entry.get("parent")})
 
     # Unchanged reference files first, so imports and `use` statements resolve to them.
+    # One with a parent's key goes to its first part, so every part can link to it.
     for extra in overlay.get("extraNodes", []):
-        i = next((n for n, pr in enumerate(prs) if pr["key"] == extra.get("pr")), None)
+        pk = extra.get("pr")
+        i = parent_parts[pk][0] if pk in parent_parts else next((n for n, pr in enumerate(prs) if pr["key"] == pk), None)
         if i is None or not extra.get("path"):
             raise SystemExit(f"overlay extraNodes entry needs a known pr and a path: {extra}")
         path = extra["path"]
-        if path in prs[i]["owner"]:
+        if any(path in prs[n]["owner"] for n in parent_parts.get(pk, [i])):
             warnings.append(f"overlay extraNodes {path!r} is changed in PR {extra['pr']} now; skipped (set its fields under nodes)")
             continue
         prs[i]["nodes"][path] = {
@@ -558,51 +588,54 @@ def main() -> int:
 
     index_of = {pr["key"]: i for i, pr in enumerate(prs)}
 
-    def ref(text: str) -> tuple[int, str] | None:
-        """The (PR index, node key) an overlay reference names; None, with a warning, for a path the PR does not
-        change (any more: re-running after a branch moved must not fail on a file that left the PR)."""
+    def refs(text: str) -> list[tuple[int, str]]:
+        """The (PR index, node key) pairs an overlay reference names: one for a PR key, one per part that has the
+        path for a parent's key, in part order. A path no PR (part) changes gives none, with a warning (re-running
+        after a branch moved must not fail on a file that left the PR)."""
         if ":" not in text:
             raise SystemExit(f"overlay reference {text!r}: expected KEY:path or KEY:#group")
         key, path = text.split(":", 1)
-        if key not in index_of:
+        if key not in index_of and key not in parent_parts:
             raise SystemExit(f"overlay reference {text!r}: unknown PR key {key!r}")
-        i = index_of[key]
-        if path in prs[i]["nodes"]:
-            return i, path
-        owner = prs[i]["owner"].get(path)
-        if owner is None:
+        found = []
+        for i in parent_parts.get(key, [index_of.get(key)]):
+            nk = path if path in prs[i]["nodes"] else prs[i]["owner"].get(path)
+            if nk is not None:
+                found.append((i, nk))
+        if not found:
             warnings.append(f"overlay reference {text!r}: no node or changed file with that path in PR {key}; skipped")
-            return None
-        return i, owner
+        return found
 
     for text, fields in overlay.get("nodes", {}).items():
-        found = ref(text)
-        if found is None:
-            continue
-        i, nk = found
-        node = prs[i]["nodes"][nk]
-        for field in ("role", "note", "layer", "label"):
-            if field in fields:
-                node[field] = fields[field]
-        if "hub" in fields:
-            if not isinstance(fields["hub"], bool):
-                raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
-            node["forced_hub"] = fields["hub"]
+        for i, nk in refs(text):
+            node = prs[i]["nodes"][nk]
+            for field in ("role", "note", "layer", "label"):
+                if field in fields:
+                    node[field] = fields[field]
+            if "hub" in fields:
+                if not isinstance(fields["hub"], bool):
+                    raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
+                node["forced_hub"] = fields["hub"]
     for edge in overlay.get("edges", []):
         kind = edge.get("kind", "import")
         if kind not in KINDS:
             raise SystemExit(f"overlay edge kind {kind!r} not in {sorted(KINDS)}")
-        source, target = ref(edge["from"]), ref(edge["to"])
-        if source is None or target is None:
+        sources, targets = refs(edge["from"]), refs(edge["to"])
+        if not sources or not targets:
             continue
-        i, frm = source
-        if target[0] > i:
+        i, frm = sources[-1]
+        eligible = [target for target in targets if target[0] <= i]
+        if not eligible:
+            if any(str(edge[end]).split(":", 1)[0] in parent_parts for end in ("from", "to")):
+                warnings.append(f"overlay edge {edge}: {edge['to']} is in no part up to the one {edge['from']} is in; skipped")
+                continue
             raise SystemExit(f"overlay edge {edge}: an edge may only point to the same or an earlier PR")
-        add_edge(i, frm, target, kind)
+        add_edge(i, frm, eligible[-1], kind)
     for edge in overlay.get("dropEdges", []):
-        source, target = ref(edge["from"]), ref(edge["to"])
-        if source is not None and target is not None:
-            prs[source[0]]["edges"].pop((source[1], target), None)
+        targets = refs(edge["to"])
+        for si, frm in refs(edge["from"]):
+            for target in targets:
+                prs[si]["edges"].pop((frm, target), None)
 
     ids: dict[tuple[int, str], str] = {}
     for index, pr in enumerate(prs):
@@ -628,9 +661,18 @@ def main() -> int:
         counts: dict[str, int] = {}
         for nk in pr["order"]:
             counts[nodes[nk]["label"]] = counts.get(nodes[nk]["label"], 0) + 1
-        entry = {"key": pr["key"], "name": names.get(pr["key"], pr["key"]),
-                 "title": titles.get(pr["key"], names.get(pr["key"], pr["key"])), "repo": pr["label"],
-                 **range_commits(pr["repo"], pr["range"]), "nodes": [], "edges": []}
+        default_name = default_title = pr["key"]
+        if pr["chunk"]:
+            parent = parent_of[pr["parent"]]
+            parent_name = names.get(parent["key"]) or parent.get("name") or parent["key"]
+            default_name = chunks.part_name(parent_name, pr["chunk"])
+            default_title = titles.get(parent["key"]) or parent.get("title") or default_name
+        name = names.get(pr["key"], default_name)
+        entry = {"key": pr["key"], "name": name, "title": titles.get(pr["key"], name if not pr["chunk"] else default_title),
+                 "repo": pr["label"], **range_commits(pr["repo"], pr["range"])}
+        if pr["chunk"]:
+            entry["chunk"] = pr["chunk"]
+        entry.update({"nodes": [], "edges": []})
         for nk in pr["order"]:
             node = nodes[nk]
             label = node["label"]
@@ -655,11 +697,22 @@ def main() -> int:
             if edge["external"]:
                 out["crossEdges"].append({"from": edge["from"], "to": edge["to"], "kind": kind})
         out["prs"].append(entry)
+    if parents:
+        by_key = {entry["key"]: entry for entry in out["prs"]}
+        out["parents"] = []
+        for expanded in parents:
+            parent = expanded["parent"]
+            keys = [part["key"] for part in expanded["parts"]]
+            item = {"key": parent["key"], "name": names.get(parent["key"]) or parent.get("name") or parent["key"],
+                    "title": titles.get(parent["key"]) or parent.get("title") or "", "repo": by_key[keys[0]]["repo"]}
+            item.update({k: v for k, v in (("base", by_key[keys[0]].get("base")), ("tip", by_key[keys[-1]].get("tip"))) if v})
+            item["parts"] = keys
+            out["parents"].append(item)
 
     args.out.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     if not args.no_manifest:
         here = args.out.resolve().parent
-        manifest.record(here, "build_graph", {
+        section = {
             "out": manifest.stored(here, args.out),
             "prs": [{"key": key, "repo": str(Path(repo).resolve()), "range": rng} for key, repo, rng in args.pr],
             "names": [list(pair) for pair in args.name], "titles": [list(pair) for pair in args.title],
@@ -668,11 +721,24 @@ def main() -> int:
             "overlay": manifest.stored(here, args.overlay),
             "tips": {key: (git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{tip_of(rng)}^{{commit}}", check=False) or "").strip()
                      for key, repo, rng in args.pr},
-        })
-    for entry in out["prs"]:
+        }
+        if args.chunks:
+            section["chunks"] = [{"path": manifest.stored(here, path), "parent": expanded["parent"]["key"], "tip": expanded["parent"]["tip"]}
+                                 for path, expanded in zip(args.chunks, parents)]
+        manifest.record(here, "build_graph", section)
+    for index, entry in enumerate(out["prs"]):
         hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
         print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
               + (f"; shared dependencies: {', '.join(hubs)}" if hubs else ""))
+        changed = len([path for path, nk in prs[index]["owner"].items() if not prs[index]["nodes"][nk].get("unchanged")])
+        if "chunk" not in entry and (changed > chunks.SUGGEST_FILES or len(entry["nodes"]) > chunks.SUGGEST_NODES):
+            print(f"hint: PR {entry['key']} changes {changed} files in {len(entry['nodes'])} nodes; above {chunks.SUGGEST_FILES} files "
+                  f"or {chunks.SUGGEST_NODES} nodes it reads better in parts cut from its commits (chunks.py propose, references/chunks.md)")
+    for expanded in parents:
+        parent = expanded["parent"]
+        if parent["tip"] and parent["tip"] != parent["end"]:
+            warnings.append(f"PR {parent['key']}: the branch tip is {parent['tip'][:7]} but the last part ends at {parent['end'][:7]}; "
+                            "refresh.py adds the commits after it as a new part")
     print(f"cross-PR edges: {len(out['crossEdges'])}; nodes without a role: {missing_roles} -> {args.out}")
     for warning in warnings:
         print(f"warning: {warning}")
