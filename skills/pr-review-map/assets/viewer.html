@@ -241,6 +241,36 @@ svg.has-sel .ed.dep{display:inline;opacity:1;stroke:var(--dep);stroke-opacity:1;
 svg.has-sel .ed.use{display:inline;opacity:1;stroke:var(--use);stroke-opacity:1;stroke-width:2.2}
 svg .nd.on rect.box{stroke:var(--fg);stroke-width:3}
 svg .nd.done rect.box{opacity:.55}
+/* Map overview of areas (above 40 core files): a toolbar, then the drawing, panned and zoomed by an SVG transform */
+.g-canvas.ov{overflow:hidden;max-height:none}
+.g-ovt{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.g-ovt strong{color:var(--fg);font-weight:650}
+.g-ovt .dv-mode button{padding:3px 10px;min-width:30px}
+.g-ovt .nt-b{padding:3px 9px}
+.g-ovh{font-size:12px}
+.g-ovs{display:block;width:100%;height:72vh;min-height:340px;max-height:960px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.g-ovs.drag{cursor:grabbing}
+.g-ovs text{pointer-events:none}
+.g-ovs .cl{cursor:pointer;transition:opacity .15s}
+.g-ovs .cl:focus{outline:none}
+.g-ovs .cl rect.cb{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.g-ovs .cl.open rect.cb{fill:color-mix(in srgb,var(--soft) 50%,var(--surface));stroke-dasharray:6 4;cursor:grab}
+.g-ovs .cl rect.cbh{fill:color-mix(in srgb,var(--soft) 80%,var(--surface))}
+.g-ovs .cl .cbl{stroke:var(--line)}
+.g-ovs .cl.k-shared rect.cb{fill:color-mix(in srgb,var(--dep) 7%,var(--surface))}
+.g-ovs .cl.k-ext rect.cb{stroke-dasharray:5 4}
+.g-ovs .cl:focus-visible rect.cb{stroke:var(--accent);stroke-width:3;stroke-dasharray:none}
+.g-ovs .cl.on rect.cb{stroke:var(--fg);stroke-width:3;stroke-dasharray:none}
+.g-ovs .cll{font-family:var(--f-body);font-size:13.5px;font-weight:700;fill:var(--fg)}
+.g-ovs .cls{font-family:var(--f-mono);font-size:11px;fill:var(--muted)}
+.g-ovs .clt{font-family:var(--f-mono);font-size:15px;font-weight:700;fill:var(--muted)}
+.g-ovs .ag{fill:none;stroke:var(--muted);stroke-opacity:.5;transition:opacity .15s}
+.g-ovs .agn{font-family:var(--f-mono);font-size:11px;font-weight:700;fill:var(--muted);paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+.g-ovs .ed.dep{stroke:var(--dep);stroke-opacity:1;stroke-width:2.2}
+.g-ovs .ed.use{stroke:var(--use);stroke-opacity:1;stroke-width:2.2}
+.g-ovs .far{opacity:.25}
+.g-ovs .tb rect{fill:var(--soft);stroke:var(--muted)} .g-ovs .tb text{font-family:var(--f-mono);font-size:10px;font-weight:700;fill:var(--muted)}
+.g-ovs .ovk rect{fill:var(--surface);stroke:var(--kc)} .g-ovs .ovk text{font-family:var(--f-body);font-size:10.5px;font-weight:700;fill:var(--kc)}
 .k-dep{color:var(--dep);font-weight:700} .k-use{color:var(--use);font-weight:700}
 
 /* Diff viewer */
@@ -390,6 +420,7 @@ details.nt-panel{margin:0}
     <label id="g-pathl"><input type="checkbox" id="g-path"> {{S:showPath}}</label>
     <label title="{{S:allLinksTitle}}"><input type="checkbox" id="g-all"> {{S:allLinks}}</label>
     <label title="{{S:groupByFolderTitle}}"><input type="checkbox" id="g-group"> {{S:groupByFolder}}</label>
+    <label title="{{S:groupByAreaTitle}}"><input type="checkbox" id="g-area"> {{S:groupByArea}}</label>
     <label><input type="checkbox" id="g-tests" checked> {{S:showTests}}</label>
     <label><input type="checkbox" id="g-ext" checked> {{S:showExternal}}</label>
     <span><button type="button" id="g-prev">{{S:prev}}</button> <button type="button" id="g-next">{{S:next}}</button></span>
@@ -500,6 +531,9 @@ details.nt-panel{margin:0}
   var plural=null;try{plural=new Intl.PluralRules(CFG.lang||'en');}catch(e){}
   function filesWord(n){var f=S.files||{};var c=plural?plural.select(n):(n===1?'one':'other');return f[c]||f.other||'';}
   function stepLabel(n){return n.ext?n.id:S.step+' '+n.order;}
+  /* Scrolling glides unless the reader asked for reduced motion (CSS drops the transitions then too). */
+  var RM=window.matchMedia?window.matchMedia('(prefers-reduced-motion: reduce)'):null;
+  function smooth(){return RM&&RM.matches?'auto':'smooth';}
 
   /* Diff viewer */
   var mode=(window.innerWidth<760)?'uni':'sbs',last=null;
@@ -1118,7 +1152,7 @@ details.nt-panel{margin:0}
       if(!data.prs.some(function(p){return p.key===k;})){status(S.noteMissing);return;}
       if(cur!==k){cur=k;sel=null;render();}
       var tb=tabFor(k);
-      document.getElementById('graph').scrollIntoView({behavior:'smooth'});
+      document.getElementById('graph').scrollIntoView({behavior:smooth()});
       if(tb){flash([tb]);tb.focus({preventScroll:true});}
       return;
     }
@@ -1131,12 +1165,12 @@ details.nt-panel{margin:0}
     if(sel!==id||!VIEW[n.path])window.__gsel(id);
     var V=VIEW[n.path];if(!V){status(S.noteMissing);return;}
     partDiff(V);V.det.open=true;V.fill();
-    if(n.scope==='file'||state==='stale'){var sm=V.det.querySelector('summary');flash([sm]);sm.focus({preventScroll:true});sm.scrollIntoView({block:'center',behavior:'smooth'});if(state==='stale')status(S.noteStaleJump);return;}
+    if(n.scope==='file'||state==='stale'){var sm=V.det.querySelector('summary');flash([sm]);sm.focus({preventScroll:true});sm.scrollIntoView({block:'center',behavior:smooth()});if(state==='stale')status(S.noteStaleJump);return;}
     var cells=[],first=null,at=span(n);
     if(V.t)[].forEach.call(V.t.querySelectorAll('td.ln[data-s="'+n.side+'"]'),function(td){var l=+td.dataset.l;if(l>=at.a&&l<=at.b){if(!first)first=td;cells=cells.concat(rowCells(V,td));}});
     if(!first){status(S.noteMissing);return;}
     flash(cells);
-    focusCell(first,true);first.scrollIntoView({block:'center',behavior:'smooth'});
+    focusCell(first,true);first.scrollIntoView({block:'center',behavior:smooth()});
   }
   /* A Markdown code span whose backtick run is longer than any run inside the text (CommonMark). */
   function mdCode(s){var runs=s.match(/`+/g)||[],n=1;runs.forEach(function(r){n=Math.max(n,r.length+1);});var f=new Array(n+1).join('`'),pad=/^`|`$/.test(s)?' ':'';return f+pad+s+pad+f;}
@@ -1389,6 +1423,9 @@ details.nt-panel{margin:0}
   var allArcs=load('arcs','sel')==='all';
   /* "Group by folder" (kept under "folders") and the collapsed sections, {prKey: {sectionKey: 1}} under "fold". */
   var byFolder=load('folders','0')==='1',fold=null;try{fold=JSON.parse(load('fold','{}'));}catch(e){fold=null;}
+  /* "Group by area" (kept under "lgroup" as "area"); it and "Group by folder" exclude each other. CG holds the shown
+     PR's areas (clusterGraph). */
+  var byArea=load('lgroup','')==='area',CG=null;if(byArea)byFolder=false;
   if(!fold||typeof fold!=='object'||Array.isArray(fold))fold={};
   var omode=load('omode','top'),view=load('view','list')==='map'?'map':'list',selBy={},peek=null,nbAll={};
   var NS='http://www.w3.org/2000/svg';
@@ -1433,14 +1470,15 @@ details.nt-panel{margin:0}
   document.getElementById('g-path').addEventListener('change',function(e){showPath=e.target.checked;render();});
   var allBox=document.getElementById('g-all');allBox.checked=allArcs;
   allBox.addEventListener('change',function(){allArcs=allBox.checked;save('arcs',allArcs?'all':'sel');drawLane();});
-  var grpBox=document.getElementById('g-group');grpBox.checked=byFolder;
-  grpBox.addEventListener('change',function(){byFolder=grpBox.checked;save('folders',byFolder?'1':'0');renderList();select(sel);});
+  var grpBox=document.getElementById('g-group'),areaBox=document.getElementById('g-area');grpBox.checked=byFolder;areaBox.checked=byArea;
+  grpBox.addEventListener('change',function(){byFolder=grpBox.checked;save('folders',byFolder?'1':'0');if(byFolder&&byArea){byArea=false;areaBox.checked=false;save('lgroup','');}renderList();select(sel);});
+  areaBox.addEventListener('change',function(){byArea=areaBox.checked;save('lgroup',byArea?'area':'');if(byArea&&byFolder){byFolder=false;grpBox.checked=false;save('folders','0');}renderList();select(sel);});
   var obtns=document.querySelectorAll('[data-o]'),vbtns=document.querySelectorAll('[data-v]');
   [].forEach.call(obtns,function(b){b.addEventListener('click',function(){omode=b.dataset.o;save('omode',omode);render();});});
   [].forEach.call(vbtns,function(b){b.addEventListener('click',function(){view=b.dataset.v;save('view',view);render();if(sel)mapTo(sel);});});
   document.getElementById('g-prev').addEventListener('click',function(){step(-1);});
   document.getElementById('g-next').addEventListener('click',function(){step(1);});
-  function gopen(k,m){if(!data.prs.some(function(p){return p.key===k;}))return;if(m)omode=m;openPr(k);document.getElementById('graph').scrollIntoView({behavior:'smooth'});}
+  function gopen(k,m){if(!data.prs.some(function(p){return p.key===k;}))return;if(m)omode=m;openPr(k);document.getElementById('graph').scrollIntoView({behavior:smooth()});}
   window.__gopen=gopen;
   [].forEach.call(document.querySelectorAll('[data-gopen]'),function(b){
     if(!b.textContent.trim())b.textContent=S.openOnGraph;
@@ -1491,7 +1529,7 @@ details.nt-panel{margin:0}
     var cb=document.getElementById('g-changed');
     if(cb)cb.addEventListener('change',function(){onlyChg=cb.checked;render();});
     [].forEach.call(chgBox.querySelectorAll('[data-chg]'),function(b){b.addEventListener('click',function(){openPr(b.dataset.chg);});});
-    [].forEach.call(chgBox.querySelectorAll('[data-go]'),function(b){b.addEventListener('click',function(){goto(b.dataset.go);document.getElementById('graph').scrollIntoView({behavior:'smooth'});});});
+    [].forEach.call(chgBox.querySelectorAll('[data-go]'),function(b){b.addEventListener('click',function(){goto(b.dataset.go);document.getElementById('graph').scrollIntoView({behavior:smooth()});});});
   }
   paintChanges();
 
@@ -1569,9 +1607,10 @@ details.nt-panel{margin:0}
      its file name and loses the start of its directory first. */
   function nameHtml(label){var i=/\s/.test(label)?-1:label.lastIndexOf('/');i=i>0&&i<label.length-1?i:-1;return '<span class="nmx">'+(i>0?'<span class="d">‎'+esc(label.slice(0,i+1))+'‎</span>':'')+'<span class="b">'+esc(label.slice(i+1))+'</span></span>';}
   /* The folder a row is filed under: its subject's for a test (so it stays indented under it), else its own; for a
-     group node the folder its files share. Glob segments end it. */
-  function dirOf(n){
-    var m=SUBJ[n.id]&&byId[SUBJ[n.id]]?byId[SUBJ[n.id]]:n,files=m.files&&m.files.length?m.files:[m.path],c=null;
+     group node the folder its files share. Glob segments end it. `look` finds the subject (default: the shown nodes). */
+  function dirOf(n,look){
+    look=look||byId;
+    var m=SUBJ[n.id]&&look[SUBJ[n.id]]?look[SUBJ[n.id]]:n,files=m.files&&m.files.length?m.files:[m.path],c=null;
     files.forEach(function(f){var d=String(f).split('/').slice(0,-1),i=0;if(!c){c=d;return;}while(i<c.length&&i<d.length&&c[i]===d[i])i++;c=c.slice(0,i);});
     var g=(c||[]).findIndex(function(s){return /[*?,\s]/.test(s);});return g<0?c||[]:c.slice(0,g);
   }
@@ -1580,11 +1619,13 @@ details.nt-panel{margin:0}
      out the group's subfolders with at least max(2, min(3, n/10)) rows, the largest first and only as many as keep
      the list at 10 groups; the rest, smaller subfolders and single files included, stays in one group named by the
      folder those rows share. Each split adds a group, so this ends. Groups follow their first step; rows keep reading
-     order inside. */
-  function folderGroups(rows){
-    var items=rows.map(function(n){return {n:n,d:dirOf(n)};}),N=items.length,TARGET=Math.max(6,Math.ceil(N/6)),MAXG=10,MINK=Math.max(2,Math.min(3,Math.floor(N/10)));
+     order inside. The areas' folder fallback (clusterGraph) passes o: {maxg (instead of 10 groups), target(n) (instead
+     of max(6, n/6) rows), look (dirOf's), rank(id) (instead of the step number, for ties and the group order)}. */
+  function folderGroups(rows,o){
+    o=o||{};var rk=o.rank||function(id){return ON[id];};
+    var items=rows.map(function(n){return {n:n,d:dirOf(n,o.look)};}),N=items.length,TARGET=o.target?o.target(N):Math.max(6,Math.ceil(N/6)),MAXG=o.maxg||10,MINK=Math.max(2,Math.min(3,Math.floor(N/10)));
     function common(list){var c=list[0].d;list.forEach(function(it){var i=0;while(i<c.length&&i<it.d.length&&c[i]===it.d[i])i++;c=c.slice(0,i);});return c;}
-    function first(g){return Math.min.apply(null,g.items.map(function(it){return ON[it.n.id];}));}
+    function first(g){return Math.min.apply(null,g.items.map(function(it){return rk(it.n.id);}));}
     function split(g,cap){
       var L=g.pre.length,by={},keys=[],stay=[],kids=[];
       g.items.forEach(function(it){if(it.d.length>L){var k=it.d[L];if(!by[k]){by[k]=[];keys.push(k);}by[k].push(it);}else stay.push(it);});
@@ -1608,11 +1649,85 @@ details.nt-panel{margin:0}
       return {key:'d:'+g.pre.join('/'),dir:g.pre,ids:g.items.map(function(it){return it.n.id;}).sort(function(a,b){return ON[a]-ON[b];})};
     });
   }
+  /* Areas ("clusters") of one PR, for "Group by area" and the map's overview. An area the overlay authored (the PR's
+     `clusters`, each node's `cluster`) holds its core files; the shared dependencies (`hub`) form the area ":shared",
+     docs/config/i18n the area ":late", and each test goes with the file it tests (SUBJ; a test of no core file stands
+     on its own like a core file). Core files without an authored area are grouped by folder (folderGroups over the
+     whole PR with the stored order: at most 10 areas less the authored ones, about 25 files each, id "d:" + folder),
+     so a graph without clusters still has areas. Each earlier PR whose files this PR uses is an area "x:" + its key.
+     Returns {list, by, of, edges}: list holds the areas in reading order (earlier PRs, shared, the authored ones by
+     their order and first step, the folder ones by first step, late), each {id, label, kind (auth, dir, shared, late,
+     ext), order, first (its first step), ids (its files in reading order), box (those drawn as boxes: not the tests of
+     another file), tests ({subject: [its tests]}), inner (the links between its boxes)}; by maps an id to its area and
+     of a node id to its area's id; edges are the links between areas, {from, to, n, pairs: [[file, file]]}, without
+     the tests' links. With vis ({id: 1}, the shown nodes) members and links are limited to those; which area a file
+     belongs to always comes from the whole PR. */
+  var CLUSTER_ID=/^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/;
+  function clusterGraph(p,vis){
+    var defs=Object.create(null),of=Object.create(null),by=Object.create(null),used=Object.create(null),rest=[];
+    var nodes=p.nodes.map(function(n){return all[n.id];}).filter(Boolean);
+    function folded(n){return n.layer==='test'&&!!SUBJ[n.id];}
+    function shown(id){return !vis||!!vis[id];}
+    (Array.isArray(p.clusters)?p.clusters:[]).forEach(function(c,i){
+      if(c&&typeof c.id==='string'&&CLUSTER_ID.test(c.id)&&!defs[c.id])defs[c.id]={label:typeof c.label==='string'&&c.label.trim()?c.label:c.id,order:typeof c.order==='number'&&isFinite(c.order)?c.order:i+1};
+    });
+    nodes.forEach(function(n){
+      if(folded(n))return;
+      if(HUB[n.id])of[n.id]=':shared';
+      else if(LATE[n.layer])of[n.id]=':late';
+      else if(typeof n.cluster==='string'&&defs[n.cluster]){of[n.id]=n.cluster;used[n.cluster]=1;}
+      else rest.push(n);
+    });
+    var maxg=Math.max(1,10-Object.keys(used).length);
+    if(rest.length)folderGroups(rest,{maxg:maxg,target:function(n){return Math.max(25,Math.ceil(n/maxg));},look:all,rank:function(id){return all[id].order;}})
+      .forEach(function(g){g.ids.forEach(function(x){of[x]='d:'+g.dir.join('/');});});
+    nodes.forEach(function(n){if(folded(n))of[n.id]=of[SUBJ[n.id]];});
+    function area(id){
+      if(by[id])return by[id];
+      var d=defs[id],k=id.slice(0,2),c={id:id,ids:[],box:[],tests:Object.create(null),inner:[],first:Infinity,order:0};
+      if(id===':shared'){c.kind='shared';c.label=S.sharedDeps;}
+      else if(id===':late'){c.kind='late';c.label=S.clusterLate;}
+      else if(k==='x:'){c.kind='ext';c.label=prName(id.slice(2));c.order=prIdx(id.slice(2));c.first=-1;}
+      else if(k==='d:'){c.kind='dir';c.label=id.length>2?id.slice(2)+'/':S.folderRoot;}
+      else{c.kind='auth';c.label=d.label;c.order=d.order;}
+      return (by[id]=c);
+    }
+    var inBox=Object.create(null);
+    nodes.slice().sort(function(a,b){return ON[a.id]-ON[b.id];}).forEach(function(n){
+      var id=of[n.id];if(!id||!shown(n.id))return;
+      var c=area(id);c.ids.push(n.id);c.first=Math.min(c.first,ON[n.id]);
+      if(folded(n))(c.tests[SUBJ[n.id]]=c.tests[SUBJ[n.id]]||[]).push(n.id);else{c.box.push(n.id);inBox[n.id]=1;}
+    });
+    var agg=Object.create(null),edges=[];
+    p.edges.forEach(function(e){
+      var f=all[e.from],t=all[e.to];if(!f||!t||e.from===e.to||!shown(e.from)||!shown(e.to))return;
+      var a=of[e.from],b=of[e.to];
+      if(t.pr!==p.key){var x=area(b='x:'+t.pr);if(!inBox[e.to]){x.ids.push(e.to);x.box.push(e.to);inBox[e.to]=1;}}
+      if(f.layer==='test'||!a||!b)return;
+      if(a===b){if(inBox[e.from]&&inBox[e.to])by[a].inner.push(e);return;}
+      var g=agg[a+'>'+b];if(!g){g=agg[a+'>'+b]={from:a,to:b,n:0,pairs:[]};edges.push(g);}
+      g.n++;g.pairs.push([e.from,e.to]);
+    });
+    function rank(c){return c.kind==='ext'?[0,c.order,0]:c.kind==='shared'?[1,0,0]:c.kind==='auth'?[2,c.order,c.first]:c.kind==='dir'?[3,c.first,0]:[4,0,0];}
+    var list=Object.keys(by).map(function(k){return by[k];}).filter(function(c){return c.ids.length;}),at=Object.create(null);
+    list.sort(function(a,b){var x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||(a.id<b.id?-1:a.id>b.id?1:0);});
+    list.forEach(function(c,i){at[c.id]=i;});
+    edges=edges.filter(function(g){return at[g.from]!=null&&at[g.to]!=null;}).sort(function(a,b){return at[a.from]-at[b.from]||at[a.to]-at[b.to];});
+    return {list:list,by:by,of:of,edges:edges};
+  }
   /* The list's sections: the shared dependencies (hubs and the tests under them) pinned on top, then with "Group by
-     folder" one section per folder group, else the other rows on their own. */
+     area" one section per area (clusterGraph), with "Group by folder" one per folder group, else the other rows on
+     their own. */
   function sections(seq){
     var hub=seq.filter(function(n){return HUB[n.id]||HUB[SUBJ[n.id]];}).map(function(n){return n.id;}),rest=seq.filter(function(n){return !HUB[n.id]&&!HUB[SUBJ[n.id]];});
     var out=hub.length?[{key:'hub',hub:true,ids:hub}]:[];
+    if(byArea&&CG){
+      var m=Object.create(null),keys=[];
+      rest.forEach(function(n){var c=CG.of[n.id]||'';if(!m[c]){m[c]=[];keys.push(c);}m[c].push(n.id);});
+      CG.list.forEach(function(c){if(m[c.id]){out.push({key:'a:'+c.id,area:c,ids:m[c.id]});delete m[c.id];}});
+      keys.forEach(function(k){if(m[k])out.push({key:'a:'+k,area:{id:k,label:k||S.folderRoot,kind:'dir'},ids:m[k]});});
+      return out;
+    }
     return out.concat(byFolder?folderGroups(rest):[{key:'',ids:rest.map(function(n){return n.id;})}]);
   }
   function isShut(key){return !!(key&&fold[cur]&&fold[cur][key]);}
@@ -1641,9 +1756,10 @@ details.nt-panel{margin:0}
       if(s.key){
         var li=document.createElement('li'),h=document.createElement('button'),ol=document.createElement('ol'),name;
         li.className='g-sec'+(s.hub?' hub':'')+(isShut(s.key)?' shut':'');li.dataset.sec=s.key;
-        if(s.hub){name=S.sharedDeps;h.title=S.sharedTitle;}else{name=s.dir.length?s.dir.join('/')+'/':S.folderRoot;h.title=name;}
+        if(s.hub){name=S.sharedDeps;h.title=S.sharedTitle;}else if(s.area){name=s.area.label;h.title=name;}else{name=s.dir.length?s.dir.join('/')+'/':S.folderRoot;h.title=name;}
         h.type='button';h.className='g-sh';h.tabIndex=-1;h.setAttribute('aria-expanded',isShut(s.key)?'false':'true');
-        h.innerHTML='<span class="tg" aria-hidden="true">'+(isShut(s.key)?'+':'−')+'</span>'+(s.hub?'<span class="nmx"><span class="b">◆ '+esc(name)+'</span></span>':nameHtml(name.replace(/\/$/,'')))+'<span class="ix"></span><span class="sc"></span>';
+        var plain=s.hub?'◆ '+name:s.area&&s.area.kind!=='dir'?name:null;
+        h.innerHTML='<span class="tg" aria-hidden="true">'+(isShut(s.key)?'+':'−')+'</span>'+(plain!=null?'<span class="nmx"><span class="b">'+esc(plain)+'</span></span>':nameHtml(name.replace(/\/$/,'')))+'<span class="ix"></span><span class="sc"></span>';
         h.addEventListener('click',function(){setShut(s.key,!isShut(s.key));});
         li.append(h,ol);stepOl.appendChild(li);box=ol;secEl[s.key]={li:li,h:h,ids:s.ids,name:name};
       }
@@ -1695,7 +1811,7 @@ details.nt-panel{margin:0}
       if(al.length){var pc=document.createElement('span');pc.className='g-pc';pc.textContent='⇄'+al.map(function(x){return x.i;}).join(',');pc.title=fmt(S.chunkAlso,{list:al.map(function(x){return x.i;}).join(', ')});pc.setAttribute('role','img');pc.setAttribute('aria-label',pc.title);ix.appendChild(pc);}
       xChips(id).forEach(function(c){ix.appendChild(c);});
     });
-    paintHeads(mine);shareChip();
+    paintHeads(mine);shareChip();ovChips(mine);
   }
   /* The other parts of the same PR that change one of a node's files, in part order: [{k: part key, i: its number,
      id: its node of that file}]. Each part has its own node, diff, and read mark for such a file. */
@@ -1840,6 +1956,7 @@ details.nt-panel{margin:0}
     saveDone();
     var r=rowEl[id];if(r){r.li.classList.toggle('done',v);r.cb.checked=v;}
     if(MAP&&MAP.nd[id])MAP.nd[id].classList.toggle('done',v);
+    if(MAP&&MAP.ov)ovCounts();
     if(w!==wasRead(id)){paintMarks();paintChanges();}else{paintHeads();if(PARTOF[n.pr])paintChanges();}
   }
   function step(dir){var o=ordered();if(!o.length)return;var i=o.findIndex(function(n){return n.id===sel;});var j=i<0?0:Math.min(o.length-1,Math.max(0,i+dir));select(o[j].id,'list');}
@@ -1917,23 +2034,31 @@ details.nt-panel{margin:0}
      edge and docs/config/i18n sit on a shelf below. Edges into the band and to and from the shelf, like a test's
      other edges, show only for the selected file. Labels stay at 1:1 and the canvas scrolls instead. */
   var MW=200,MH=44,MT=30,MG=60,MY=14,MP=20,MD=4,MHD=20,MHA=26;
-  function renderMap(){
-    cv.textContent='';MAP=null;
-    var X0=G.ext.length?1:0,C=NCOL+X0,cols=[],items={},segs=[],routes=[],c,i;
+  /* Layered layout, shared by the map and its overview of areas (run there on the areas and inside each open area).
+     lorder(C, list, links): `list` holds the boxes {k, c (column, 0 is left), h, b (tie-break), ext?, eg?} and `links`
+     the edges {f, t, key, b, e}; an edge from a later column to an earlier one passes through a gap slot (height MD,
+     tie-break the link's b) in each column it crosses, so it never runs behind a box. Connected parts (through edges and
+     their gap slots) stay together, in the order of their smallest `b`, one below the other; a few barycenter sweeps
+     order each column (`b` breaks ties), keeping the order with the fewest crossings between adjacent columns. Boxes
+     marked `ext` (column 0) keep their group order `eg`. Returns {cols, items, routes: [{e, chain}], crossings}.
+     lplace(L, hb, gap, my, pin) then sets each box's y (the top of its padding `pad`, height hb(box)): stacked by
+     column, relaxed level with the boxes it links to, each part moved up as far as the parts above it allow (`my`
+     apart); `pin` re-aligns column 0 last. */
+  function lorder(C,list,links){
+    var cols=[],items=Object.create(null),segs=[],routes=[],c,i;
     for(c=0;c<C;c++)cols.push([]);
     function add(c,it){it.c=c;it.L=[];it.R=[];it.pad=0;cols[c].push(it);items[it.k]=it;return it;}
-    G.ext.forEach(function(n){add(0,{k:n.id,n:n,h:MH,ext:1,b:prIdx(n.pr)*1e4+Math.min.apply(null,(INC[n.id]||[]).map(function(f){return ON[f];}).concat([1e3]))});});
-    G.nodes.forEach(function(n){if(MAIN[n.id])add(COL[n.id]+X0,{k:n.id,n:n,h:MH,b:ON[n.id],tests:[]});});
-    G.edges.forEach(function(e){
-      var a=items[e.from],z=items[e.to];if(!a||!z||a.ext||e.kind==='test'||e.from===e.to)return;
+    list.forEach(function(it){add(it.c,it);});
+    links.forEach(function(e){
+      var a=items[e.f],z=items[e.t];if(!a||!z||a.ext)return;
       var chain=[a];
-      for(var k=a.c-1;k>z.c;k--)chain.push(add(k,{k:e.from+'>'+e.to+'@'+k,h:MD,d:1,b:ON[e.from]+.5}));
+      for(var k=a.c-1;k>z.c;k--)chain.push(add(k,{k:e.key+'@'+k,h:MD,d:1,b:e.b}));
       chain.push(z);
       for(var j=0;j+1<chain.length;j++)if(chain[j].c-chain[j+1].c===1){segs.push([chain[j],chain[j+1]]);chain[j].L.push(chain[j+1]);chain[j+1].R.push(chain[j]);}
-      routes.push({e:e,chain:chain});
+      routes.push({e:e.e,chain:chain});
     });
     /* Connected parts (through edges and their gap slots) stay together, in reading order, one below the other. */
-    var part={},np=0,pkey=[];
+    var part=Object.create(null),np=0,pkey=[];
     Object.keys(items).forEach(function(k){
       if(part[k]!=null)return;var q=[items[k]];part[k]=np;
       while(q.length){var it=q.pop();it.L.concat(it.R).forEach(function(x){if(part[x.k]==null){part[x.k]=np;q.push(x);}});}
@@ -1946,7 +2071,7 @@ details.nt-panel{margin:0}
     function crossings(){var n=0;segAt.forEach(function(ss){for(var p=0;p<ss.length;p++)for(var q=p+1;q<ss.length;q++)if((ss[p][0].i-ss[q][0].i)*(ss[p][1].i-ss[q][1].i)<0)n++;});return n;}
     function sweep(col,side){
       col.forEach(function(it){var nb=it[side];it.o=nb.length?nb.reduce(function(s,x){return s+x.i;},0)/nb.length:it.i;});
-      col.sort(function(p,q){return (p.ext&&q.ext?prIdx(p.n.pr)-prIdx(q.n.pr):p.p-q.p)||p.o-q.o||p.b-q.b;});col.forEach(function(it,j){it.i=j;});
+      col.sort(function(p,q){return (p.ext&&q.ext?p.eg-q.eg:p.p-q.p)||p.o-q.o||p.b-q.b;});col.forEach(function(it,j){it.i=j;});
     }
     function snap(){var s={};Object.keys(items).forEach(function(k){s[k]=items[k].i;});return s;}
     var best=crossings(),keep=snap();
@@ -1956,11 +2081,10 @@ details.nt-panel{margin:0}
     }
     Object.keys(keep).forEach(function(k){items[k].i=keep[k];});
     cols.forEach(function(col){col.sort(function(p,q){return p.i-q.i;});});
-    MAP={svg:null,nd:{},ed:[],seq:[],crossings:best};
-    ordered().forEach(function(n){var s=items[SUBJ[n.id]];if(n.layer==='test'&&s&&s.tests)s.tests.push(n);});
-    if(X0){var prev=null;cols[0].forEach(function(it){if(it.n.pr!==prev){prev=it.n.pr;it.pad=MHD;it.head=1;}});}
-    function hb(it){return it.pad+it.h+(it.tests?it.tests.length*(MT+6):0);}
-    function gap(a,b){return a.d&&b.d?3:a.d||b.d?8:MY;}
+    return {cols:cols,items:items,routes:routes,crossings:best};
+  }
+  function lplace(L,hb,gap,my,pin){
+    var cols=L.cols,items=L.items,C=cols.length,c,i;
     function mid(it){return it.y+it.pad+it.h/2;}
     cols.forEach(function(col){var y=0;col.forEach(function(it,j){it.y=y;y+=hb(it)+(col[j+1]?gap(it,col[j+1]):0);});});
     function place(col,side){
@@ -1974,10 +2098,29 @@ details.nt-panel{margin:0}
     var parts=[];Object.keys(items).forEach(function(k){var it=items[k];if(!it.ext&&parts.indexOf(it.p)<0)parts.push(it.p);});
     parts.sort(function(a,b){return a-b;}).forEach(function(pk){
       var up=Infinity;
-      cols.forEach(function(col){for(var j=0;j<col.length;j++){var it=col[j],pr=col[j-1];if(it.ext||it.p!==pk)continue;up=Math.min(up,pr?it.y-(pr.y+hb(pr)+gap(pr,it)+MY):it.y);break;}});
+      cols.forEach(function(col){for(var j=0;j<col.length;j++){var it=col[j],pr=col[j-1];if(it.ext||it.p!==pk)continue;up=Math.min(up,pr?it.y-(pr.y+hb(pr)+gap(pr,it)+my):it.y);break;}});
       if(up>0&&up<Infinity)cols.forEach(function(col){col.forEach(function(it){if(!it.ext&&it.p===pk)it.y-=up;});});
     });
-    if(X0)place(cols[0],'R');
+    if(pin)place(cols[0],'R');
+  }
+  /* The map's boxes and edges for lorder(): files of earlier PRs in column 0, then the core files with a drawn edge
+     (MAIN) in their columns(); the edges that are not tests' and not loops. */
+  function flatOrder(){
+    var X0=G.ext.length?1:0,list=[],links=[];
+    G.ext.forEach(function(n){list.push({k:n.id,c:0,n:n,h:MH,ext:1,eg:prIdx(n.pr),b:prIdx(n.pr)*1e4+Math.min.apply(null,(INC[n.id]||[]).map(function(f){return ON[f];}).concat([1e3]))});});
+    G.nodes.forEach(function(n){if(MAIN[n.id])list.push({k:n.id,c:COL[n.id]+X0,n:n,h:MH,b:ON[n.id],tests:[]});});
+    G.edges.forEach(function(e){if(e.kind!=='test'&&e.from!==e.to)links.push({f:e.from,t:e.to,key:e.from+'>'+e.to,b:ON[e.from]+.5,e:e});});
+    var L=lorder(NCOL+X0,list,links);L.X0=X0;return L;
+  }
+  function renderMap(){
+    cv.textContent='';MAP=null;
+    var L=flatOrder(),X0=L.X0,C=L.cols.length,cols=L.cols,items=L.items,routes=L.routes;
+    MAP={svg:null,nd:{},ed:[],seq:[],crossings:L.crossings};
+    ordered().forEach(function(n){var s=items[SUBJ[n.id]];if(n.layer==='test'&&s&&s.tests)s.tests.push(n);});
+    if(X0){var prev=null;cols[0].forEach(function(it){if(it.n.pr!==prev){prev=it.n.pr;it.pad=MHD;it.head=1;}});}
+    function hb(it){return it.pad+it.h+(it.tests?it.tests.length*(MT+6):0);}
+    function gap(a,b){return a.d&&b.d?3:a.d||b.d?8:MY;}
+    lplace(L,hb,gap,MY,X0);
     var minY=Infinity,maxY=0,P={};
     cols.forEach(function(col){col.forEach(function(it){minY=Math.min(minY,it.y);});});
     if(minY===Infinity)minY=0;
@@ -2059,7 +2202,7 @@ details.nt-panel{margin:0}
   }
   /* Map keyboard: one Tab stop (the selected node, else the first); the arrow keys, Home, and End move through the
      earlier-PR band and then the steps in reading order, Enter or Space opens a node. */
-  function mapRove(id){if(!MAP)return;MAP.seq.forEach(function(k){MAP.nd[k].setAttribute('tabindex',k===id?'0':'-1');});}
+  function mapRove(id){if(!MAP)return;var F=MAP.foc||MAP.nd;if(MAP.seq.indexOf(id)<0)id=MAP.seq[0];MAP.seq.forEach(function(k){F[k].setAttribute('tabindex',k===id?'0':'-1');});}
   /* Map selection: the selected file, its dependencies and dependents, and the previous and next steps stay at full
      strength; the rest dims but stays readable. Highlighted edges move to the front. */
   function paintMap(deps,uses){
@@ -2070,30 +2213,363 @@ details.nt-panel{margin:0}
     MAP.ed.forEach(function(x){var d=!!sel&&x.e.from===sel,u=!!sel&&x.e.to===sel;x.el.classList.toggle('dep',d);x.el.classList.toggle('use',u);x.el.setAttribute('marker-end',d?'url(#ar-dep)':u?'url(#ar-use)':'url(#ar)');if((d||u)&&eg)eg.appendChild(x.el);});
   }
 
+  /* Columns of a layered layout of `ids` with links {from, to, n} ("from" uses "to"): heavier links first, a link that
+     would close a cycle is left out of the ordering (it is still drawn), and each box's longest path from a box nothing
+     uses decides its column, so those sit right and what they use left of them. Returns {col: {id: column}, n}. */
+  function levels(ids,links){
+    var on=Object.create(null),out=Object.create(null),inc=Object.create(null),L=Object.create(null),col=Object.create(null),top=0;
+    ids.forEach(function(k){on[k]=1;out[k]=[];inc[k]=[];});
+    function reach(a,b){var st=[a],seen=Object.create(null);while(st.length){var x=st.pop();if(x===b)return true;if(!seen[x]){seen[x]=1;st.push.apply(st,out[x]);}}return false;}
+    links.map(function(e,i){return [e,i];}).filter(function(x){return on[x[0].from]&&on[x[0].to]&&x[0].from!==x[0].to;})
+      .sort(function(a,b){return (b[0].n||1)-(a[0].n||1)||a[1]-b[1];})
+      .forEach(function(x){var f=x[0].from,t=x[0].to;if(out[f].indexOf(t)<0&&!reach(t,f)){out[f].push(t);inc[t].push(f);}});
+    function lp(k){if(L[k]==null){var m=-1;inc[k].forEach(function(u){m=Math.max(m,lp(u));});L[k]=m+1;}return L[k];}
+    ids.forEach(function(k){top=Math.max(top,lp(k));});
+    ids.forEach(function(k){col[k]=top-L[k];});
+    return {col:col,n:top+1};
+  }
+  /* The files within `max` links of `start`, either direction, over adj ({id: [neighbour ids]}): {id: distance}. */
+  function hops(start,adj,max){
+    var d=Object.create(null),q=[],i=0;if(start==null||!(max>=0))return d;
+    d[start]=0;q.push(start);
+    while(i<q.length){var k=q[i++];if(d[k]>=max)continue;(own(adj,k)||[]).forEach(function(m){if(d[m]==null){d[m]=d[k]+1;q.push(m);}});}
+    return d;
+  }
+  function lcurve(x1,y1,x2,y2){var mx=(x1+x2)/2;return ' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2;}
+  /* A link between two boxes {x, y, w, h}: side to side when they do not overlap horizontally, else top to bottom. */
+  function llink(a,b){
+    var ay=a.y+a.h/2,by=b.y+b.h/2;
+    if(a.x>=b.x+b.w)return 'M'+a.x+','+ay+lcurve(a.x,ay,b.x+b.w,by);
+    if(b.x>=a.x+a.w)return 'M'+(a.x+a.w)+','+ay+lcurve(a.x+a.w,ay,b.x,by);
+    var dn=b.y>a.y,y1=dn?a.y+a.h:a.y,y2=dn?b.y:b.y+b.h,x1=a.x+a.w/2,x2=b.x+b.w/2,my=(y1+y2)/2;
+    return 'M'+x1+','+y1+' C'+x1+','+my+' '+x2+','+my+' '+x2+','+y2;
+  }
+  /* A routed link: from the left side of box a (at height ay) through each gap slot {x, w, y} to the right side of z. */
+  function lroute(a,slots,z,ay,zy){
+    var x=a.x,y=ay,d='M'+x+','+y;
+    slots.forEach(function(s){d+=lcurve(x,y,s.x+s.w,s.y)+' L'+s.x+','+s.y;x=s.x;y=s.y;});
+    return d+lcurve(x,y,z.x+z.w,zy);
+  }
+  /* The overview's geometry, without the DOM (the tests run it in node). A closed area is a CW x CH box. An open one
+     holds its boxes under a CHD header: the ones linked inside the area in a layered layout of those links, the others
+     in a grid below; tests are no boxes (a "T n" badge on the file they test). The areas run through the layered
+     layout on their aggregated links (earlier PRs pinned in column 0, the link ends spread along each side); the shared
+     dependencies sit in a band on top and docs, config, and i18n below, their links drawn only for the selected file.
+     Returns {W, H, boxes: {area id: {c, open, x, y, w, h}}, nodes: {id: {x, y, w, h, a}}, inner: [{e, d}] (links in
+     open areas), links: [{g, d, lx, ly}] (area links, with where their count goes), crossings (of the area links
+     between adjacent columns, as the flat map counts its edges), seq (the area ids in reading order)}. */
+  var CW=232,CH=66,CHD=48,CPD=16,OGX=100,OGY=30;
+  function ovLayout(CG,X,vis){
+    var boxes=Object.create(null),nodes=Object.create(null),inner=[],links=[],cw=MW+MG;
+    function shown(id){return !vis||!!vis[id];}
+    function hb(it){return it.pad+it.h;}
+    CG.list.forEach(function(c){
+      var b=boxes[c.id]={c:c,open:!!own(X,c.id),w:CW,h:CH,x:0,y:0,at:Object.create(null),L:null};
+      if(!b.open)return;
+      var mem=c.box.filter(shown),inn=c.inner.filter(function(e){return shown(e.from)&&shown(e.to);}),lk=Object.create(null);
+      inn.forEach(function(e){lk[e.from]=lk[e.to]=1;});
+      var one=mem.filter(function(id){return lk[id];}),two=mem.filter(function(id){return !lk[id];}),lv=levels(one,inn);
+      var L=b.L=lorder(one.length?lv.n:0,one.map(function(id){return {k:id,c:lv.col[id],h:MH,b:ON[id]||0};}),
+        inn.map(function(e){return {f:e.from,t:e.to,key:e.from+'>'+e.to,b:(ON[e.from]||0)+.5,e:e};}));
+      lplace(L,hb,function(p,q){return p.d&&q.d?3:p.d||q.d?8:MY;},MY,false);
+      var minY=Infinity,maxY=0;
+      Object.keys(L.items).forEach(function(k){minY=Math.min(minY,L.items[k].y);});
+      Object.keys(L.items).forEach(function(k){var it=L.items[k];it.y-=minY;it.X=it.c*cw;maxY=Math.max(maxY,it.y+it.h);if(!it.d)b.at[k]={x:it.X,y:it.y};});
+      var K=one.length?Math.max(2,lv.n):Math.max(1,Math.min(4,Math.ceil(Math.sqrt(two.length)))),gy=one.length?maxY+MY+12:0;
+      two.forEach(function(id,j){b.at[id]={x:(j%K)*cw,y:gy+Math.floor(j/K)*(MH+MY)};});
+      var iw=Math.max(one.length?lv.n*cw-MG:0,two.length?Math.min(K,two.length)*cw-MG:0),ih=two.length?gy+Math.ceil(two.length/K)*(MH+MY)-MY:maxY;
+      b.w=Math.max(CW,iw+2*CPD);b.h=CHD+ih+CPD;
+    });
+    var reg=[],ext=[],isReg=Object.create(null);
+    CG.list.forEach(function(c){if(c.kind==='auth'||c.kind==='dir'){reg.push(c.id);isReg[c.id]=1;}else if(c.kind==='ext')ext.push(c.id);});
+    var drawn=CG.edges.filter(function(g){return isReg[g.from]&&(isReg[g.to]||CG.by[g.to].kind==='ext');});
+    var lv=levels(reg,drawn.filter(function(g){return isReg[g.to];})),X0=ext.length?1:0;
+    var L=lorder((reg.length?lv.n:0)+X0,ext.map(function(k,i){return {k:k,c:0,h:boxes[k].h,ext:1,eg:i,b:i};}).concat(reg.map(function(k){return {k:k,c:lv.col[k]+X0,h:boxes[k].h,b:CG.by[k].first};})),
+      drawn.map(function(g){return {f:g.from,t:g.to,key:g.from+'>'+g.to,b:CG.by[g.from].first+.5,e:g};}));
+    lplace(L,hb,function(p,q){return p.d&&q.d?4:p.d||q.d?12:OGY;},OGY,X0);
+    var wd=[],xs=[],x=MP,minY=Infinity,maxY=0,sh=boxes[':shared'],lt=boxes[':late'],top=MP;
+    L.cols.forEach(function(col,c){wd[c]=Math.max(40,Math.max.apply(null,col.map(function(it){return it.d?0:boxes[it.k].w;}).concat([0])));xs[c]=x;x+=wd[c]+OGX;});
+    if(sh){sh.x=MP;sh.y=MP;top=MP+sh.h+OGY*1.6;}
+    Object.keys(L.items).forEach(function(k){minY=Math.min(minY,L.items[k].y);});
+    if(minY===Infinity)minY=0;
+    Object.keys(L.items).forEach(function(k){
+      var it=L.items[k];it.y+=top-minY;it.X=xs[it.c];it.W=wd[it.c];maxY=Math.max(maxY,it.y+it.h);
+      if(!it.d){var b=boxes[k];b.x=it.X+(it.W-b.w)/2;b.y=it.y;}
+    });
+    if(lt){lt.x=MP;lt.y=Math.max(maxY,sh?sh.y+sh.h:0)+OGY*1.6;}
+    var W=Math.max(x-OGX,sh?sh.x+sh.w:0,lt?lt.x+lt.w:0)+MP,H=(lt?lt.y+lt.h:Math.max(maxY,sh?sh.y+sh.h:0))+MP;
+    CG.list.forEach(function(c){
+      var b=boxes[c.id];if(!b.open)return;
+      Object.keys(b.at).forEach(function(id){var r=b.at[id];nodes[id]={x:b.x+CPD+r.x,y:b.y+CHD+r.y,w:MW,h:MH,a:c.id};});
+      if(b.L)b.L.routes.forEach(function(r){
+        var ch=r.chain,a=nodes[ch[0].k],z=nodes[ch[ch.length-1].k];if(!a||!z)return;
+        inner.push({e:r.e,d:ch[0].c>ch[ch.length-1].c?lroute(a,ch.slice(1,-1).map(function(it){return {x:b.x+CPD+it.X,w:MW,y:b.y+CHD+it.y+it.h/2};}),z,a.y+a.h/2,z.y+z.h/2):llink(a,z)});
+      });
+    });
+    var R=L.routes.map(function(r){
+      var ch=r.chain,n=ch.length,a=boxes[ch[0].k],z=boxes[ch[n-1].k],mid=ch.slice(1,-1).map(function(it){return {x:it.X,w:it.W,y:it.y+it.h/2};});
+      return {g:r.e,a:a,z:z,fw:ch[0].c>ch[n-1].c,mid:mid,nx:mid.length?mid[0].y:z.y+z.h/2,px:mid.length?mid[mid.length-1].y:a.y+a.h/2};
+    });
+    /* Each side's link ends spread over a band around its middle, in the order of where they go next. */
+    function ports(rs,box,next,set){
+      var by=Object.create(null),keys=[];
+      rs.forEach(function(r){var b=box(r),k=b.c.id;if(!by[k]){by[k]={b:b,rs:[]};keys.push(k);}by[k].rs.push(r);});
+      keys.forEach(function(k){
+        var o=by[k],n=o.rs.length,h=Math.min(o.b.h-12,Math.max(24,n*14)),y0=o.b.y+o.b.h/2-h/2;
+        o.rs.sort(function(p,q){return next(p)-next(q);}).forEach(function(r,i){set(r,y0+h*(i+.5)/n);});
+      });
+    }
+    var fw=R.filter(function(r){return r.fw;});
+    ports(fw,function(r){return r.a;},function(r){return r.nx;},function(r,y){r.ay=y;});
+    ports(fw,function(r){return r.z;},function(r){return r.px;},function(r,y){r.zy=y;});
+    R.forEach(function(r){
+      if(r.fw){
+        var n1=r.mid.length?{x:r.mid[0].x+r.mid[0].w,y:r.mid[0].y}:{x:r.z.x+r.z.w,y:r.zy};
+        links.push({g:r.g,d:lroute(r.a,r.mid,r.z,r.ay,r.zy),lx:(r.a.x+n1.x)/2,ly:(r.ay+n1.y)/2});
+      }else links.push({g:r.g,d:llink(r.a,r.z),lx:(r.a.x+r.a.w/2+r.z.x+r.z.w/2)/2,ly:(r.a.y+r.a.h/2+r.z.y+r.z.h/2)/2});
+    });
+    return {W:W,H:H,boxes:boxes,nodes:nodes,inner:inner,links:links,crossings:L.crossings,seq:CG.list.map(function(c){return c.id;})};
+  }
+
+  /* The map's overview of areas, for a PR above OVN core files (the flat map below that). Each area is a box (name,
+     files, read x/y, note and test chips) that a click or Enter opens in place; an open area shows its files and their
+     links, with tests folded into a "T n" badge on the file they test (the list and the diff keep them). Links between
+     areas are drawn once per pair with their count, wider for more (log scale), border to border; the selected file's
+     own links are drawn too, to the files of open areas and to the border of closed ones. Selecting a file opens its
+     area and fades files more than 1 or 2 links away ("hops"). Open areas are kept per PR under "mapx", zoom and pan
+     under "mapz". The view pans and zooms through an SVG transform: Ctrl+wheel or pinch, dragging, the buttons, keys
+     + - 0 and Shift+arrows; the arrow keys move through the areas and the files of open ones (one Tab stop), Enter or
+     Space opens an area or a file, and opening or closing an area is announced. */
+  function nobj(k){var v=obj(k),o=Object.create(null);Object.keys(v).forEach(function(x){o[x]=v[x];});return o;}
+  var OVN=40,OVX=nobj('mapx'),OVZ=nobj('mapz'),hopN=load('hops','2'),ZMIN=0.15,ZMAX=2.5,ovTimer=null,ovNotes={};
+  if(['1','2','all'].indexOf(hopN)<0)hopN='2';
+  function coreCount(p){var n=0;p.nodes.forEach(function(x){if(x.layer!=='test'&&!LATE[x.layer])n++;});return n;}
+  function plw(f,n){f=f||{};var c=plural?plural.select(n):(n===1?'one':'other');return f[c]||f.other||'';}
+  function ltrunc(s,n){return s.length>n?'…'+s.slice(s.length-Math.max(1,n-1)):s;}
+  function ovOpen(){var v=own(OVX,cur),o=Object.create(null);(Array.isArray(v)?v:[]).forEach(function(k){if(typeof k==='string')o[k]=1;});return o;}
+  function ovSaveOpen(o){var k=Object.keys(o).sort();if(k.length)OVX[cur]=k;else delete OVX[cur];save('mapx',JSON.stringify(OVX));}
+  function ovView(){var t=own(OVZ,cur);return t&&typeof t==='object'&&isFinite(t.z)&&t.z>0&&isFinite(t.x)&&isFinite(t.y)?{z:+t.z,x:+t.x,y:+t.y}:null;}
+  function ovArea(id){var n=all[id];return n&&n.pr!==cur?'x:'+n.pr:CG.of[id]||null;}
+  /* Where a file shows on the overview: its own box, else the box of the file it tests, else its closed area. */
+  function ovBox(id){var L=MAP.L,c=ovArea(id);if(L.nodes[id])return L.nodes[id];if(SUBJ[id]&&L.nodes[SUBJ[id]])return L.nodes[SUBJ[id]];return c&&L.boxes[c]&&!L.boxes[c].open?L.boxes[c]:null;}
+  function ovKey(id){var M=MAP,c=ovArea(id);if(!M||!M.ov||!id)return null;if(M.nd[id])return 'n:'+id;if(SUBJ[id]&&M.nd[SUBJ[id]])return 'n:'+SUBJ[id];return c&&M.foc['c:'+c]?'c:'+c:null;}
+  function ovApply(quiet){
+    var M=MAP,t=M.t;M.vp.setAttribute('transform','translate('+t.x.toFixed(1)+','+t.y.toFixed(1)+') scale('+t.z.toFixed(3)+')');
+    if(quiet)return;clearTimeout(ovTimer);
+    ovTimer=setTimeout(function(){OVZ[M.pr]={z:+t.z.toFixed(3),x:+t.x.toFixed(1),y:+t.y.toFixed(1)};save('mapz',JSON.stringify(OVZ));},250);
+  }
+  function ovFit(quiet){var M=MAP,r=M.svg.getBoundingClientRect(),w=r.width||900,h=r.height||560,z=Math.max(ZMIN,Math.min(1,(w-32)/M.L.W,(h-32)/M.L.H));M.t={z:z,x:Math.round((w-M.L.W*z)/2),y:16};ovApply(quiet);}
+  function ovZoom(f,cx,cy){var M=MAP,t=M.t;if(cx==null){var r=M.svg.getBoundingClientRect();cx=r.width/2;cy=r.height/2;}var z=Math.max(ZMIN,Math.min(ZMAX,t.z*f));t.x=cx-(cx-t.x)*z/t.z;t.y=cy-(cy-t.y)*z/t.z;t.z=z;ovApply();}
+  /* Panning keeps at least 60 pixels of the drawing in view. */
+  function ovClamp(){var M=MAP,t=M.t,r=M.svg.getBoundingClientRect(),m=60;t.x=Math.min(r.width-m,Math.max(m-M.L.W*t.z,t.x));t.y=Math.min(r.height-m,Math.max(m-M.L.H*t.z,t.y));}
+  function ovPan(dx,dy){MAP.t.x+=dx;MAP.t.y+=dy;ovClamp();ovApply();}
+  /* Brings a box into view (centred) when it is outside the visible part of the overview. */
+  function ovTo(k){
+    var M=MAP,e=M&&M.ov&&M.foc[k];if(!e)return;
+    var r=e.getBoundingClientRect(),s=M.svg.getBoundingClientRect();
+    if(r.left<s.left||r.right>s.right||r.top<s.top||r.bottom>s.bottom){M.t.x+=s.left+s.width/2-(r.left+r.width/2);M.t.y+=s.top+s.height/2-(r.top+r.height/2);ovApply();}
+  }
+  function ovAria(a,read){
+    var out=CG.edges.filter(function(g){return g.from===a.id;}).sort(function(x,y){return y.n-x.n;}).slice(0,3);
+    return fmt(S.clusterAria,{name:a.label,n:a.ids.length,files:filesWord(a.ids.length),read:read,links:out.map(function(g){return ', '+fmt(S.clusterLinks,{n:g.n,links:plw(S.links,g.n),name:CG.by[g.to].label});}).join('')});
+  }
+  /* Each area's files and read count, in its second line and its name for assistive technology. */
+  function ovCounts(){
+    var M=MAP;if(!M||!M.ov)return;
+    Object.keys(M.cl).forEach(function(k){var c=M.cl[k],a=c.b.c,n=a.ids.length,r=a.ids.filter(isDone).length;c.sub.textContent=n+' '+filesWord(n)+' · '+fmt(S.clusterRead,{read:r,n:n});c.g.setAttribute('aria-label',ovAria(a,r));});
+  }
+  function ovChip(g,x,cls,text,tip){var w=Math.max(18,text.length*6.6+10),c=el('g',{class:cls,transform:'translate('+x+',0)'},g);el('title',{},c).textContent=tip;el('rect',{width:w,height:15,rx:7.5},c);el('text',{x:w/2,y:11,'text-anchor':'middle'},c).textContent=text;return x+w+4;}
+  /* An area's chips: one per kind of the notes on its files, then its tests. */
+  function ovChips(mine){
+    var M=MAP;if(mine)ovNotes=mine;else mine=ovNotes;if(!M||!M.ov)return;
+    Object.keys(M.cl).forEach(function(k){
+      var c=M.cl[k],a=c.b.c,x=0,list=[],nt=0;c.chips.textContent='';
+      a.ids.forEach(function(id){list=list.concat(own(mine,id)||[]);});
+      KINDS.forEach(function(kd){var n=list.filter(function(z){return z.kind===kd;}).length;if(n)x=ovChip(c.chips,x,'ovk k-'+kd,KIND[kd].i+(n>1?n:''),KIND[kd].l+': '+n);});
+      Object.keys(a.tests).forEach(function(s){nt+=a.tests[s].length;});
+      if(nt)ovChip(c.chips,x,'tb',fmt(S.testsBadge,{n:nt}),fmt(S.testsAria,{n:nt}));
+    });
+  }
+  function ovNode(n,p,c,ng){
+    var M=MAP,ext=n.pr!==cur,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),ts=(own(c.tests,n.id)||[]).filter(function(t){return byId[t];});
+    var aria=(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(ts.length?', '+fmt(S.testsAria,{n:ts.length}):'');
+    var g=el('g',{class:'nd'+(isDone(n.id)?' done':''),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':aria},ng);
+    el('title',{},g).textContent=n.path+'\n'+(n.role||'');
+    el('rect',{class:'box',width:p.w,height:p.h,rx:8,fill:css('--surface'),stroke:ext?prc:css('--line'),'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
+    el('rect',{width:5,height:p.h-12,x:6,y:6,rx:2,fill:L[1]},g);
+    var t=el('text',{x:18,y:20,'font-size':13,'font-weight':600},g);
+    el('tspan',{class:'num',fill:ext?prc:L[1]},t).textContent=num+' ';
+    el('tspan',{},t).textContent=trunc(n.label,Math.floor((p.w-30-(ts.length?38:0))/7.6)-num.length);
+    el('text',{class:'sub',x:18,y:37,'font-size':11},g).textContent=ext?prName(n.pr)+' · '+L[0]:L[0]+' · +'+(n.added||0)+(n.removed?'/−'+n.removed:'');
+    if(ts.length){
+      var tb=el('g',{class:'tb',transform:'translate('+(p.w-40)+',6)'},g);
+      el('title',{},tb).textContent=fmt(S.testsBadgeTitle,{n:ts.length,list:ts.map(function(x){return all[x].label;}).join(', ')});
+      el('rect',{width:32,height:15,rx:7.5},tb);el('text',{x:16,y:11,'text-anchor':'middle'},tb).textContent=fmt(S.testsBadge,{n:ts.length});
+    }
+    g.addEventListener('click',function(){if(MAP.drag)return;if(ext)goto(n.id);else select(n.id,'map');});
+    g.addEventListener('keydown',function(ev){ovKeys(ev,'n:'+n.id);});
+    M.nd[n.id]=g;M.foc['n:'+n.id]=g;
+  }
+  /* Keyboard on a box: arrows, Home, and End move (Shift+arrows pan, handled by the drawing), Enter or Space acts. */
+  function ovKeys(ev,k){
+    var M=MAP,key=ev.key,i=M.seq.indexOf(k),j;
+    if(ev.shiftKey&&/^Arrow/.test(key))return;
+    if(key==='Enter'||key===' '){
+      ev.preventDefault();
+      if(k.slice(0,2)==='c:')ovToggle(k.slice(2));else{var id=k.slice(2);if(all[id]&&all[id].pr!==cur)goto(id);else select(id,'map');}
+      return;
+    }
+    if(key==='ArrowDown'||key==='ArrowRight')j=i+1;else if(key==='ArrowUp'||key==='ArrowLeft')j=i-1;else if(key==='Home')j=0;else if(key==='End')j=M.seq.length-1;else return;
+    ev.preventDefault();var to=M.seq[Math.max(0,Math.min(M.seq.length-1,j))];mapRove(to);M.foc[to].focus({preventScroll:true});ovTo(to);
+  }
+  /* Opening or closing an area keeps its box where it was on screen; `quiet` (a selection opening the file's area)
+     neither moves the focus nor announces. */
+  function ovToggle(cid,open,quiet){
+    var M=MAP;if(!M||!M.ov||!M.L.boxes[cid])return;
+    var X=ovOpen(),was=!!X[cid];if(open==null)open=!was;if(open===was)return;
+    if(open)X[cid]=1;else delete X[cid];ovSaveOpen(X);
+    var b0=M.L.boxes[cid],t=M.t,sx=t.x+b0.x*t.z,sy=t.y+b0.y*t.z,a=document.activeElement,foc=!quiet&&!!a&&M.svg.contains(a);
+    renderOverview({z:t.z,x:t.x,y:t.y});
+    var N=MAP,b1=N.L.boxes[cid];N.t.x=sx-b1.x*N.t.z;N.t.y=sy-b1.y*N.t.z;ovApply();
+    if(foc){mapRove('c:'+cid);N.foc['c:'+cid].focus({preventScroll:true});}
+    if(!quiet){var c=CG.by[cid];say(open?fmt(S.clusterExpanded,{name:c.label,n:c.ids.length,files:filesWord(c.ids.length)}):fmt(S.clusterCollapsed,{name:c.label}));}
+  }
+  function ovReveal(id){var c=ovArea(id);if(c&&MAP&&MAP.ov&&MAP.L.boxes[c]&&!MAP.L.boxes[c].open)ovToggle(c,true,true);}
+  function ovAll(open){var X=Object.create(null);if(open)CG.list.forEach(function(c){X[c.id]=1;});ovSaveOpen(X);renderOverview();ovFit();say(open?S.expandAll:S.collapseAll);}
+  function ovHopBtns(){[].forEach.call(cv.querySelectorAll('[data-h]'),function(b){b.setAttribute('aria-pressed',b.dataset.h===hopN?'true':'false');});}
+  /* Selection: the file (or the area box it is in), its dependencies and dependents, its links to other areas, and the
+     fade of files more than `hops` links away (the areas with none of their files within reach fade too). */
+  function paintOv(){
+    var M=MAP;if(!M||!M.ov)return;
+    var s=sel&&byId[sel]?sel:null,k=s?ovKey(s):null,deps={},uses={},far=null;
+    if(s){(OUT[s]||[]).forEach(function(t){deps[t]=1;});(INC[s]||[]).forEach(function(f){uses[f]=1;});}
+    Object.keys(M.nd).forEach(function(id){var c=M.nd[id].classList;c.toggle('on','n:'+id===k);c.toggle('dep',!!deps[id]);c.toggle('use',!!uses[id]);});
+    Object.keys(M.cl).forEach(function(id){M.cl[id].g.classList.toggle('on','c:'+id===k);});
+    M.ed.forEach(function(x){var d=!!s&&x.e.from===s,u=!!s&&x.e.to===s;x.el.classList.toggle('dep',d);x.el.classList.toggle('use',u);x.el.setAttribute('marker-end',d?'url(#ov-ar-dep)':u?'url(#ov-ar-use)':'url(#ov-ar)');if(d||u)x.el.parentNode.appendChild(x.el);});
+    M.sg.textContent='';
+    if(s)G.edges.forEach(function(e){
+      if((e.from!==s&&e.to!==s)||e.from===e.to||M.inE[e.from+'>'+e.to])return;
+      var a=ovBox(e.from),z=ovBox(e.to),d=e.from===s;if(!a||!z||a===z)return;
+      el('path',{class:'ed '+(d?'dep':'use')+(e.kind==='http'?' http':''),d:llink(a,z),'marker-end':'url(#ov-ar-'+(d?'dep':'use')+')'},M.sg);
+    });
+    if(s&&hopN!=='all')far=hops(M.rp(s),M.adj,+hopN);
+    function near(id){return !far||far[id]!=null||(!!SUBJ[id]&&far[SUBJ[id]]!=null);}
+    Object.keys(M.nd).forEach(function(id){M.nd[id].classList.toggle('far',!near(id));});
+    Object.keys(M.cl).forEach(function(id){var c=M.cl[id];c.near=c.b.c.ids.some(near);c.g.classList.toggle('far',!c.b.open&&!c.near);});
+    M.ag.forEach(function(x){var f=!(M.cl[x.g.from].near&&M.cl[x.g.to].near);x.p.classList.toggle('far',f);x.t.classList.toggle('far',f);});
+    M.ed.forEach(function(x){x.el.classList.toggle('far',!(near(x.e.from)&&near(x.e.to)));});
+  }
+  function ovPath(){
+    var M=MAP,pts=[],last=null;
+    ordered().forEach(function(n){var b=ovBox(n.id);if(!b||b===last)return;last=b;pts.push(Math.round(b.x+b.w/2)+','+Math.round(b.y+b.h/2));});
+    if(pts.length>1)el('path',{class:'rp',d:'M'+pts.join(' L')},M.pg);
+  }
+  function renderOverview(keep){
+    cv.textContent='';MAP=null;
+    var X=ovOpen(),L=ovLayout(CG,X,byId),bar=document.createElement('div');
+    bar.className='g-ovt';
+    bar.innerHTML='<strong>'+esc(S.mapAreas)+'</strong><span class="dv-mode" role="group" aria-label="'+esc(S.zoomLabel)+'">'
+      +[['out','−',S.zoomOut],['in','+',S.zoomIn],['fit',S.zoomFit,S.zoomFit]].map(function(z){return '<button type="button" data-z="'+z[0]+'" title="'+esc(z[2])+'" aria-label="'+esc(z[2])+'">'+esc(z[1])+'</button>';}).join('')
+      +'</span><span><button type="button" class="nt-b" data-x="all">'+esc(S.expandAll)+'</button> <button type="button" class="nt-b" data-x="none">'+esc(S.collapseAll)+'</button></span>'
+      +'<span class="dv-mode" role="group" aria-label="'+esc(S.hopsLabel)+'" title="'+esc(S.hopsTitle)+'">'
+      +[['1',S.hops1],['2',S.hops2],['all',S.hopsAll]].map(function(h){return '<button type="button" data-h="'+h[0]+'">'+esc(h[1])+'</button>';}).join('')
+      +'</span><span class="g-ovh">'+esc(S.zoomHint)+'</span>';
+    cv.appendChild(bar);
+    var svg=el('svg',{class:'g-ovs',role:'group','aria-label':fmt(S.mapAreasAria,{pr:prName(cur)})},cv),defs=el('defs',{},svg);
+    [['ov-ar','--muted'],['ov-ar-dep','--dep'],['ov-ar-use','--use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:9,markerHeight:9,markerUnits:'userSpaceOnUse',orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',fill:css(a[1])},m);});
+    var vp=el('g',{class:'vp'},svg),ag=el('g',{},vp),cg=el('g',{},vp),ig=el('g',{},vp),ng=el('g',{},vp),sg=el('g',{},vp),pg=el('g',{},vp),adj=Object.create(null);
+    var M=MAP={ov:1,pr:cur,svg:svg,vp:vp,L:L,nd:{},cl:Object.create(null),foc:Object.create(null),seq:[],ed:[],ag:[],sg:sg,pg:pg,inE:Object.create(null),t:null,adj:adj,drag:0};
+    M.rp=function(x){var n=all[x];return n&&n.layer==='test'&&SUBJ[x]?SUBJ[x]:x;};
+    G.edges.forEach(function(e){var a=M.rp(e.from),b=M.rp(e.to);if(a===b)return;(adj[a]=adj[a]||[]).push(b);(adj[b]=adj[b]||[]).push(a);});
+    L.links.forEach(function(x){
+      var g=x.g,p=el('path',{class:'ag',d:x.d,'stroke-width':Math.min(9,1.3+1.7*Math.log2(g.n)).toFixed(2),'marker-end':'url(#ov-ar)'},ag);
+      var t=el('text',{class:'agn',x:Math.round(x.lx),y:Math.round(x.ly)+4,'text-anchor':'middle'},ag),tip=fmt(S.edgeCount,{from:CG.by[g.from].label,to:CG.by[g.to].label,n:g.n,links:plw(S.links,g.n)});
+      t.textContent=g.n;el('title',{},p).textContent=tip;el('title',{},t).textContent=tip;M.ag.push({g:g,p:p,t:t});
+    });
+    L.seq.forEach(function(cid){
+      var b=L.boxes[cid],c=b.c,name=(c.kind==='shared'?'◆ ':c.kind==='ext'?'← ':'')+c.label,max=Math.floor((b.w-46)/7.6);
+      var g=el('g',{class:'cl k-'+c.kind+(b.open?' open':''),transform:'translate('+b.x+','+b.y+')',tabindex:-1,role:'button','aria-expanded':b.open?'true':'false'},cg);
+      el('title',{},g).textContent=c.label+'\n'+fmt(b.open?S.clusterCollapse:S.clusterExpand,{name:c.label});
+      el('rect',{class:'cb',width:b.w,height:b.h,rx:10},g);
+      if(b.open){el('rect',{class:'cbh',x:1,y:1,width:b.w-2,height:CHD-1,rx:9},g);el('rect',{class:'cbh',x:1,y:CHD/2,width:b.w-2,height:CHD/2},g);el('line',{class:'cbl',x1:1,x2:b.w-1,y1:CHD,y2:CHD},g);}
+      el('text',{class:'cll',x:14,y:21},g).textContent=c.kind==='dir'?ltrunc(name,max):trunc(name,max);
+      el('text',{class:'clt',x:b.w-22,y:22},g).textContent=b.open?'−':'+';
+      M.cl[cid]={g:g,b:b,near:true,sub:el('text',{class:'cls',x:14,y:b.open?39:40},g),chips:el('g',{transform:'translate(14,47)'},g)};
+      M.foc['c:'+cid]=g;M.seq.push('c:'+cid);
+      g.addEventListener('click',function(ev){if(MAP.drag||(b.open&&!(ev.target.classList&&ev.target.classList.contains('cbh'))))return;ovToggle(cid);});
+      g.addEventListener('keydown',function(ev){ovKeys(ev,'c:'+cid);});
+      if(b.open)c.box.forEach(function(id){if(L.nodes[id]){ovNode(all[id],L.nodes[id],c,ng);M.seq.push('n:'+id);}});
+    });
+    L.inner.forEach(function(x){var p=el('path',{class:'ed'+(x.e.kind==='http'?' http':''),d:x.d,'marker-end':'url(#ov-ar)'},ig);M.ed.push({e:x.e,el:p});M.inE[x.e.from+'>'+x.e.to]=1;});
+    ovCounts();
+    Object.keys(M.cl).forEach(function(k){var c=M.cl[k];if(c.b.open){var w=0;try{w=c.sub.getComputedTextLength();}catch(e){}c.chips.setAttribute('transform','translate('+Math.round(24+w)+',28)');}});
+    ovChips();
+    var t=keep||ovView();
+    if(t){M.t={z:Math.max(ZMIN,Math.min(ZMAX,t.z)),x:t.x,y:t.y};ovApply(true);}else ovFit(true);
+    bar.addEventListener('click',function(ev){
+      var b=ev.target.closest('button');if(!b)return;
+      if(b.dataset.z){if(b.dataset.z==='fit')ovFit();else ovZoom(b.dataset.z==='in'?1.25:0.8);}
+      else if(b.dataset.x)ovAll(b.dataset.x==='all');
+      else if(b.dataset.h){hopN=b.dataset.h;save('hops',hopN);ovHopBtns();paintOv();}
+    });
+    ovHopBtns();
+    svg.addEventListener('wheel',function(ev){
+      if(!ev.ctrlKey&&!ev.metaKey)return;ev.preventDefault();
+      var r=svg.getBoundingClientRect(),dy=Math.max(-30,Math.min(30,ev.deltaMode?ev.deltaY*16:ev.deltaY));ovZoom(Math.exp(-dy*0.01),ev.clientX-r.left,ev.clientY-r.top);
+    },{passive:false});
+    svg.addEventListener('keydown',function(ev){
+      var k=ev.key,s=80;
+      if(k==='+'||k==='='){ev.preventDefault();ovZoom(1.25);}
+      else if(k==='-'||k==='_'){ev.preventDefault();ovZoom(0.8);}
+      else if(k==='0'){ev.preventDefault();ovFit();}
+      else if(ev.shiftKey&&/^Arrow(Up|Down|Left|Right)$/.test(k)){ev.preventDefault();ovPan(k==='ArrowLeft'?s:k==='ArrowRight'?-s:0,k==='ArrowUp'?s:k==='ArrowDown'?-s:0);}
+    });
+    /* Dragging pans (from 5 pixels on, so a click stays a click) and two pointers pinch to zoom. */
+    var P=Object.create(null),drag=null,pinch=null;
+    function pts(){return Object.keys(P).map(function(k){return P[k];});}
+    svg.addEventListener('pointerdown',function(ev){
+      if(ev.pointerType==='mouse'&&ev.button!==0)return;
+      P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
+      if(q.length===1)drag={x:ev.clientX,y:ev.clientY,tx:M.t.x,ty:M.t.y,on:false};
+      else if(q.length===2){drag=null;pinch={d:Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1,z:M.t.z};}
+    });
+    svg.addEventListener('pointermove',function(ev){
+      if(!P[ev.pointerId])return;P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
+      if(pinch&&q.length===2){var r=svg.getBoundingClientRect(),d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1;M.drag=1;ovZoom(pinch.z*d/pinch.d/M.t.z,(q[0].x+q[1].x)/2-r.left,(q[0].y+q[1].y)/2-r.top);return;}
+      if(!drag)return;var dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
+      if(!drag.on){if(Math.abs(dx)+Math.abs(dy)<5)return;drag.on=true;M.drag=1;svg.classList.add('drag');try{svg.setPointerCapture(ev.pointerId);}catch(e){}}
+      M.t.x=drag.tx+dx;M.t.y=drag.ty+dy;ovClamp();ovApply();
+    });
+    function end(ev){delete P[ev.pointerId];if(!pts().length){drag=null;pinch=null;svg.classList.remove('drag');setTimeout(function(){M.drag=0;},0);}}
+    svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
+    mapRove(ovKey(sel)||M.seq[0]);paintOv();if(showPath)ovPath();
+  }
+
   function select(id,how){
     if(id&&(!byId[id]||byId[id].ext))id=null;
     if(id!==sel)nbAll={};
     sel=id;selBy[cur]=id;
-    if(id&&how)reveal(id);
+    if(id&&how){reveal(id);ovReveal(id);}
     var deps={},uses={};if(id){(OUT[id]||[]).forEach(function(t){deps[t]=1;});(INC[id]||[]).forEach(function(f){uses[f]=1;});}
     Object.keys(rowEl).forEach(function(k){var r=rowEl[k],on=k===id;r.li.classList.toggle('sel',on);r.li.classList.toggle('dep',!!deps[k]);r.li.classList.toggle('use',!!uses[k]);if(on)r.b.setAttribute('aria-current','step');else r.b.removeAttribute('aria-current');});
     markHeads();
     Object.keys(xEl).forEach(function(k){xEl[k].classList.toggle('dep',!!deps[k]);});
     Object.keys(xHead).forEach(function(k){xHead[k].h.classList.toggle('dep',xHead[k].ids.some(function(x){return deps[x];}));});
     if(id&&rowEl[id])roveRow(id);
-    shareChip();drawLane();if(MAP){paintMap(deps,uses);if(id)mapRove(id);}detail(id);
+    shareChip();drawLane();if(MAP){if(MAP.ov)paintOv();else paintMap(deps,uses);if(id)mapRove(MAP.ov?ovKey(id):id);}detail(id);
     if(!id){clearDiff();return;}
     var node=Object.assign({},byId[id],{order:ON[id]});
     if(!last||last[0]!==id)showDiff(id,node);else document.getElementById('dv-title').textContent=stepLabel(node)+' · '+node.label;
     listTo(id);
     if(how&&how!=='note')say(stepLabel(node)+' · '+node.label);
-    if(how==='list'||how==='jump'){var d=detEl.getBoundingClientRect();if(d.top<0||d.top>window.innerHeight-160)detEl.scrollIntoView({block:'start',behavior:'smooth'});}
+    if(how==='list'||how==='jump'){var d=detEl.getBoundingClientRect();if(d.top<0||d.top>window.innerHeight-160)detEl.scrollIntoView({block:'start',behavior:smooth()});}
     if(how)mapTo(id);
   }
   function mapTo(id){
+    if(MAP&&MAP.ov){ovTo(ovKey(id));return;}
     if(!MAP||!MAP.nd[id])return;
     var r=MAP.nd[id].getBoundingClientRect(),c=cv.getBoundingClientRect();
-    if(r.left<c.left||r.right>c.right||r.top<c.top||r.bottom>c.bottom)cv.scrollTo({left:cv.scrollLeft+(r.left-c.left)-c.width/2+r.width/2,top:cv.scrollTop+(r.top-c.top)-c.height/2+r.height/2,behavior:'smooth'});
+    if(r.left<c.left||r.right>c.right||r.top<c.top||r.bottom>c.bottom)cv.scrollTo({left:cv.scrollLeft+(r.left-c.left)-c.width/2+r.width/2,top:cv.scrollTop+(r.top-c.top)-c.height/2+r.height/2,behavior:smooth()});
   }
   window.__gsel=function(id){select(id,'note');};
 
@@ -2107,8 +2583,9 @@ details.nt-panel{margin:0}
     G=graph();computeOrder(G.p);byId={};OUT={};INC={};
     G.nodes.concat(G.ext).forEach(function(n){byId[n.id]=n;OUT[n.id]=[];INC[n.id]=[];});
     G.edges.forEach(function(e){OUT[e.from].push(e.to);INC[e.to].push(e.from);});
-    columns();renderList();
-    cv.hidden=view!=='map';MAP=null;if(view==='map')renderMap();else cv.textContent='';
+    columns();CG=clusterGraph(G.p,byId);renderList();
+    var ov=view==='map'&&coreCount(G.p)>OVN;cv.classList.toggle('ov',ov);
+    cv.hidden=view!=='map';MAP=null;if(view==='map'){if(ov)renderOverview();else renderMap();}else cv.textContent='';
     select(sel);
   }
   render();

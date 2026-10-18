@@ -157,6 +157,69 @@ delete plain.parents;
 process.stdout.write(JSON.stringify({parts: homes(input.graph), plain: homes(plain)}));
 """
 
+# Runs the viewer's areas (clusterGraph()), the overview's geometry (ovLayout()), and the flat map's ordering (flatOrder()),
+# cut out of assets/viewer.html with the reading order, columns, and layered layout they use, over a one-PR graphs.json;
+# prints each area, each node's area, the area links, the crossings of the flat map and of the overview (all areas
+# closed), and the boxes of the overview with every area closed, with two open, and with all open.
+VIEWER_AREAS = r"""
+const fs = require('fs');
+const [template, graphFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+const late = html.match(/var LATE=(\{[^}]*\});/)[1];
+const code = [cut('  function own(o,k)', 'function own(o,k)'), cut('  function computeOrder(p){', 'function computeOrder(p){'),
+  cut('  function columns(){', 'function columns(){'), cut('  function dirOf(n,look){', 'function dirOf(n,look){'),
+  cut('  function folderGroups(rows,o){', 'function folderGroups(rows,o){'), cut('  var CLUSTER_ID=', 'function clusterGraph(p,vis){'),
+  cut('  var MW=200', 'function lorder(C,list,links){'), cut('  function lplace(', 'function lplace('), cut('  function flatOrder(){', 'function flatOrder(){'),
+  cut('  function levels(', 'function levels('), cut('  function hops(', 'function hops('), cut('  function lcurve(', 'function lcurve('),
+  cut('  function llink(', 'function llink('), cut('  function lroute(', 'function lroute('), cut('  var CW=232', 'function ovLayout(CG,X,vis){')].join('\n');
+const data = JSON.parse(fs.readFileSync(graphFile, 'utf8'));
+const run = new Function('data', 'var ON={},SUBJ={},LINKED={},HUB={},omode="top",all={},byId={},OUT={},INC={},G=null,MAIN={},COL={},NCOL=1,LATE=' + late + ';\n'
+  + 'var S={sharedDeps:"shared",clusterLate:"late",folderRoot:"(root)"};function prName(k){return k;}function prIdx(k){return 0;}\n' + code + `
+  data.prs.forEach(function(p){p.nodes.forEach(function(n){all[n.id]=Object.assign({pr:p.key},n);});});
+  var p=data.prs[0];computeOrder(p);
+  G={p:p,nodes:p.nodes.map(function(n){return all[n.id];}),ext:[],edges:p.edges};
+  G.nodes.forEach(function(n){byId[n.id]=n;OUT[n.id]=[];INC[n.id]=[];});G.edges.forEach(function(e){OUT[e.from].push(e.to);INC[e.to].push(e.from);});
+  columns();
+  var CG=clusterGraph(p),path=function(id){return all[id].path;},of={};
+  Object.keys(CG.of).forEach(function(id){of[path(id)]=CG.of[id];});
+  function boxes(X){var L=ovLayout(CG,X),out={};Object.keys(L.boxes).forEach(function(k){var b=L.boxes[k];out[k]={x:b.x,y:b.y,w:b.w,h:b.h,open:b.open};});
+    var nodes={};Object.keys(L.nodes).forEach(function(id){var n=L.nodes[id];nodes[path(id)]={x:n.x,y:n.y,w:n.w,h:n.h,a:n.a};});
+    return {boxes:out,nodes:nodes,W:L.W,H:L.H,crossings:L.crossings,links:L.links.length,inner:L.inner.length};}
+  var allOpen={};CG.list.forEach(function(c){allOpen[c.id]=1;});
+  return {list:CG.list.map(function(c){return {id:c.id,kind:c.kind,label:c.label,ids:c.ids.map(path),box:c.box.map(path),
+      tests:Object.keys(c.tests).map(function(s){return [path(s),c.tests[s].map(path)];}),inner:c.inner.length};}),
+    of:of,edges:CG.edges.map(function(g){return [g.from,g.to,g.n,g.pairs.map(function(x){return [path(x[0]),path(x[1])];})];}),
+    flat:flatOrder().crossings,closed:boxes({}),two:boxes({auth:1,'d:src/admin':1}),open:boxes(allOpen)};`);
+process.stdout.write(JSON.stringify(run(data)));
+"""
+# Runs the viewer's hops(), cut out of assets/viewer.html, over a JSON list of [start, adj, max] cases (max null: all).
+VIEWER_HOPS = r"""
+const fs = require('fs');
+const [template, casesFile] = process.argv.slice(2);
+const html = fs.readFileSync(template, 'utf8');
+function cut(from, to) {
+  const start = html.indexOf(from), fn = html.indexOf(to, start);
+  if (start < 0 || fn < 0) throw new Error(from + ' not found in the viewer');
+  let depth = 0;
+  for (let i = html.indexOf('{', fn); i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(start, i + 1);
+  }
+}
+const hops = new Function(cut('  function own(o,k)', 'function own(o,k)') + '\n' + cut('  function hops(', 'function hops(') + '\nreturn hops;')();
+const cases = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
+process.stdout.write(JSON.stringify(cases.map(([start, adj, max]) => Object.assign({}, hops(start, adj, max == null ? Infinity : max)))));
+"""
+
 
 def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
@@ -210,7 +273,7 @@ class SkillPackageTests(unittest.TestCase):
         strings = json.loads((SKILL / "assets" / "strings.json").read_text(encoding="utf-8"))
         template = (SKILL / "assets" / "viewer.html").read_text(encoding="utf-8")
         used = set(re.findall(r"\{\{S:([A-Za-z0-9_]+)\}\}", template))
-        used |= set(re.findall(r"\bS\.([A-Za-z]+)", template)) - {"layers", "files"}
+        used |= set(re.findall(r"\bS\.([A-Za-z][A-Za-z0-9]*)", template)) - {"layers", "files", "links"}
         self.assertTrue(used)
         self.assertEqual(set(strings), {"pl", "en"})
         for lang, catalog in strings.items():
@@ -219,6 +282,7 @@ class SkillPackageTests(unittest.TestCase):
                 self.assertEqual(set(catalog), set(strings["en"]))
                 self.assertEqual(set(catalog["layers"]), set(strings["en"]["layers"]))
                 self.assertIn("other", catalog["files"])
+                self.assertIn("other", catalog["links"])
 
 
 class ReviewMapPipelineTests(unittest.TestCase):
@@ -1473,6 +1537,13 @@ class AreaTests(unittest.TestCase):
                    "--title", "Areas", "--out", str(out), "--no-manifest")
         return out
 
+    def viewer(self, graph: dict, name: str) -> dict:
+        script, path = self.root / "areas.js", self.root / f"{name}-viewer.json"
+        script.write_text(VIEWER_AREAS, encoding="utf-8")
+        path.write_text(json.dumps(graph), encoding="utf-8")
+        result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(path)], capture_output=True, text=True, check=True)
+        return json.loads(result.stdout)
+
     def test_overlay_areas_reach_their_nodes_and_each_pr_lists_the_ones_it_uses(self):
         """This test will fail when build_graph.py stops copying an overlay area onto its nodes and listing, per PR, the areas its nodes use in their order with their labels, keeps an area on a shared dependency or a docs/config/i18n node instead of warning, gives a test an area it was not given, stops naming the core files without an area or the large PR without areas, or accepts an unknown area, a malformed id, or a non-integer order."""
         pr = self.graph["prs"][0]
@@ -1549,6 +1620,72 @@ class AreaTests(unittest.TestCase):
                     del node["cluster"]
 
         self.assertIn("warning: PR P: 3 clusters; 4 to 15", broken(three).stdout)
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's area code")
+    def test_viewer_areas_fold_tests_pin_hubs_and_fall_back_to_folders(self):
+        """This test will fail when the viewer's clusterGraph() stops putting authored areas first in their order, the shared dependencies in their own area (also one the data gives an area), docs/config/i18n last, each test with the file it tests (as a badge, not a box), core files without a known area into folder areas, or stops counting the links between areas without the tests' links; or when a graph without clusters does not fall back to one area per folder."""
+        graph = json.loads(json.dumps(self.graph))
+        nodes = {node["path"]: node for node in graph["prs"][0]["nodes"]}
+        nodes["src/shared/i18n.ts"]["cluster"] = "auth"
+        nodes["src/admin/types.ts"]["cluster"] = "nope"
+        areas = self.viewer(graph, "areas")
+        ids = [area["id"] for area in areas["list"]]
+        self.assertEqual(ids[:7], [":shared", "auth", "billing", "catalog", "checkout", "profile", "search"])
+        self.assertEqual(sorted(ids[7:-1]), ["d:src/admin", "d:src/notify", "d:src/reports", "d:src/shared"])
+        self.assertEqual(ids[-1], ":late")
+        by = {area["id"]: area for area in areas["list"]}
+        self.assertEqual(sorted(by[":shared"]["box"]), ["src/shared/errors.ts", "src/shared/i18n.ts"])
+        self.assertEqual((len(by["checkout"]["ids"]), len(by["checkout"]["box"])), (18, 15))
+        self.assertIn(["src/checkout/service.ts", ["src/checkout/service.test.ts"]], by["checkout"]["tests"])
+        self.assertNotIn("src/checkout/service.test.ts", by["checkout"]["box"])
+        self.assertEqual(areas["of"]["src/checkout/components/CheckoutView.test.tsx"], "checkout")
+        self.assertEqual(areas["of"]["src/admin/types.ts"], "d:src/admin")
+        self.assertEqual(areas["of"]["src/shared/format.ts"], "d:src/shared")
+        self.assertEqual(sorted(by[":late"]["box"]), ["docs/areas.md", "locales/*.json", "package.json"])
+        links = {(a, b): n for a, b, n, _pairs in areas["edges"]}
+        self.assertEqual({k: v for k, v in links.items() if k[0] == "checkout"},
+                         {("checkout", ":shared"): 9, ("checkout", "auth"): 2, ("checkout", "billing"): 2, ("checkout", "catalog"): 2,
+                          ("checkout", "d:src/shared"): 1})
+        self.assertFalse([pair for *_rest, pairs in areas["edges"] for pair in pairs if ".test." in pair[0]])
+        plain = self.viewer(self.plain, "plain")
+        self.assertEqual([area["id"] for area in plain["list"]][0], ":shared")
+        self.assertEqual(sorted(area["id"] for area in plain["list"][1:-1]), sorted([f"d:src/{name}" for name in AREAS] + ["d:src/shared"]))
+        self.assertEqual(plain["of"]["src/auth/service.ts"], "d:src/auth")
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's layout code")
+    def test_the_overview_has_at_most_12_boxes_and_fewer_crossings_than_the_flat_map(self):
+        """This test will fail when the map overview of the 168-node fixture shows more than 12 areas (with authored areas or with the folder fallback), its area links cross more often than the flat map's file edges cross in the same layered layout, an open area leaves one of its files outside its box, or two areas overlap with every area closed, with two open, or with all open."""
+        for name, graph in (("areas", self.graph), ("plain", self.plain)):
+            with self.subTest(graph=name):
+                result = self.viewer(graph, name)
+                self.assertLessEqual(len(result["closed"]["boxes"]), 12)
+                self.assertGreater(result["flat"], 50)
+                self.assertLess(result["closed"]["crossings"], result["flat"])
+                for state in ("closed", "two", "open"):
+                    boxes = list(result[state]["boxes"].values())
+                    for i, a in enumerate(boxes):
+                        for b in boxes[i + 1:]:
+                            self.assertFalse(a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"],
+                                             f"{state}: {a} overlaps {b}")
+                    for path, node in result[state]["nodes"].items():
+                        box = result[state]["boxes"][node["a"]]
+                        self.assertTrue(box["open"])
+                        self.assertTrue(box["x"] <= node["x"] and node["x"] + node["w"] <= box["x"] + box["w"]
+                                        and box["y"] <= node["y"] and node["y"] + node["h"] <= box["y"] + box["h"], f"{state}: {path} outside its area")
+                self.assertEqual(len(result["open"]["nodes"]), sum(len(area["box"]) for area in result["list"]))
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's hops()")
+    def test_hops_reach_files_within_the_chosen_number_of_links(self):
+        """This test will fail when the viewer's hops() stops following links in both directions, counts a file twice or past the limit, loops on a cycle, or reaches anything from no start."""
+        adj = {"a": ["b"], "b": ["a", "c"], "c": ["b", "d", "a"], "d": ["c"], "e": []}
+        cases = [["a", adj, 1], ["a", adj, 2], ["d", adj, None], ["e", adj, 2], ["x", adj, 2], [None, adj, 2], ["a", adj, 0]]
+        script, inputs = self.root / "hops.js", self.root / "hops.json"
+        script.write_text(VIEWER_HOPS, encoding="utf-8")
+        inputs.write_text(json.dumps(cases), encoding="utf-8")
+        result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(inputs)], capture_output=True, text=True, check=True)
+        self.assertEqual(json.loads(result.stdout), [
+            {"a": 0, "b": 1}, {"a": 0, "b": 1, "c": 2}, {"d": 0, "c": 1, "b": 2, "a": 2}, {"e": 0}, {"x": 0}, {}, {"a": 0},
+        ])
 
 
 class ChunkTests(unittest.TestCase):
