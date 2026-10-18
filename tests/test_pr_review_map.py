@@ -988,55 +988,65 @@ def added(lines: list[str]) -> str:
     return f"--- /dev/null\n+++ b/f\n@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
 
 
+# Shared vectors of the two matchers that follow code to its new place: the viewer's note matcher (NOTE_STATE, run in
+# node) and build_graph.py's tour-step relocation (scripts/tours.py, a Python port). Each file is the new version, added
+# whole, so its diff shows every line on the new side; each case is a line note (path, a, b, the code it was written on)
+# and the state both must give.
+SVC = ["import { a } from './a';", "", "export function listItems(offset: number, limit: number) {",
+       "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
+RELOCATION_FILES = {
+    "svc.ts": ["import { a } from './a';", "// one", "// two", "", "export function listItems(offset: number, limit: number) {",
+               "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"],
+    "sp.ts": ["// x", "export  function listItems(offset: number,  limit: number) {", "    return ITEMS.slice(offset, offset + limit);", "}"],
+    "fz.ts": ["// x", "// y", "// z", "export function listItems(offset: number, limit: number, sort?: string) {",
+              "  return ITEMS.slice(offset, offset + limit);"],
+    "in.ts": ["import { a } from './a';", "", "export function listItems(page: Page) {", "  return ITEMS.slice(page.offset, page.end);", "}"],
+    "tw.ts": ["const x = 1;", "export const PAGE = 20;", "const y = 2;", "export const PAGE = 20;"],
+    "wk.ts": ["// a", "// b", "// c", "export function countItems(filter: Filter): number {", "  return ITEMS.filter(filter).length;", "}"],
+    "tu.ts": ["const x = 1;", "export const PAGE = 25;", "const y = 2;"],
+    "bom.ts": ["// x", "export\ufefffunction listItems(offset: number, limit: number) {", "  return ITEMS.slice(offset, offset + limit);"],
+}
+RELOCATION_CASES = [
+    ("svc.ts", 3, 5, SVC[2:5], {"st": "moved", "a": 5, "b": 7, "how": "exact"}),  # three lines inserted above: exact move
+    ("svc.ts", 1, 1, SVC[0:1], {"st": "ok"}),                                       # unchanged
+    ("sp.ts", 3, 4, SVC[2:4], {"st": "moved", "a": 2, "b": 3, "how": "ws"}),        # white space changed: moved, "ws"
+    ("fz.ts", 3, 4, SVC[2:4], {"st": "moved", "a": 4, "b": 5, "how": "fuzzy"}),     # a parameter added: moved, "fuzzy"
+    ("in.ts", 3, 4, SVC[2:4], {"st": "stale"}),                                     # rewritten in place
+    ("tw.ts", 7, 7, SVC[6:7], {"st": "stale"}),                                     # the line now appears twice (ambiguous)
+    ("in.ts", 8, 8, ["  return 42;"], {"st": "stale"}),                            # nowhere, too short to match fuzzily
+    ("svc.ts", 9, 8, SVC[0:1], {"st": "moved", "a": 1, "b": 1, "how": "exact"}),    # malformed range: never matched in place
+    ("svc.ts", 1, 1, None, {"st": "ok"}),                                           # no snapshot, its line still shown
+    ("wk.ts", 3, 4, SVC[2:4], {"st": "stale"}),                                     # only a loosely similar function elsewhere
+    ("tu.ts", 2, 2, ["export const PAGE = 20;"], {"st": "stale"}),                  # edited in place, best match its own line
+    ("svc.ts", 2, 2, ["}"], {"st": "stale"}),                                       # "}" moved: too little to relocate
+    ("svc.ts", 3, 3, [""], {"st": "stale"}),                                        # a blank line, not moved to another
+    ("svc.ts", 5, 6, ["}", "}"], {"st": "stale"}),                                  # two "}" lines are still too little
+    ("bom.ts", 3, 4, SVC[2:4], {"st": "moved", "a": 2, "b": 3, "how": "ws"}),       # JavaScript's \s also covers U+FEFF
+]
+
+
 class NoteStateTests(unittest.TestCase):
-    """The viewer's note states, run in node on hand-written diffs."""
+    """The viewer's note states, run in node on hand-written diffs, and the Python port that relocates tour steps."""
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's note-state code")
     def test_notes_on_changed_code_move_go_stale_or_lose_their_file(self):
         """This test will fail when a note on code that moved (exactly, with white space changed, or slightly edited) is not moved to its code's new lines on the same side, when an in-place edit, an ambiguous match, a weak fuzzy match, or a snapshot with under 6 characters besides white space ("}", a blank line) does not leave it stale, when a note on a file the PR no longer changes is not "gone", or when file and PR notes stop being current."""
-        svc = ["import { a } from './a';", "", "export function listItems(offset: number, limit: number) {",
-               "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
-        moved = ["import { a } from './a';", "// one", "// two", "", "export function listItems(offset: number, limit: number) {",
-                 "  return ITEMS.slice(offset, offset + limit);", "}", "", "export const PAGE = 20;", "}", "}"]
-        spaced = ["// x", "export  function listItems(offset: number,  limit: number) {", "    return ITEMS.slice(offset, offset + limit);", "}"]
-        fuzzy = ["// x", "// y", "// z", "export function listItems(offset: number, limit: number, sort?: string) {", "  return ITEMS.slice(offset, offset + limit);"]
-        inplace = ["import { a } from './a';", "", "export function listItems(page: Page) {", "  return ITEMS.slice(page.offset, page.end);", "}"]
-        twice = ["const x = 1;", "export const PAGE = 20;", "const y = 2;", "export const PAGE = 20;"]
-        weak = ["// a", "// b", "// c", "export function countItems(filter: Filter): number {", "  return ITEMS.filter(filter).length;", "}"]
-        tuned = ["const x = 1;", "export const PAGE = 25;", "const y = 2;"]
         old_side = ("--- a/legacy.ts\n+++ b/legacy.ts\n@@ -10,4 +10,4 @@\n export function label(id: number) {\n"
                     "-  return 'item-' + id;\n+  return `item-${id}`;\n }\n ")
-        diffs = {"P1": [{"path": "svc.ts", "diff": added(moved)}], "P2": [{"path": "sp.ts", "diff": added(spaced)}],
-                 "P3": [{"path": "fz.ts", "diff": added(fuzzy)}], "P4": [{"path": "in.ts", "diff": added(inplace)}],
-                 "P5": [{"path": "tw.ts", "diff": added(twice)}], "P6": [{"path": "legacy.ts", "diff": old_side}],
-                 "P7": [{"path": "wk.ts", "diff": added(weak)}], "P8": [{"path": "tu.ts", "diff": added(tuned)}],
-                 "P9": [{"path": "del.ts", "diff": "--- a/del.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b"}]}
+        diffs = {f"P{i}": [{"path": path, "diff": added(lines)}] for i, (path, lines) in enumerate(RELOCATION_FILES.items(), 1)}
+        diffs.update({"PL": [{"path": "legacy.ts", "diff": old_side}], "PD": [{"path": "del.ts", "diff": "--- a/del.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-a\n-b"}]})
         graph = {"prs": [{"key": "P", "nodes": [{"id": i, "path": e[0]["path"]} for i, e in diffs.items()], "edges": []}]}
 
         def line(path, side, a, b, code, **extra):
-            return {"id": f"{path}{a}{side}", "scope": "line", "pr": "P", "path": path, "side": side, "a": a, "b": b, "code": code, **extra}
+            return {"id": f"{path}{a}{b}{side}{code is None}", "scope": "line", "pr": "P", "path": path, "side": side, "a": a, "b": b, "code": code, **extra}
 
-        notes = [
-            line("svc.ts", "new", 3, 5, svc[2:5]),        # three lines inserted above: exact move
-            line("svc.ts", "new", 1, 1, svc[0:1]),        # unchanged
-            line("sp.ts", "new", 3, 4, svc[2:4]),         # white space changed: moved, "ws"
-            line("fz.ts", "new", 3, 4, svc[2:4]),         # a parameter added: moved, "fuzzy"
-            line("in.ts", "new", 3, 4, svc[2:4]),         # rewritten in place: stale
-            line("tw.ts", "new", 7, 7, svc[6:7]),         # the line now appears twice: stale (ambiguous)
-            line("in.ts", "new", 8, 8, ["  return 42;"]),  # nowhere, and too short to match fuzzily: stale
+        notes = [line(path, "new", a, b, code) for path, a, b, code, _state in RELOCATION_CASES] + [
             line("gone.ts", "new", 1, 2, ["a", "b"]),     # the PR no longer changes the file
             line("legacy.ts", "old", 2, 2, ["  return 'item-' + id;"]),  # the base moved by 9 lines: old side moved
-            line("svc.ts", "new", 9, 8, svc[0:1]),        # malformed range: never matched in place
             {"id": "f1", "scope": "file", "pr": "P", "path": "in.ts"},
             {"id": "f2", "scope": "file", "pr": "P", "path": "gone.ts"},
             {"id": "p1", "scope": "pr", "pr": "P"},
-            line("svc.ts", "new", 1, 1, None),            # no snapshot, its line still shown: current
-            line("wk.ts", "new", 3, 4, svc[2:4]),         # only a loosely similar function elsewhere: stale
-            line("tu.ts", "new", 2, 2, ["export const PAGE = 20;"]),  # edited in place, best fuzzy match is its own line: stale
             {"id": "f3", "scope": "file", "pr": "P", "path": "del.ts"},  # a file note on a file the PR deletes: current
-            line("svc.ts", "new", 2, 2, ["}"]),           # "}" moved off its line: too little to relocate, stale
-            line("svc.ts", "new", 3, 3, [""]),            # a blank line: stale, not moved to another blank line
-            line("svc.ts", "new", 5, 6, ["}", "}"]),      # two "}" lines are still too little: stale
         ]
         script = Path(tempfile.mkdtemp()) / "note-state.js"
         script.write_text(NOTE_STATE, encoding="utf-8")
@@ -1045,13 +1055,22 @@ class NoteStateTests(unittest.TestCase):
         result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(inputs)], capture_output=True, text=True, check=True)
         states = json.loads(result.stdout)
         shutil.rmtree(script.parent)
-        self.assertEqual(states, [
-            {"st": "moved", "a": 5, "b": 7, "how": "exact"}, {"st": "ok"}, {"st": "moved", "a": 2, "b": 3, "how": "ws"},
-            {"st": "moved", "a": 4, "b": 5, "how": "fuzzy"}, {"st": "stale"}, {"st": "stale"}, {"st": "stale"}, {"st": "gone"},
-            {"st": "moved", "a": 11, "b": 11, "how": "exact"}, {"st": "moved", "a": 1, "b": 1, "how": "exact"},
-            {"st": "ok"}, {"st": "gone"}, {"st": "ok"}, {"st": "ok"}, {"st": "stale"}, {"st": "stale"}, {"st": "ok"},
-            {"st": "stale"}, {"st": "stale"}, {"st": "stale"},
+        self.assertEqual(states, [state for *_case, state in RELOCATION_CASES] + [
+            {"st": "gone"}, {"st": "moved", "a": 11, "b": 11, "how": "exact"}, {"st": "ok"}, {"st": "gone"}, {"st": "ok"}, {"st": "ok"},
         ])
+
+    def test_tour_steps_follow_their_code_as_the_viewer_follows_notes(self):
+        """This test will fail when build_graph.py's tour-step relocation (scripts/tours.py) and the viewer's note matcher give different answers on a shared vector: a move found exactly, with white space ignored (JavaScript's white space, U+FEFF included), or fuzzily, or a stale, ambiguous, too-short, or unchanged range."""
+        flag, sys.dont_write_bytecode = sys.dont_write_bytecode, True  # no __pycache__ in the skill
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            import tours
+        finally:
+            sys.path.remove(str(SCRIPTS))
+            sys.dont_write_bytecode = flag
+        for path, a, b, code, state in RELOCATION_CASES:
+            with self.subTest(path=path, lines=(a, b), code=code):
+                self.assertEqual(tours.assess(list(enumerate(RELOCATION_FILES[path], 1)), a, b, code), state)
 
 
 class ReviewMapRefreshTests(unittest.TestCase):
@@ -2048,6 +2067,212 @@ class ChunkRefreshTests(unittest.TestCase):
         self.assertIn("re-run chunks.py propose for main...feat", result.stderr)
         self.assertEqual({name: (d / name).read_bytes() for name in files}, files)
         self.assertFalse(list(d.glob("*.new")))
+
+
+def tour_repo(repo: Path) -> list[str]:
+    """A PR whose commits go core, web, web, core (parts Ma, Mb, Mc with --min-files 1): src/legacy.ts exists at the base
+    and changes in part 1, src/core/service.ts changes in parts 1 and 3."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    legacy = "".join(f"export const v{i} = {i};\n" for i in range(12))
+    commit_files(repo, {"README.md": "# x\n", "src/legacy.ts": legacy}, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    steps = [
+        ({"src/core/types.ts": "export type T = number;\n", "src/core/service.ts": "\n".join(TOUR_SERVICE) + "\n",
+          "src/legacy.ts": legacy.replace("v6 = 6", "v6 = 60")}, "feat(core): service"),
+        ({"web/page.tsx": "import { one } from '../src/core/service';\nexport const Page = () => one();\n"}, "feat(web): page"),
+        ({"web/page.spec.tsx": "import { Page } from './page';\ntest('page', () => Page());\n"}, "test(web): page spec"),
+        ({"src/core/service.ts": "\n".join(TOUR_SERVICE).replace("=> 1;", "=> 2;") + "\n"}, "fix(core): service edge"),
+    ]
+    shas = []
+    for files, message in steps:
+        commit_files(repo, files, message)
+        shas.append(git(repo, "rev-parse", "HEAD").strip())
+    return shas
+
+
+TOUR_SERVICE = ["import type { T } from './types';", "", "export function listItems(offset: number, limit: number): T[] {",
+                "  return [offset, limit];", "}", "export const one = (): T => 1;"]
+TOURS = [
+    {"id": "flow", "name": "Items flow", "steps": [
+        {"ref": "M:src/core/service.ts", "lines": "3-5", "note": "Lists items"},
+        {"ref": "M:src/core/types.ts", "lines": "1", "note": "The item type"},
+        {"ref": "Mb:web/page.tsx", "lines": "1-2", "note": "The page"},
+        {"ref": "M:src/legacy.ts", "side": "old", "lines": "7", "note": "The value before"}]},
+    {"id": "web", "name": "Web", "steps": [
+        {"ref": "M:web/page.tsx", "note": "The whole page"},
+        {"ref": "M:web/page.spec.tsx", "lines": "2", "note": "x" * 81},
+        {"ref": "Mc:src/core/service.ts", "side": "old", "lines": "6"}]},
+]
+
+
+class TourTests(unittest.TestCase):
+    """Tours ("Trasy"): the overlay's named walks, resolved by build_graph.py, checked by validate.py and assemble.py,
+    and followed across a refresh."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = cls.root / "repo"
+        cls.shas = tour_repo(cls.repo)
+        cls.scratch = d = cls.root / "scratch"
+        d.mkdir()
+        run_script("chunks.py", "propose", "--repo", str(cls.repo), "--range", "main...feat", "--key", "M", "--out", str(d / "chunks.json"),
+                   "--min-files", "1")
+        (d / "overlay.json").write_text(json.dumps({"tours": TOURS}), encoding="utf-8")
+        cls.build = run_script("build_graph.py", "--out", str(d / "graphs.json"), "--chunks", str(d / "chunks.json"),
+                               "--overlay", str(d / "overlay.json")).stdout
+        cls.graph = json.loads((d / "graphs.json").read_text(encoding="utf-8"))
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--chunks", str(d / "chunks.json"), "--strict")
+        cls.diffs = json.loads((d / "diffs.json").read_text(encoding="utf-8"))
+        (d / "narrative.html").write_text('<section id="s"><h2>S</h2><p><button type="button" class="tag" data-tour="flow"></button></p></section>\n'
+                                          "<!-- review-map:graph -->\n", encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def where(self, node_id: str) -> tuple[str, str]:
+        return next((pr["key"], n["path"]) for pr in self.graph["prs"] for n in pr["nodes"] if n["id"] == node_id)
+
+    def page(self, graph: dict, name: str, narrative: Path | None = None) -> subprocess.CompletedProcess:
+        path, out = self.root / f"{name}.json", self.root / f"{name}.html"
+        path.write_text(json.dumps(graph), encoding="utf-8")
+        return run_script("assemble.py", "--graph", str(path), "--diffs", str(self.scratch / "diffs.json"), "--narrative",
+                          str(narrative or self.scratch / "narrative.html"), "--title", "Tours", "--out", str(out), "--no-manifest", check=False)
+
+    def test_overlay_tours_resolve_to_nodes_across_parts_with_their_code(self):
+        """This test will fail when build_graph.py stops resolving a tour step's reference to a node (a parent's key: the last part changing the file on the new side, the first on the old side; a part key: that part), stops reading the step's lines at the PR's tip (new side) or base (old side), gives a whole-file step lines or code, drops the step as authored (ref, lines) that a refresh matches on, stops warning about a note over 80 characters, or writes "tours" for an overlay without them."""
+        flow, web = self.graph["tours"]
+        self.assertEqual([(t["id"], t["name"], len(t["steps"])) for t in self.graph["tours"]], [("flow", "Items flow", 4), ("web", "Web", 3)])
+        self.assertEqual([self.where(s["node"]) for s in flow["steps"]],
+                         [("Mc", "src/core/service.ts"), ("Ma", "src/core/types.ts"), ("Mb", "web/page.tsx"), ("Ma", "src/legacy.ts")])
+        self.assertEqual(flow["steps"][0], {"node": flow["steps"][0]["node"], "path": "src/core/service.ts", "side": "new", "a": 3, "b": 5,
+                                            "note": "Lists items", "ref": "M:src/core/service.ts", "lines": "3-5", "code": TOUR_SERVICE[2:5]})
+        self.assertEqual((flow["steps"][3]["side"], flow["steps"][3]["code"]), ("old", ["export const v6 = 6;"]))
+        self.assertEqual(web["steps"][0], {"node": web["steps"][0]["node"], "path": "web/page.tsx", "side": "new", "note": "The whole page",
+                                           "ref": "M:web/page.tsx"})
+        self.assertEqual([self.where(s["node"]) for s in web["steps"][1:]], [("Mb", "web/page.spec.tsx"), ("Mc", "src/core/service.ts")])
+        self.assertEqual(web["steps"][2]["code"], ["export const one = (): T => 1;"])
+        self.assertIn("tours: flow 4 steps, web 3 steps", self.build)
+        self.assertIn("warning: overlay tour 'web' step 2: note has 81 characters; keep it to 80", self.build)
+        plain = self.root / "plain.json"
+        run_script("build_graph.py", "--out", str(plain), "--chunks", str(self.scratch / "chunks.json"), "--no-manifest")
+        self.assertNotIn("tours", json.loads(plain.read_text(encoding="utf-8")))
+
+    def test_build_graph_refuses_unknown_references_and_malformed_tours(self):
+        """This test will fail when build_graph.py accepts a tour step naming an unknown PR key, a path no node of the PR has, a group instead of a file, a file missing on the step's side, lines outside the file or malformed, an unknown side, or a tour list beyond the limits (more than 8 tours, fewer than 3 or more than 15 steps, a duplicate or malformed id)."""
+        def step(**fields):
+            return {"ref": "M:src/core/types.ts", "lines": "1", **fields}
+
+        def tour(steps, tid="t"):
+            return {"id": tid, "name": "T", "steps": steps}
+
+        three = [step(), step(), step()]
+        cases = {
+            "unknown key": ([tour([step(ref="Z:src/core/types.ts"), step(), step()])], "unknown PR key 'Z'"),
+            "unknown path": ([tour([step(ref="M:src/nope.ts"), step(), step()])], "PR M has no node with the file 'src/nope.ts'"),
+            "group": ([tour([step(ref="M:#docs"), step(), step()])], "a step names a file (KEY:path), not a group"),
+            "missing side": ([tour([step(side="old"), step(), step()])], "src/core/types.ts does not exist on the old side of PR Ma"),
+            "past the end": ([tour([step(lines="1-9"), step(), step()])], "lines 1-9 are outside the file (1 lines on the new side)"),
+            "bad lines": ([tour([step(lines="3-1"), step(), step()])], "must be a line or a range"),
+            "bad side": ([tour([step(side="left"), step(), step()])], "side 'left' must be"),
+            "too few": ([tour([step(), step()])], "2 steps; a tour has 3 to 15"),
+            "too many steps": ([tour([step()] * 16)], "16 steps; a tour has 3 to 15"),
+            "too many tours": ([tour(three, f"t{i}") for i in range(9)], "9 tours; give at most 8"),
+            "duplicate": ([tour(three), tour(three)], "overlay tour 't' is defined twice"),
+            "bad id": ([tour(three, "-t")], "id '-t' must be"),
+        }
+        for name, (tours, message) in cases.items():
+            with self.subTest(case=name):
+                overlay = self.root / "bad-tours.json"
+                overlay.write_text(json.dumps({"tours": tours}), encoding="utf-8")
+                result = run_script("build_graph.py", "--out", str(self.root / "bad.json"), "--chunks", str(self.scratch / "chunks.json"),
+                                    "--overlay", str(overlay), "--no-manifest", check=False)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn(message, result.stderr)
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_validate_and_assemble_check_tour_steps_against_the_diff_data(self):
+        """This test will fail when a page with tours stops validating, when validate.py or assemble.py accept a step on an unknown node or on a path its node's diff does not have, or when validate.py stops warning about lines outside every hunk on their side (the viewer then opens the file) or a narrative data-tour button that names no tour."""
+        self.assertEqual(self.page(self.graph, "good").returncode, 0)
+        good = run_script("validate.py", str(self.root / "good.html"), check=False)
+        self.assertEqual(good.returncode, 0, good.stdout)
+        self.assertNotIn("tours:", good.stdout)
+
+        def changed(change):
+            graph = json.loads(json.dumps(self.graph))
+            change(graph["tours"][0]["steps"])
+            return graph
+
+        unknown = changed(lambda steps: steps[0].update(node="Zz9"))
+        self.assertIn("tours: tour flow step 1: unknown node 'Zz9'", self.page(unknown, "unknown").stderr)
+        foreign = changed(lambda steps: steps[1].update(path="src/core/service.ts"))
+        self.assertIn("'src/core/service.ts' is not a file of node", self.page(foreign, "foreign").stderr)
+        outside = changed(lambda steps: steps[3].update(a=1, b=1))
+        self.assertEqual(self.page(outside, "outside").returncode, 0)
+        narrative = self.root / "narrative-nope.html"
+        narrative.write_text('<section id="s"><h2>S</h2><button type="button" data-tour="nope"></button></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+        self.assertEqual(self.page(outside, "outside", narrative).returncode, 0)
+        result = run_script("validate.py", str(self.root / "outside.html"), check=False)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("warning: tours: tour flow step 4 (src/legacy.ts:1, old side): outside every hunk of its diff; the viewer opens the whole file", result.stdout)
+        self.assertIn("warning: tours: the narrative's data-tour button 'nope' names no tour; the viewer hides it", result.stdout)
+        embedded = json.dumps(unknown, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+        page = re.sub(r'(<script type="application/json" id="graph-data">).*?(</script>)', lambda m: m.group(1) + embedded + m.group(2),
+                      (self.root / "good.html").read_text(encoding="utf-8"), count=1, flags=re.DOTALL)
+        (self.root / "broken.html").write_text(page, encoding="utf-8")
+        broken = run_script("validate.py", str(self.root / "broken.html"), check=False)
+        self.assertEqual(broken.returncode, 1, broken.stdout)
+        self.assertIn("error: tours: tour flow step 1: unknown node 'Zz9'", broken.stdout)
+
+    @unittest.skipUnless(NODE, "node is required to validate the refreshed page")
+    def test_refresh_moves_tour_steps_with_their_code_and_never_rewrites_the_overlay(self):
+        """This test will fail when refresh.py stops giving build_graph.py the graphs.json it replaces, so a tour step whose code moved keeps its old lines instead of following it (printed "moved 3-5 → 5-7"), a step whose code changed in place is not flagged stale (a warning; its old code and lines kept for the next comparison), a refresh that changes nothing moves a step or wakes a stale one through a fuzzy match at its own lines, the overlay is rewritten, or a step whose lines the owner updated in the overlay is not taken afresh."""
+        repo, d = self.root / "refresh-repo", self.root / "refresh"
+        repo.mkdir()
+        d.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        a_v1 = ["import { b } from './b';", "", "export function listItems(offset: number, limit: number) {", "  return b(offset, limit);", "}"]
+        b_v1 = "export const b = (o: number, l: number) => [o, l];"
+        commit_files(repo, {"src/a.ts": "\n".join(a_v1) + "\n", "src/b.ts": b_v1 + "\n", "src/keep.ts": "export const keep = 1;\n"}, "feat: items")
+        overlay = {"tours": [{"id": "t", "name": "T", "steps": [{"ref": "A:src/a.ts", "lines": "3-5", "note": "Lists"},
+                                                                {"ref": "A:src/b.ts", "lines": "1"}, {"ref": "A:src/keep.ts", "lines": "1"}]}]}
+        (d / "overlay.json").write_text(json.dumps(overlay), encoding="utf-8")
+        (d / "narrative.html").write_text("<section id=\"s\"><h2>S</h2></section>\n<!-- review-map:graph -->\n", encoding="utf-8")
+        run_script("build_graph.py", "--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--overlay", str(d / "overlay.json"))
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--pr", "A", str(repo), "main...feat")
+        run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                   "--title", "Tour refresh", "--target", "local", "--out", str(d / "review.html"))
+        authored = (d / "overlay.json").read_bytes()
+        commit_files(repo, {"src/a.ts": "\n".join(a_v1[:1] + ["// one", "// two"] + a_v1[1:]) + "\n",
+                            "src/b.ts": b_v1.replace("[o, l]", "[o, o + l]") + "\n"}, "fix: round 1")
+
+        def steps():
+            return json.loads((d / "graphs.json").read_text(encoding="utf-8"))["tours"][0]["steps"]
+
+        out = run_script("refresh.py", str(d)).stdout
+        self.assertIn("tour t step 1 (A:src/a.ts): moved 3-5 → 5-7 (exact)", out)
+        self.assertIn("warning: tour t step 2 (A:src/b.ts): stale, the code it was written on (at 1) is gone", out)
+        first, second, third = steps()
+        self.assertEqual((first["a"], first["b"], first["lines"], first["code"]), (5, 7, "3-5", a_v1[2:5]))
+        self.assertEqual((second.get("stale"), second["a"], second["b"], second["code"]), (True, 1, 1, [b_v1]))
+        self.assertEqual((third["a"], third["b"]), (1, 1))
+        self.assertEqual((d / "overlay.json").read_bytes(), authored)
+        page = (d / "review.html").read_text(encoding="utf-8")
+        self.assertEqual(embedded_json(page, "graph-data")["tours"][0]["steps"], steps())
+        again = run_script("refresh.py", str(d)).stdout
+        self.assertNotIn("): moved ", again)
+        self.assertIn("tour t step 2 (A:src/b.ts): stale", again)
+        self.assertEqual((steps()[0]["a"], steps()[1].get("stale")), (5, True))
+        overlay["tours"][0]["steps"][1]["lines"] = "1-1"
+        (d / "overlay.json").write_text(json.dumps(overlay), encoding="utf-8")
+        fresh = run_script("refresh.py", str(d)).stdout
+        self.assertNotIn("stale", fresh)
+        self.assertEqual((steps()[1]["a"], steps()[1]["code"]), (1, [b_v1.replace("[o, l]", "[o, o + l]")]))
 
 
 if __name__ == "__main__":

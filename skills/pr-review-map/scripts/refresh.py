@@ -28,6 +28,12 @@ anything when a part cannot be mapped (re-run chunks.py propose). The updated
 chunks.json replaces the old one only when the data steps succeed, so it must lie in
 SCRATCH_DIR too.
 
+Tours (the overlay's `tours`, scripts/tours.py) follow their code: build_graph.py gets the
+graphs.json it replaces as --previous, so a step whose code moved points at its new lines
+("moved 12-30 → 18-36") and one whose code changed goes stale (a warning; the viewer then
+opens the whole file). The overlay is never rewritten: update a step's lines there to keep
+the new place as authored.
+
 The narrative is never rewritten. When a tip moved, refresh.py warns that the
 narrative's claims may be outdated, lists the lines of narrative.html that still show
 a PR's old tip or a part's old end, names a new part the parts card lacks, and prints
@@ -329,7 +335,7 @@ def main() -> int:
 
     # Build into side files and swap them in only when both steps succeed, so a failure leaves the last good data.
     new_graph_path, new_diffs_path = graph_path.with_name(graph_path.name + ".new"), diffs_path.with_name(diffs_path.name + ".new")
-    build_args = [f"--out={new_graph_path}", "--no-manifest"]
+    build_args = [f"--out={new_graph_path}", "--no-manifest"] + ([f"--previous={graph_path}"] if graph_path.is_file() else [])
     for pr in build["prs"]:
         build_args += ["--pr", pr["key"], pr["repo"], pr["range"]]
     for flag, name in (("--name", "names"), ("--title", "titles"), ("--repo", "repos")):

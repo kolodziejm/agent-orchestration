@@ -40,7 +40,8 @@ A PR `color` must be a palette slot (`var(--pal-3)`), a hex colour, or a colour
 name: it lands in CSS. A PR split into parts (graphs.json `parents`, chunks.py)
 must have contiguous parts numbered 1..n, each starting where the one before ends,
 with keys that end in a letter; the parent's narrative class `c-<KEY>` takes its
-first part's colour.
+first part's colour. Tours (graphs.json `tours`) must name known nodes and their files
+(scripts/tours.py); a narrative button with `data-tour="<id>"` starts one.
 The arguments, with the storage key as resolved, go in the `assemble` section of
 review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -58,6 +59,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import tours  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TEMPLATE = HERE.parent / "assets" / "viewer.html"
@@ -157,6 +159,9 @@ def check_graph(graph: dict, diffs: dict) -> None:
     problems = chunks.graph_errors(graph)
     if problems:
         raise SystemExit("graphs.json parts: " + "; ".join(problems[:5]))
+    problems = tours.problems(graph, diffs)[0]
+    if problems:
+        raise SystemExit("graphs.json tours: " + "; ".join(problems[:5]))
 
 
 def main() -> int:

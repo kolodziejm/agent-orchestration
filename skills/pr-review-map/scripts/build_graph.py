@@ -9,7 +9,7 @@ Usage:
       [--title KEY "longer title"] [--repo KEY owner/name] \\
       [--alias '@scope/pkg=libs/pkg/src/index.ts'] [--alias '@/=src/'] \\
       [--groups groups.json] [--no-default-groups] [--overlay overlay.json] \\
-      [--chunks chunks.json]
+      [--chunks chunks.json] [--previous graphs.json]
 
 Give the PRs in merge order (earliest first); an edge from a later PR to a file an
 earlier PR changed becomes a dashed cross-PR edge. Files are read with `git show`
@@ -52,6 +52,13 @@ with the parent's key (`M:path`) sets role and note on every part's node of that
 path; an edge from it starts at the last part that changes the file and ends at
 the last part up to that one that has its target. A PR above 100 files or 60
 nodes gets a hint to split it.
+Tours ("Trasy", scripts/tours.py): the overlay's `tours` ([{id, name, steps: [{ref, side, lines, note}]}], at most 8
+of 3 to 15 steps) become graphs.json `tours`, each step resolved to a node (for a parent's key the last part that
+changes the file on the new side, the first on the old side) with its lines read by `git show` at the PR's tip (new
+side) or base (old side); an unknown key, a path no node of the PR has, a file missing on that side, and lines outside
+the file stop it. --previous FILE (refresh.py passes the graphs.json this build replaces) lets each step follow the
+code it was resolved on: it prints "moved 12-30 → 18-36" or warns that a step went stale (it then opens the whole
+file). The overlay is never rewritten.
 Its arguments and each PR's full tip SHA go in the `build_graph` section of
 review-map.json beside --out (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -71,6 +78,7 @@ from urllib.parse import urlsplit
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import tours  # noqa: E402
 
 DEFAULT_GROUPS = [
     {"id": "lockfiles", "label": "lockfiles", "layer": "config",
@@ -453,6 +461,75 @@ def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_
     return order
 
 
+def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[str, int], parent_parts: dict[str, list[int]],
+                  previous, warnings: list[str]) -> tuple[list[dict], list[str]]:
+    """graphs.json `tours` from the overlay's (tours.read()) and the lines to print about steps that moved.
+
+    A step's ref names a file of a PR (a changed file, one inside a group, or an extraNodes reference); for a parent's
+    key the last part that has the file on the new side, the first on the old side. Its lines are read with `git show`
+    at the PR's tip (new side) or base (old side: the merge base for A...B) and placed by tours.place(), from the
+    previous build's step with the same tour, ref, side, and lines when `previous` has one. A stale step's message goes
+    to `warnings`."""
+    if not specs:
+        return [], []
+    revs: dict[tuple[int, str], str | None] = {}
+
+    def side_rev(index: int, side: str) -> str | None:
+        if (index, side) not in revs:
+            repo, rng = prs[index]["repo"], prs[index]["range"]
+            three = "..." in rng
+            left, right = rng.split("..." if three else "..", 1)
+            right = right or "HEAD"
+            if side == "new":
+                rev = right
+            elif three:
+                rev = (git(repo, "merge-base", "--end-of-options", left or "HEAD", right, check=False) or "").strip()
+            else:
+                rev = left or "HEAD"
+            found = git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{rev}^{{commit}}", check=False) if rev else None
+            revs[(index, side)] = (found or "").strip() or None
+        return revs[(index, side)]
+
+    before, seen, out, moves = tours.previous_steps(previous), {}, [], []
+    for tour in specs:
+        steps = []
+        for number, spec in enumerate(tour["steps"], 1):
+            where = f"tour {tour['id']} step {number} ({spec['ref']})"
+            key, path = spec["ref"].split(":", 1)
+            if key not in index_of and key not in parent_parts:
+                raise SystemExit(f"{where}: unknown PR key {key!r}")
+            if not path or path.startswith("#"):
+                raise SystemExit(f"{where}: a step names a file (KEY:path), not a group")
+            found = [i for i in parent_parts.get(key, [index_of.get(key)]) if path in prs[i]["owner"]]
+            if not found:
+                raise SystemExit(f"{where}: PR {key} has no node with the file {path!r} (a changed file or an extraNodes reference)")
+            index = found[-1] if spec["side"] == "new" else found[0]
+            placed, message = {}, None
+            if spec["a"] is not None:
+                rev = side_rev(index, spec["side"])
+                text = git(prs[index]["repo"], "show", "--end-of-options", f"{rev}:{path}", check=False) if rev else None
+                if text is None:
+                    raise SystemExit(f"{where}: {path} does not exist on the {spec['side']} side of PR {prs[index]['key']} "
+                                     f"({'tip' if spec['side'] == 'new' else 'base'} {(rev or '?')[:7]}); use the other side or drop the lines")
+                match = (tour["id"], spec["ref"], spec["side"], spec["lines"])
+                earlier = before.get(match, [])
+                previous_step = earlier[seen.get(match, 0)] if seen.get(match, 0) < len(earlier) else None
+                seen[match] = seen.get(match, 0) + 1
+                placed, message = tours.place(spec, tours.file_lines(text), previous_step, where)
+            if message:
+                (warnings if placed.get("stale") else moves).append(message)
+            step = {"node": ids[(index, prs[index]["owner"][path])], "path": path, "side": spec["side"]}
+            step.update({field: placed[field] for field in ("a", "b", "stale") if field in placed})
+            step.update({"note": spec["note"], "ref": spec["ref"]})
+            if spec["lines"] is not None:
+                step["lines"] = spec["lines"]
+            if "code" in placed:
+                step["code"] = placed["code"]
+            steps.append(step)
+        out.append({"id": tour["id"], "name": tour["name"], "steps": steps})
+    return out, moves
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), default=[])
@@ -467,6 +544,8 @@ def main() -> int:
     parser.add_argument("--overlay", type=Path, help="authored roles, notes, layers, extra nodes and edges")
     parser.add_argument("--chunks", action="append", type=Path, default=[], metavar="FILE",
                         help="split one PR into parts cut from its commits (chunks.json from chunks.py propose)")
+    parser.add_argument("--previous", type=Path, metavar="FILE",
+                        help="the graphs.json this build replaces (refresh.py): tour steps follow the code they were resolved on")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
@@ -488,6 +567,7 @@ def main() -> int:
         rules = rules + DEFAULT_GROUPS
     overlay = json.loads(args.overlay.read_text(encoding="utf-8")) if args.overlay else {}
     clusters = read_clusters(overlay)
+    tour_specs, tour_warnings = tours.read(overlay)
 
     keys = [key for key, _repo, _rng in args.pr]
     for key, repo, rng in args.pr:
@@ -504,7 +584,13 @@ def main() -> int:
     parent_of = {p["parent"]["key"]: p["parent"] for p in parents}
 
     prs = []          # per PR: key, nodes {nk: node}, owner {path: nk}
-    warnings: list[str] = []
+    warnings: list[str] = list(tour_warnings)
+    previous_graph = None
+    if args.previous and tour_specs:
+        try:
+            previous_graph = json.loads(args.previous.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            warnings.append(f"--previous {args.previous}: cannot read it ({error}); tour steps take the overlay's lines as they are")
     labels: dict[str, str] = {}
     for entry in entries:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
@@ -692,6 +778,8 @@ def main() -> int:
             nodes[nk]["order"] = position
         pr["order"] = order
 
+    tour_out, tour_moves = resolve_tours(tour_specs, prs, ids, index_of, parent_parts, previous_graph, warnings)
+
     out = {"prs": [], "crossEdges": []}
     missing_roles = 0
     for index, pr in enumerate(prs):
@@ -751,6 +839,8 @@ def main() -> int:
             item.update({k: v for k, v in (("base", by_key[keys[0]].get("base")), ("tip", by_key[keys[-1]].get("tip"))) if v})
             item["parts"] = keys
             out["parents"].append(item)
+    if tour_out:
+        out["tours"] = tour_out
 
     args.out.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     if not args.no_manifest:
@@ -793,6 +883,10 @@ def main() -> int:
             warnings.append(f"PR {parent['key']}: the branch tip is {parent['tip'][:7]} but the last part ends at {parent['end'][:7]}; "
                             "refresh.py adds the commits after it as a new part")
     print(f"cross-PR edges: {len(out['crossEdges'])}; nodes without a role: {missing_roles} -> {args.out}")
+    if tour_out:
+        print("tours: " + ", ".join(f"{tour['id']} {len(tour['steps'])} steps" for tour in tour_out))
+    for line in tour_moves:
+        print(line)
     for warning in warnings:
         print(f"warning: {warning}")
     return 0

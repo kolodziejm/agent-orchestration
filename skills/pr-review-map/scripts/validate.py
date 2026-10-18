@@ -23,6 +23,11 @@ Checks, each an error unless noted:
     node's cluster listed by its PR; fewer than 4 or more than 15 areas, an area
     with no core node (not a test, hub, or docs/config/i18n), or a PR above 40 core
     nodes without areas is a warning
+  * tours (graph "tours", scripts/tours.py): at most 8 of 3 to 15 steps with unique
+    ids, each step's node known, its path a file of that node in the diff data, its
+    side new or old, and its lines 1 <= a <= b or none; lines outside every hunk on
+    their side are a warning (the viewer opens the whole file), as is a narrative
+    data-tour button that names no tour
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
     review-config "generation", when present, an integer from 0 to 2**31
@@ -44,6 +49,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True  # importing chunks.py must not leave a __pycache__ in the skill
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import tours  # noqa: E402
 
 SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
 BALANCED = ("div", "section", "details", "table", "main", "nav", "ul", "ol", "pre")
@@ -218,6 +224,9 @@ def main() -> int:
             found, notes = cluster_problems(pr) if isinstance(pr, dict) else ([], [])
             errors.extend(found)
             warnings.extend(notes)
+        found, notes = tours.problems(graph, diffs, re.findall(r'\bdata-tour="([^"]*)"', markup))
+        errors.extend(f"tours: {problem}" for problem in found)
+        warnings.extend(f"tours: {problem}" for problem in notes)
     else:
         warnings.append("no graph-data block found; graph checks skipped")
 
