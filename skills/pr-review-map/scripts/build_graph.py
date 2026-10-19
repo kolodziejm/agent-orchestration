@@ -12,8 +12,8 @@ Usage:
       [--chunks chunks.json] [--previous graphs.json]
 
 Give the PRs in merge order (earliest first); an edge from a later PR to a file an
-earlier PR changed becomes a dashed cross-PR edge. Files are read with `git show`
-at each range's tip, so nothing is checked out.
+earlier PR changed becomes a dashed cross-PR edge. Files are read at each range's tip
+through one `git cat-file --batch` process per repository, so nothing is checked out.
 
 What the script resolves on its own:
   * nodes from `git diff --numstat` with +/- counts; lockfiles, translations,
@@ -133,6 +133,7 @@ DEFAULT_GROUPS = [
 # suffix also tags a feature file such as `ab-test.tsx`, and the Kotlin suffix a data class such as
 # `PodSpec.kt`; fix those with an overlay `layer`.
 TEST_SUPPORT_DIRS = r"__fixtures__|fixtures?|testdata|test-?(?:support|utils|helpers)|mocks?|stubs?|fakes?"
+TEST_SUPPORT = re.compile(r"(^|/)(" + TEST_SUPPORT_DIRS + r")/")
 LAYER_RULES = [
     ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec|" + TEST_SUPPORT_DIRS + r")/|\.(spec|test|e2e)\.[^/]+$"
              r"|[-_](spec|test|e2e)\.([cm]?[jt]sx?|vue|svelte)$|\.cy\.[cm]?[jt]sx?$|_spec\.rb$"
@@ -164,6 +165,7 @@ HUB_MIN, HUB_SCALE = 4, 1.25
 TRIVIAL_LINES = 2       # a change of at most this many lines is trivial
 IMPORT_ONLY_MAX = 60    # a larger change is never checked for being import lines only
 BARREL_DEPTH = 4        # re-export hops followed from an unchanged barrel
+BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-only changes above 1 MB is not read
 # readFrom (see read_from()): "dependencies" when a PR has at least MODE_ENTRIES entry points and most of them are light:
 # trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
 MODE_ENTRIES, MODE_RATIO = 3, 3
@@ -192,11 +194,12 @@ PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
 # Import statements, removed from both versions of a file to tell an import-only change (see trivial()).
 IMPORT_LINES = {
-    "js": re.compile(r"""^[ \t]*(?:import\b[^'"`;]*?['"][^'"\n]*['"]|export\s+(?:type\s+)?(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*"""
+    "js": re.compile(r"""^[ \t]*(?:import(?!\s*\()(?=[\s{*'"])[^'"`;]*?['"][^'"\n]*['"]|export\s+(?:type\s+)?(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*"""
                      r"""from\s*['"][^'"\n]*['"]|(?:const|let|var)\s+[^=;\n]+=\s*require\(\s*['"][^'"\n]*['"]\s*\))[ \t]*;?""", re.MULTILINE),
     "py": re.compile(r"^[ \t]*(?:from\s+[\w.]+\s+import\s+(?:\([^)]*\)|[^\n]*)|import\s+[^\n]*)", re.MULTILINE),
     "php": re.compile(r"^[ \t]*use\s+[^;{]+;", re.MULTILINE),
 }
+PHP_BODY = re.compile(r"^[ \t]*(?:(?:abstract|final|readonly)\s+)*(?:class|interface|trait|enum|function)\b", re.MULTILINE)
 # Stripped (repeatedly) from a test's stem to find its subject: `panel-test` -> `panel`,
 # `app.e2e-spec` -> `app`, `test_service` -> `service`, `UserTest` -> `User`, `login.cy` -> `login`,
 # `OrderSpec` -> `Order`, `UserRepositoryIT` -> `UserRepository`. Django's `tests` strips to nothing:
@@ -337,9 +340,77 @@ def group_path(files: list[str]) -> str:
     return f"{common}/**" if common else ", ".join(sorted(files)[:3]) + (", …" if len(files) > 3 else "")
 
 
+class Blobs:
+    """Files at revisions read through long-running `git cat-file --batch-check` and `--batch` processes of one
+    repository (one process each instead of a `git show` per file). A request is a `rev:path` line on stdin, so nothing
+    in it can become an option; a path with a newline cannot be asked that way and falls back to `git show`."""
+
+    def __init__(self, repo: str):
+        self.repo = repo
+        self.procs: dict[str, subprocess.Popen] = {}
+
+    def _ask(self, mode: str, name: str) -> tuple[str, int] | None:
+        proc = self.procs.get(mode)
+        if proc is None:
+            proc = self.procs[mode] = subprocess.Popen(["git", "-C", self.repo, "cat-file", f"--{mode}"],
+                                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        proc.stdin.write(name.encode("utf-8") + b"\n")
+        proc.stdin.flush()
+        head = proc.stdout.readline().decode("utf-8", errors="replace").rstrip("\n")
+        parts = head.rsplit(" ", 2)
+        if len(parts) != 3 or not parts[2].isdigit():
+            return None  # "<name> missing" or "ambiguous"
+        return parts[1], int(parts[2])
+
+    def size(self, rev: str, path: str) -> int | None:
+        """The size of a file at a revision, or None when it is not there."""
+        if "\n" in path:
+            text = self.read(rev, path)
+            return None if text is None else len(text.encode("utf-8"))
+        found = self._ask("batch-check", f"{rev}:{path}")
+        return found[1] if found and found[0] == "blob" else None
+
+    def read(self, rev: str, path: str) -> str | None:
+        """A file at a revision as text, or None when it is not there."""
+        if "\n" in path:
+            return git(self.repo, "show", "--end-of-options", f"{rev}:{path}", check=False)
+        found = self._ask("batch", f"{rev}:{path}")
+        if found is None:
+            return None
+        proc = self.procs["batch"]
+        data = proc.stdout.read(found[1])
+        proc.stdout.read(1)  # the newline after the content
+        return data.decode("utf-8", errors="replace") if found[0] == "blob" else None
+
+    def close(self) -> None:
+        for proc in self.procs.values():
+            proc.stdin.close()
+            proc.wait()
+            proc.stdout.close()
+        self.procs.clear()
+
+
 def jsonc(text: str):
-    """JSON with comments and trailing commas (tsconfig.json), or None."""
+    """JSON with a leading BOM, comments, and trailing commas (tsconfig.json), or None. Comments and trailing commas are
+    found outside strings only."""
+    text = text[1:] if text.startswith("\ufeff") else text
     out, i, n = [], 0, len(text)
+
+    def skip(j: int) -> int:
+        """The index after white space and comments from j."""
+        while j < n:
+            if text[j] in " \t\r\n":
+                j += 1
+            elif text.startswith("//", j):
+                k = text.find("\n", j)
+                j = n if k < 0 else k
+            elif text.startswith("/*", j):
+                k = text.find("*/", j + 2)
+                j = n if k < 0 else k + 2
+            else:
+                break
+        return j
+
     while i < n:
         if text[i] == '"':
             j = i + 1
@@ -347,17 +418,15 @@ def jsonc(text: str):
                 j += 2 if text[j] == "\\" else 1
             out.append(text[i:j + 1])
             i = j + 1
-        elif text.startswith("//", i):
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-        elif text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            i = n if j < 0 else j + 2
+        elif text.startswith("//", i) or text.startswith("/*", i):
+            i = skip(i)
+        elif text[i] == "," and skip(i + 1) < n and text[skip(i + 1)] in "}]":
+            i += 1  # a trailing comma
         else:
             out.append(text[i])
             i += 1
     try:
-        return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+        return json.loads("".join(out))
     except ValueError:
         return None
 
@@ -398,8 +467,8 @@ def clause_names(clause: str) -> tuple[bool, set[str] | None]:
 class Resolver:
     """Resolve import specifiers of one PR against its tip tree."""
 
-    def __init__(self, repo: str, tip: str, raw_aliases: list[str]):
-        self.repo, self.tip = repo, tip
+    def __init__(self, repo: str, tip: str, raw_aliases: list[str], blobs: Blobs):
+        self.repo, self.tip, self.blobs = repo, tip, blobs
         listing = git(repo, "ls-tree", "-r", "--name-only", "-z", "--end-of-options", tip) or ""
         self.tree = {path for path in listing.split("\0") if path}
         self.dirs = {""}
@@ -408,6 +477,8 @@ class Resolver:
             for i in range(1, len(parts) + 1):
                 self.dirs.add("/".join(parts[:i]))
         self.sources: dict[str, str] = {}
+        self.skipped: dict[str, int] = {}  # files over BLOB_CAP left unread as a config or barrel: path -> size
+        self.unreadable: set[str] = set()  # tsconfig/jsconfig files that are not JSON with comments
         self.nearest: dict[str, str | None] = {}
         self.ts_info: dict[str, tuple[list[tuple[str, list[str]]], str, str | None]] = {}
         self.exports: dict[str, list[tuple[str, str, bool, object]]] = {}
@@ -448,9 +519,16 @@ class Resolver:
             target += "/"
         return spec, target, scope
 
-    def source(self, path: str) -> str:
+    def source(self, path: str, capped: bool = False) -> str:
+        """A file at the tip ("" when it is not there). `capped`: read only up to BLOB_CAP bytes, else "" (noted in
+        `skipped`); configs and barrels are read so, a changed file's own imports are not."""
         if path not in self.sources:
-            self.sources[path] = git(self.repo, "show", "--end-of-options", f"{self.tip}:{path}", check=False) or ""
+            if capped:
+                size = self.blobs.size(self.tip, path)
+                if size is not None and size > BLOB_CAP:
+                    self.skipped[path] = size
+                    return ""
+            self.sources[path] = self.blobs.read(self.tip, path) or ""
         return self.sources[path]
 
     def _js_candidates(self, base: str) -> list[str]:
@@ -524,8 +602,11 @@ class Resolver:
                 if current in seen or len(seen) > 16:
                     continue
                 seen.add(current)
-                data = jsonc(self.source(current))
+                text = self.source(current, capped=True)
+                data = jsonc(text)
                 if not isinstance(data, dict):
+                    if text.strip():
+                        self.unreadable.add(current)
                     continue
                 options = data.get("compilerOptions") if isinstance(data.get("compilerOptions"), dict) else {}
                 if paths is None and isinstance(options.get("paths"), dict):
@@ -560,7 +641,7 @@ class Resolver:
         "ns" with the namespace name, or "star"."""
         if path not in self.exports:
             out = []
-            for m in REEXPORT.finditer(self.source(path)):
+            for m in REEXPORT.finditer(self.source(path, capped=True)):
                 type_only = bool(m.group("type"))
                 if m.group("list") is not None:
                     out.append((m.group("spec"), "named", type_only, specifiers(m.group("list"))))
@@ -572,8 +653,9 @@ class Resolver:
         return self.exports[path]
 
     def declares(self, path: str) -> set[str] | None:
-        """The names a module exports, or None when this cannot tell (an `export *`, CommonJS, destructuring)."""
-        src = self.source(path)
+        """The names a module exports, or None when this cannot tell (an `export *`, CommonJS, destructuring, a file
+        too large to read)."""
+        src = self.source(path, capped=True)
         if (re.search(r"(?:^|[;\s])export\s+(?:type\s+)?\*\s*from", src) or "module.exports" in src
                 or re.search(r"\bexports\.\w", src) or re.search(r"(?:^|[;\s])export\s+(?:const|let|var)\s*[{\[]", src)):
             return None
@@ -658,10 +740,15 @@ def php_targets(namespace: str, candidates: set[str]) -> list[str]:
 
 
 def import_free(path: str, text: str) -> str | None:
-    """A code file's text without its import statements and white space; None for other files."""
+    """A code file's text without its import statements and white space; None for other files. In PHP only a `use`
+    before the first class, interface, trait, enum, or function counts: one inside a class takes in a trait."""
     lang = "js" if path.endswith(JS_EXT) else "py" if path.endswith(".py") else "php" if path.endswith(".php") else None
     if lang is None:
         return None
+    if lang == "php":
+        body = PHP_BODY.search(text)
+        head, tail = (text[:body.start()], text[body.start():]) if body else (text, "")
+        return re.sub(r"\s+", "", IMPORT_LINES[lang].sub("", head) + tail)
     return re.sub(r"\s+", "", IMPORT_LINES[lang].sub("", text))
 
 
@@ -1104,10 +1191,12 @@ def main() -> int:
         except (OSError, ValueError) as error:
             warnings.append(f"--previous {args.previous}: cannot read it ({error}); tour steps take the overlay's lines as they are")
     labels: dict[str, str] = {}
+    blobs: dict[str, Blobs] = {}
     for entry in entries:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
-        resolver = Resolver(repo, tip_of(rng), args.alias)
+        reader = blobs.setdefault(repo, Blobs(repo))
+        resolver = Resolver(repo, tip_of(rng), args.alias, reader)
         base = base_of(repo, rng)
         nodes: dict[str, dict] = {}
         owner: dict[str, str] = {}
@@ -1127,11 +1216,11 @@ def main() -> int:
                 lines = added + removed
                 if not binary and lines <= TRIVIAL_LINES:
                     node["trivial"] = True
-                elif not binary and lines <= IMPORT_ONLY_MAX and base:
-                    now = import_free(path, resolver.source(path))
-                    if now is not None:
-                        before = git(repo, "show", "--end-of-options", f"{base}:{old or path}", check=False) or ""
-                        if now == import_free(path, before):
+                elif not binary and lines <= IMPORT_ONLY_MAX and base and path.endswith((*JS_EXT, ".py", ".php")):
+                    size = reader.size(base, old or path) or 0
+                    if size <= BLOB_CAP and len(resolver.source(path).encode("utf-8")) <= BLOB_CAP:
+                        before = reader.read(base, old or path) or ""
+                        if import_free(path, resolver.source(path)) == import_free(path, before):
                             node["trivial"] = True
             node["added"] += added
             node["removed"] += removed
@@ -1247,8 +1336,8 @@ def main() -> int:
             if nk.startswith("#") or node["layer"] != "test":
                 continue
             name = test_stem(nk)
-            if name == stem(nk) and GENERIC_NAMES.match(posixpath.basename(nk)):
-                continue  # test support such as fixtures/index.ts: no name to match
+            if name == stem(nk) and TEST_SUPPORT.search(nk):
+                continue  # test support (fixtures/index.ts) without a test marker tests no file of its name
             found = subjects.get(name, []) if name else []
             if found:
                 best = max(found, key=lambda c: len(posixpath.commonpath([c, nk])))
@@ -1342,6 +1431,13 @@ def main() -> int:
         pr["order"] = order
         pr["readFrom"] = read_from(nodes, same_pr)
 
+    for pr in prs:
+        for path in sorted(pr["resolver"].unreadable):
+            warnings.append(f"{pr['key']}: {path} is not JSON (comments and trailing commas allowed); its paths and baseUrl are not used")
+        for path, size in sorted(pr["resolver"].skipped.items()):
+            warnings.append(f"{pr['key']}: {path} is {size / (1 << 20):.1f} MB, over the 1 MB read for configs and re-exports; skipped")
+    for reader in blobs.values():
+        reader.close()
     tour_out, tour_moves = resolve_tours(tour_specs, prs, ids, index_of, parent_parts, previous_graph, warnings)
 
     out = {"prs": [], "crossEdges": []}

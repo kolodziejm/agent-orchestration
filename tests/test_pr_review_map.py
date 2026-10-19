@@ -2516,6 +2516,18 @@ class ResolutionTests(unittest.TestCase):
             "apps/mobile/__tests__/routine-agenda-detail-mutations-test.tsx": "test('two subjects', () => 1);\n",
             "apps/mobile/src/ui/fixtures/index.ts": "export const fixtures = [];\n",
             "web/__tests__/web-transport-test.ts": "test('no subject under web', () => 1);\n",
+            # A test directory's file named like its subject keeps the exact match (only test support skips it).
+            "apps/mobile/__tests__/utils.ts": "test('utils', () => 1);\n",
+            "apps/mobile/src/utils.ts": "export const util = 1;\n",
+            "shop/models.py": "class Item: pass\n",
+            "shop/tests/models.py": "from shop.models import Item\n",
+            # A tsconfig that is not JSON, and one over the 1 MB read: neither resolves `@/`.
+            "broken/tsconfig.json": '{"compilerOptions": {"paths": {"@/*": ["./src/*"]}\n',
+            "broken/src/a.ts": "import { b } from '@/b';\nexport const a = b;\n",
+            "broken/src/b.ts": "export const b = 1;\n",
+            "big/tsconfig.json": '{"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}\n//' + "x" * (1 << 20) + "\n",
+            "big/src/a.ts": "import { b } from '@/b';\nexport const a = b;\n",
+            "big/src/b.ts": "export const b = 1;\n",
         }
         commit_files(repo, changed, "feat")
         cls.out = cls.root / "graphs.json"
@@ -2583,7 +2595,7 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(bg.clause_names("x = 1\nconst y"), (False, None))  # not a clause: any name
 
     def test_tests_without_a_name_match_find_one_nearby_subject(self):
-        """This test will fail when a test whose name matches no file stops finding its subject by its name without leading area words (mobile-transport-test -> transport.ts) or by word overlap with a changed file under its package (mobile-auth-bootstrap-test -> auth/bootstrap.ts, task-detail-mutations-test -> details/task-detail.tsx), when exact name matches change, when a test with two equally good subjects or none under its package gets one, or when a test support file (fixtures/index.ts) is matched by its generic name."""
+        """This test will fail when a test whose name matches no file stops finding its subject by its name without leading area words (mobile-transport-test -> transport.ts) or by word overlap with a changed file under its package (mobile-auth-bootstrap-test -> auth/bootstrap.ts, task-detail-mutations-test -> details/task-detail.tsx), when exact name matches change (also a test directory's file named like its subject: __tests__/utils.ts, Django's tests/models.py), when a test with two equally good subjects or none under its package gets one, or when a test support file (fixtures/index.ts) is matched by its name."""
         tests = {frm: to for (frm, to), e in self.edges.items() if e["kind"] == "test"}
         self.assertEqual(tests, {
             "apps/mobile/src/auth/auth-state.test.ts": "apps/mobile/src/auth/auth-state.ts",
@@ -2591,8 +2603,44 @@ class ResolutionTests(unittest.TestCase):
             "apps/mobile/__tests__/mobile-auth-bootstrap-test.ts": "apps/mobile/src/auth/bootstrap.ts",
             "apps/mobile/__tests__/task-detail-mutations-test.tsx": "apps/mobile/src/details/task-detail.tsx",
             "apps/mobile/__tests__/mobile-query-lifecycle-test.ts": "apps/mobile/src/query/mobile-lifecycle.ts",
+            "apps/mobile/__tests__/utils.ts": "apps/mobile/src/utils.ts",
+            "shop/tests/models.py": "shop/models.py",
         })
         self.assertIn("4 tests matched by nearby names", self.result.stdout)
+
+    def test_configs_and_import_only_changes_are_read_as_their_language_reads_them(self):
+        """This test will fail when tsconfig parsing trips on a BOM or a comma or comment marker inside a string, a tsconfig that is not JSON or is over 1 MB is used or goes unreported, `import.meta` or a dynamic `import(` at the start of a line counts as an import line, or a PHP `use` inside a class (a trait) counts as an import while one at the top of the file does not."""
+        bg = skill_module("build_graph")
+        self.assertEqual(bg.jsonc('\ufeff{\n // c\n "a": "x,}", /* c */ "b": [1, 2,],\n "u": "http://x/*y*/",\n}'),
+                         {"a": "x,}", "b": [1, 2], "u": "http://x/*y*/"})
+        self.assertIsNone(bg.jsonc('{"a": 1'))
+        free = bg.import_free
+        js = "import { a } from './a';\nimport.meta.glob('./pages/*.ts');\nimport('./m').then(init);\nexport const y = 1;\n"
+        self.assertEqual(free("x.ts", js), free("x.ts", js.replace("import { a }", "import { a, b }")))
+        self.assertNotEqual(free("x.ts", js), free("x.ts", js.replace("./pages/", "./views/")))
+        self.assertNotEqual(free("x.ts", js), free("x.ts", js.replace("'./m'", "'./n'")))
+        php = "<?php\nnamespace App;\n\nuse App\\A;\n\nfinal class C\n{\n    use HasFactory;\n}\n"
+        self.assertEqual(free("C.php", php), free("C.php", php.replace("use App\\A;", "use App\\B;")))
+        self.assertNotEqual(free("C.php", php), free("C.php", php.replace("use HasFactory;", "use SoftDeletes;")))
+        self.assertIn("warning: A: broken/tsconfig.json is not JSON (comments and trailing commas allowed); its paths and baseUrl are not used", self.result.stdout)
+        self.assertIn("warning: A: big/tsconfig.json is 1.0 MB, over the 1 MB read for configs and re-exports; skipped", self.result.stdout)
+        self.assertNotIn(("broken/src/a.ts", "broken/src/b.ts"), self.edges)
+        self.assertNotIn(("big/src/a.ts", "big/src/b.ts"), self.edges)
+
+    def test_files_are_read_through_long_running_cat_file_processes(self):
+        """This test will fail when the batched reader returns another file's bytes, text for a missing file or a directory, or a wrong size, or starts a process per read."""
+        blobs = skill_module("build_graph").Blobs(str(self.repo))
+        try:
+            self.assertEqual(blobs.read("feat", "apps/mobile/src/utils.ts"), "export const util = 1;\n")
+            self.assertIsNone(blobs.read("feat", "no/such/file.ts"))
+            self.assertIsNone(blobs.read("main", "apps/mobile/src/utils.ts"))
+            self.assertIsNone(blobs.read("feat", "apps"))
+            self.assertEqual(blobs.read("feat", "packages/core/src/other.ts"), "export const other = 2;\n")
+            self.assertEqual(blobs.read("main", "packages/core/src/other.ts"), "export const other = 1;\n")
+            self.assertEqual((blobs.size("feat", "apps/mobile/src/utils.ts"), blobs.size("feat", "nope")), (23, None))
+            self.assertEqual(sorted(blobs.procs), ["batch", "batch-check"])
+        finally:
+            blobs.close()
 
     def test_first_guess_layers_match_path_segments_and_suffixes_not_words(self):
         """This test will fail when a directory word claims a component file (resources/js/client/**.tsx as infra), a fixtures directory is guessed as data instead of test support, a name that merely contains a word (client-error-text.ts) takes that word's layer, or a suffix rule (api-client.ts, order.repository.ts, StripeClient.php, user.controller.ts, detail-contracts.ts, schemas.py) stops working."""
