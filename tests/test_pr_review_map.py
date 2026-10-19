@@ -2079,6 +2079,20 @@ class ChunkRefreshTests(unittest.TestCase):
         self.assertIn(f"part Ma now ends at {after[0]['to'][:7]}, not {before[0]['to'][:7]}; the narrative still shows {before[0]['to'][:7]} at narrative.html:2", out)
         self.assertIn("changed since the previous version: 0 files", out)
 
+    def test_a_refresh_that_stops_after_mapping_the_parts_leaves_no_side_file(self):
+        """This test will fail when refresh.py, stopped after it mapped a new part but before the data steps finish (here a manifest whose gen_diffs line cap is not a positive number), leaves chunks.json.new behind or changes chunks.json, the data, or the page."""
+        repo, d = self.copy("stopped")
+        commit_files(repo, {"web/extra.ts": "export const extra = 1;\n"}, "feat(web): extra")
+        record = json.loads((d / "review-map.json").read_text(encoding="utf-8"))
+        record["gen_diffs"]["maxLines"] = 0
+        (d / "review-map.json").write_text(json.dumps(record), encoding="utf-8")
+        files = {name: (d / name).read_bytes() for name in ("chunks.json", "graphs.json", "diffs.json", "review.html")}
+        result = run_script("refresh.py", str(d), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("context and maxLines must be non-negative integers", result.stderr)
+        self.assertEqual({name: (d / name).read_bytes() for name in files}, files)
+        self.assertFalse(list(d.glob("*.new")))
+
     def test_a_history_it_cannot_map_stops_the_refresh_before_anything_changes(self):
         """This test will fail when refresh.py rebuilds a map whose part ends no longer exist on the rewritten branch (the commit was dropped or reworded and changed) instead of stopping with a request to propose the parts again, or when it touches chunks.json, the data, or the page on the way."""
         repo, d = self.copy("rewrite")

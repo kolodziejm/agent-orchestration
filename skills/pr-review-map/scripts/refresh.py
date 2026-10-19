@@ -290,7 +290,7 @@ def main() -> int:
     new_tips, moved, warnings = {}, [], []
     # Parts first: a part that cannot be mapped stops here, before anything is rebuilt or written.
     label = new_part_label(here, asm)
-    chunked, side_chunks, split_after, ends, added_parts, repos = set(), {}, [], [], [], {}
+    chunked, side_chunks, side_data, split_after, ends, added_parts, repos = set(), {}, {}, [], [], [], {}
     for entry, path in zip(split, chunk_paths):
         before_data = chunks.load(path)
         parent = before_data["parent"]
@@ -314,9 +314,9 @@ def main() -> int:
         known = {part["key"] for part in before_data["parts"]}
         added_parts += [(parent["key"], part["key"], part["to"]) for part in after_data["parts"] if part["key"] not in known]
         if after_data is not before_data:
-            side = path.with_name(path.name + ".new")
-            side.write_text(json.dumps(after_data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-            side_chunks[path] = side
+            # Written only inside the guarded build below, so a stop before it (or in it) leaves no .new file behind.
+            side_chunks[path] = path.with_name(path.name + ".new")
+            side_data[path] = after_data
         split_after.append({**entry, "tip": tip})
     for pr in build["prs"]:
         if pr["key"] in chunked:
@@ -360,11 +360,13 @@ def main() -> int:
         diff_args.append("--strict")
     diff_args += [f"--chunks={side_chunks.get(path, path)}" for path in chunk_paths]
     try:
+        for path, side in side_chunks.items():
+            side.write_text(json.dumps(side_data[path], ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         names = {str(new_graph_path): str(graph_path), str(new_diffs_path): str(diffs_path),
                  **{str(side): str(path) for path, side in side_chunks.items()}}
         step("build_graph.py", build_args, names)
         step("gen_diffs.py", diff_args, names)
-    except SystemExit:
+    except BaseException:
         new_graph_path.unlink(missing_ok=True)
         new_diffs_path.unlink(missing_ok=True)
         for side in side_chunks.values():
