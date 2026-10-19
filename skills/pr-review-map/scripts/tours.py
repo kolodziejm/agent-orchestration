@@ -314,7 +314,10 @@ def problems(graph, diffs, tour_ids_used: list[str] = ()) -> tuple[list[str], li
                     continue
                 if len(errors) == errors_before and isinstance(a, int) and side in SIDES and not step.get("stale"):
                     covered = hunk_spans(diffed[path].get("diff", ""), side) if path in diffed else []
-                    if not any(start <= b and a <= end for start, end in covered):
+                    if not covered and path in diffed and diffed[path].get("moved"):
+                        warnings.append(f"{where} ({path}:{span(a, b)}, {side} side): the file moved without changes and its lines are not "
+                                        "in the page (over gen_diffs.py's limit for moved files); the viewer opens the file")
+                    elif not any(start <= b and a <= end for start, end in covered):
                         warnings.append(f"{where} ({path}:{span(a, b)}, {side} side): outside every hunk of its diff; the viewer opens the whole file")
     for tid in sorted(set(tour_ids_used) - known_ids):
         warnings.append(f"the narrative's data-tour button {tid!r} names no tour; the viewer hides it")

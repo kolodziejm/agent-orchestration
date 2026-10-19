@@ -2732,6 +2732,48 @@ class MovedFileTests(unittest.TestCase):
     """A file moved without a change carries its whole content, so notes and tour steps can anchor in it."""
 
     @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_moved_content_has_a_budget_and_names_git_quotes_still_map(self):
+        """This test will fail when gen_diffs.py embeds a moved file over 400 lines or past the page's 4000 moved lines (a page with many moved files would grow without bound), drops a small moved file after the budget ran out for a big one, stops marking a moved file without lines as `moved`, when validate.py stops saying a tour step into such a file is in a moved file without lines, or when a path git C-quotes in diff headers (a double quote, a tab) keeps its quotes: a rename stopping gen_diffs on `git show`, a changed file "mapped to no node"."""
+        gen = skill_module("gen_diffs")
+        self.assertEqual(gen.unquote('"caf\\303\\251 \\"x\\"\\t.ts"'), 'café "x"\t.ts')
+        self.assertEqual((gen.unquote("plain.ts"), gen.header_path('"a/x\\"y" "b/x\\"z"'), gen.header_path("a/p q b/p q")), ("plain.ts", 'x"z', "p q"))
+        root = Path(tempfile.mkdtemp())
+        try:
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            moved = {"a-big.ts": 450, **{f"b{i:02d}.ts": 360 for i in range(12)}, 'we"ird.ts': 2}
+            commit_files(repo, {**{f"old/{name}": lines_of(n, f"v{i}_") for i, (name, n) in enumerate(moved.items())},
+                                'src/odd"name.ts': "export const c = 1;\n", "src/tab\tname.ts": "export const t = 1;\n"}, "base")
+            git(repo, "checkout", "-q", "-b", "feat")
+            (repo / "new").mkdir()
+            for name in moved:
+                git(repo, "mv", f"old/{name}", "new/" + name.replace('we"ird', 'moved"q'))
+            commit_files(repo, {'src/odd"name.ts': "export const c = 2;\n", "src/tab\tname.ts": "export const t = 2;\n"}, "move")
+            d = root / "scratch"
+            d.mkdir()
+            (d / "overlay.json").write_text(json.dumps({"tours": [{"id": "m", "name": "M", "steps": [
+                {"ref": "A:new/a-big.ts", "lines": "2-3"}, {"ref": "A:new/b00.ts", "lines": "5"}, {"ref": "A:new/b11.ts", "lines": "5"}]}]}), encoding="utf-8")
+            (d / "narrative.html").write_text("<section id=\"s\"><h2>S</h2></section>\n<!-- review-map:graph -->\n", encoding="utf-8")
+            run_script("build_graph.py", "--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--overlay", str(d / "overlay.json"))
+            out = run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--pr", "A", str(repo), "main...feat", "--strict").stdout
+            self.assertIn("14 moved without changes, 2 of them without their content (over 400 lines, or past the page's 4000 moved lines)", out)
+            entries = {e["path"]: e for v in json.loads((d / "diffs.json").read_text(encoding="utf-8")).values() for e in v}
+            self.assertEqual({p for p, e in entries.items() if e.get("moved") and not e["diff"]}, {"new/a-big.ts", "new/b11.ts"})
+            self.assertEqual((entries['new/moved"q.ts']["moved"], entries['new/moved"q.ts']["diff"].split("\n")[2]), ('old/we"ird.ts', "@@ -1,2 +1,2 @@"))
+            self.assertEqual(sum(len(e["diff"].split("\n")) - 3 for e in entries.values() if e.get("moved") and e["diff"]), 11 * 360 + 2)
+            self.assertIn('src/odd"name.ts', entries)
+            self.assertIn("src/tab\tname.ts", entries)
+            run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                       "--title", "Moves", "--target", "local", "--out", str(d / "review.html"))
+            result = run_script("validate.py", str(d / "review.html")).stdout
+            self.assertIn("tour m step 1 (new/a-big.ts:2-3, new side): the file moved without changes and its lines are not in the page", result)
+            self.assertIn("tour m step 3 (new/b11.ts:5, new side): the file moved without changes", result)
+            self.assertNotIn("step 2 (new/b00.ts", result)
+        finally:
+            shutil.rmtree(root)
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
     def test_a_file_moved_without_changes_shows_whole_and_takes_tour_anchors(self):
         """This test will fail when gen_diffs.py leaves a file renamed at 100% similarity without lines to show (no hunk), so a tour step on it is "outside every hunk" in validate.py, when its content stops coming as one all-context hunk with `moved` naming the old path, or when its fingerprint stops being the rename's alone (a refresh would flag it changed)."""
         root = Path(tempfile.mkdtemp())

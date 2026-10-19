@@ -22,9 +22,12 @@ Vue, Svelte, and Astro files each hunk's @@ line names the last block tag before
 the hunk, shortened to its name and lang (`<script lang="ts">`, `<template>`,
 `</script>`), so the viewer highlights a hunk in the middle of a block in that
 block's language. A text file moved without a change (similarity 100%, no hunk)
-gets its whole content at the tip as one hunk of context lines and `moved` (its
-old path), so the viewer shows it and review notes and tour steps can anchor on
-any line; its `fp` stays the rename's. --chunks FILE (chunks.py) gives the ranges of a PR split into
+gets `moved` (its old path) and, while it has at most 400 lines and the page's
+budget of 4000 such lines lasts, its whole content at the tip as one hunk of
+context lines, so the viewer shows it and review notes and tour steps can anchor
+on any line; past that it shows as moved, without lines. Its `fp` stays the
+rename's. Paths git C-quotes in a diff header (a name with a double quote, a
+backslash, or a control character) are unquoted. --chunks FILE (chunks.py) gives the ranges of a PR split into
 parts, as for build_graph.py; a file that two or more parts change also gets its
 diff over the whole PR (first part's start to last part's end) as `whole` on the
 entry of the last part that changes it, for the viewer's whole-PR toggle. The
@@ -65,6 +68,9 @@ HEADER_PREFIXES = (
     "new mode",
 )
 GLOB_CHARS = set("*?[")
+# A file moved without a change shows its whole content as context lines while it has at most MOVED_FILE_LINES lines
+# and the page's MOVED_TOTAL_LINES of such lines last (files in diff order); past either it shows as moved, no lines.
+MOVED_FILE_LINES, MOVED_TOTAL_LINES = 400, 4000
 # A diff driver for single-file components: the funcname on a hunk's @@ line is the last line before the hunk that
 # starts with a block tag (git shows a pattern's first group, so the outer group holds the line). An opening tag means
 # the hunk starts in that block; a closing one, outside every block (Svelte's markup). The line may hold only the start
@@ -78,7 +84,7 @@ BLOCK_TAG = re.compile(r"^<(/?)(template|script|style|i18n|docs)(?=[\s>]|$)(.*)$
 LANG_ATTR = re.compile(r"""[\s"']lang\s*=\s*["']?([\w-]+)""", re.IGNORECASE)
 
 
-def git(repo: str, *args: str) -> str:
+def git(repo: str, *args: str, check: bool = True) -> str | None:
     result = subprocess.run(
         ["git", "-C", repo, "-c", "core.quotePath=false", *args],
         capture_output=True,
@@ -87,8 +93,44 @@ def git(repo: str, *args: str) -> str:
         errors="replace",
     )
     if result.returncode != 0:
+        if not check:
+            return None
         raise SystemExit(f"git {' '.join(args)} failed in {repo}: {result.stderr.strip()}")
     return result.stdout
+
+
+C_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def unquote(text: str) -> str:
+    """A path as a diff header writes it, unquoted. git C-quotes a path that holds a double quote, a backslash, or a
+    control character (`"src/a\\"b.ts"`, with octal escapes for such bytes; core.quotePath=false leaves other bytes as
+    they are); any other path comes as is."""
+    if len(text) < 2 or text[0] != '"' or text[-1] != '"':
+        return text
+    body, out, i = text[1:-1], bytearray(), 0
+    while i < len(body):
+        char = body[i]
+        if char == "\\" and i + 1 < len(body):
+            nxt = body[i + 1]
+            if nxt in C_ESCAPES:
+                out.append(C_ESCAPES[nxt])
+                i += 2
+                continue
+            if body[i + 1:i + 4].isdigit() and len(body[i + 1:i + 4]) == 3 and all(c in "01234567" for c in body[i + 1:i + 4]):
+                out.append(int(body[i + 1:i + 4], 8) & 0xFF)
+                i += 4
+                continue
+        out.extend(char.encode("utf-8"))
+        i += 1
+    return out.decode("utf-8", errors="replace")
+
+
+def header_path(header: str) -> str:
+    """The new path of a `diff --git a/x b/y` header (either side may be C-quoted)."""
+    if header.endswith('"') and ' "b/' in header:  # a quoted path has no unescaped quote, so this finds its start
+        return unquote(header[header.rindex(' "b/') + 1:]).removeprefix("b/")
+    return header.split(" b/", 1)[1] if " b/" in header else header
 
 
 def sfc_options(repo: str, folder: str) -> list[str]:
@@ -211,16 +253,15 @@ def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
             if line.startswith("index "):
                 index = line
             elif line.startswith("rename to "):
-                path = line[len("rename to "):]
-            elif line.startswith("+++ ") and line[4:].rstrip("\t") != "/dev/null":
-                path = line[4:].rstrip("\t").removeprefix("b/")
-            elif line.startswith("--- ") and path is None and line[4:].rstrip("\t") != "/dev/null":
-                path = line[4:].rstrip("\t").removeprefix("a/")
+                path = unquote(line[len("rename to "):])
+            elif line.startswith("+++ ") and unquote(line[4:].rstrip("\t")) != "/dev/null":
+                path = unquote(line[4:].rstrip("\t")).removeprefix("b/")
+            elif line.startswith("--- ") and path is None and unquote(line[4:].rstrip("\t")) != "/dev/null":
+                path = unquote(line[4:].rstrip("\t")).removeprefix("a/")
             elif line.startswith("Binary files "):
                 binary = True
         if path is None:
-            header = lines[0][len("diff --git "):]
-            path = header.split(" b/", 1)[1] if " b/" in header else header
+            path = header_path(lines[0][len("diff --git "):])
         body = "\n".join(
             line for line in lines if not line.startswith(HEADER_PREFIXES)
         ).rstrip("\n")
@@ -235,8 +276,8 @@ def pure_renames(diff: str) -> dict[str, str]:
         head = chunk.split("\n@@", 1)[0].split("\n")
         if "similarity index 100%" not in head:
             continue
-        old = next((line[len("rename from "):] for line in head if line.startswith("rename from ")), None)
-        new = next((line[len("rename to "):] for line in head if line.startswith("rename to ")), None)
+        old = next((unquote(line[len("rename from "):]) for line in head if line.startswith("rename from ")), None)
+        new = next((unquote(line[len("rename to "):]) for line in head if line.startswith("rename to ")), None)
         if old and new:
             out[new] = old
     return out
@@ -321,24 +362,42 @@ def main() -> int:
     folder = tempfile.TemporaryDirectory(prefix="review-map-")
 
     def diff_of(repo: str, rng: str) -> list[tuple[str, str, bool, str, str | None]]:
-        """(path, body, binary, fp, moved) per file of one range, Vue/Svelte/Astro hunk headers normalised. A text file
-        moved without a change gets its whole content at the range's tip as context (as_context()) and `moved`, its old
-        path; its fingerprint stays the one of the rename alone."""
+        """(path, body, binary, fp, moved) per file of one range, Vue/Svelte/Astro hunk headers normalised; `moved` is
+        the old path of a text file moved without a change (its body is empty; see moved_body())."""
         diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "--full-index", "-M",
                    f"-U{args.context}", "--end-of-options", rng, "--")
         renamed = pure_renames(diff)
-        tip = (rng.split("...", 1)[1] if "..." in rng else rng.split("..", 1)[1]) or "HEAD"
         files = []
         for path, body, binary, fp in split_files(diff):
             moved = renamed.get(path) if not binary and not body.strip() else None
-            if moved is not None:
-                body = as_context(moved, path, git(repo, "show", "--end-of-options", f"{tip}:{path}"))
-            if path.lower().endswith(SFC_EXT):
+            if path.lower().endswith(SFC_EXT) and moved is None:
                 head = body.split("\n@@", 1)[0].split("\n")  # the file header lines before the first hunk
-                old = next((line[6:].rstrip("\t") for line in head if line.startswith("--- a/")), None)
+                old = next((unquote(line[4:].rstrip("\t")).removeprefix("a/") for line in head
+                            if line.startswith("--- ") and unquote(line[4:].rstrip("\t")).startswith("a/")), None)
                 body = normalise_sfc(body, lambda old=old, repo=repo, rng=rng: old_lines(repo, rng, old))
-            files.append((path, body, binary, fp, moved if moved is not None and body else None))
+            files.append((path, body, binary, fp, moved))
         return files
+
+    moved_left = [MOVED_TOTAL_LINES]
+
+    def moved_body(repo: str, rng: str, old: str, path: str) -> str:
+        """The whole content at the tip of a file moved without a change, as context lines (as_context()), while it has
+        at most MOVED_FILE_LINES lines and the page's budget of MOVED_TOTAL_LINES moved lines lasts (files in diff
+        order); else "" (the viewer then says it moved, without its lines). A file git cannot show gives "" too."""
+        if moved_left[0] <= 0:
+            return ""
+        tip = (rng.split("...", 1)[1] if "..." in rng else rng.split("..", 1)[1]) or "HEAD"
+        text = git(repo, "show", "--end-of-options", f"{tip}:{path}", check=False)
+        if text is None:
+            notes.append(f"cannot read {path} at {tip}; its move shows without content")
+            return ""
+        count = len(text.split("\n")) - (1 if text.endswith("\n") else 0) if text else 0
+        if count > MOVED_FILE_LINES or count > moved_left[0]:
+            return ""
+        moved_left[0] -= count
+        return as_context(old, path, text)
+
+    notes: list[str] = []
 
     def capped(body: str, entry: dict) -> dict:
         lines = body.split("\n")
@@ -357,6 +416,8 @@ def main() -> int:
             if node_id is None:
                 unassigned.append(f"{key}:{path}")
                 continue
+            if moved:
+                body = moved_body(repo, rng, moved, path)
             entry: dict = capped(body, {"path": path, "diff": body, "fp": fp})
             if moved:
                 entry["moved"] = moved
@@ -397,7 +458,12 @@ def main() -> int:
         if node["id"] not in ordered and not node.get("unchanged")
     ]
     files = sum(len(entries) for entries in ordered.values())
-    print(f"diffs: {len(ordered)} nodes, {files} files -> {args.out}")
+    moved = [e for entries in ordered.values() for e in entries if e.get("moved")]
+    print(f"diffs: {len(ordered)} nodes, {files} files -> {args.out}"
+          + (f"; {len(moved)} moved without changes, {sum(1 for e in moved if not e['diff'])} of them without their content "
+             f"(over {MOVED_FILE_LINES} lines, or past the page's {MOVED_TOTAL_LINES} moved lines)" if moved else ""))
+    for note in notes:
+        print(f"warning: {note}")
     if without:
         print(f"nodes without a diff (fix their path/files): {without}")
     if unassigned:
