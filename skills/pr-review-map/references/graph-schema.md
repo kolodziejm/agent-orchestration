@@ -56,8 +56,9 @@ PR fields:
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
 - `readFrom`, `readFromWhy` — the reading mode build_graph.py recommends for the PR,
   `"dependencies"` or `"entry"`, and the numbers behind it, `{"entries": 31, "light":
-  25, "entryLines": 10, "baseLines": 60}` (see Reading order below). The viewer opens
-  the PR in that mode until the reader picks one for it.
+  25, "entryLines": 10, "baseLines": 60, "reason": "light"}` (see Reading order below;
+  `reason` is `"few"` below 3 entry points, else `"light"` or `"heavy"`). The viewer
+  opens the PR in that mode until the reader picks one for it, and its note says why.
 - `clusters` — the areas the PR's nodes use, from the overlay (see Areas below):
   `[{"id": "auth", "label": "Sign-in", "order": 1}]`, by order; absent without them.
 - `chunk` — only on a part of a PR split by its commits (`--chunks`,
@@ -96,7 +97,7 @@ Node fields:
 | `note` | Optional per-file reviewer note, report language. HTML limited to `code`, `b`/`strong`, `i`/`em`, `br`, `kbd`, `sub`, `sup`, and links to `https://`/`#` addresses; other tags keep only their text and lose their attributes, `script`/`style` are dropped. Shown in the detail panel. |
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
-| `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines, both versions with their imports and white space removed), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
+| `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines and 1 MB, both versions with their imports and white space removed; `import.meta` and `import(` are code, and a PHP `use` counts only before the first class, interface, trait, enum, or function), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
@@ -152,7 +153,8 @@ A relative specifier resolves against the importer (`.js` also finds `.ts`); any
 other one tries, in order, and takes the first that names a file in the tree at the
 tip: a scoped `--alias SPEC=PATH@DIR` whose DIR holds the importer (the longest DIR
 first), the `compilerOptions.paths` of the `tsconfig.json` or `jsconfig.json` nearest
-to the importer (JSON with comments; its in-repo `extends` followed; the longest
+to the importer (JSON with a BOM, comments, and trailing commas; one that is not, or is
+over 1 MB, is reported and not used; its in-repo `extends` followed; the longest
 matching prefix first; targets relative to `baseUrl` when one is set, else to the file
 that sets `paths`) and then its `baseUrl`, and last the unscoped `--alias SPEC=PATH`.
 `SPEC` is an exact specifier or a prefix ending in `/`. A PATH that is itself in the
@@ -274,8 +276,11 @@ Its subject is the changed file whose name equals the test's name with those
 markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`,
 `login.cy.ts` → `login.ts`, `PaymentITCase.java` → `Payment.java`), the nearest by
 path when several match. Django's `tests.py` has no name match; its imports place it.
-A test with no such match (and a name of its own: test support such as
-`fixtures/index.ts` has none) looks for one subject near it, among the changed core
+A file under a test directory named like its subject (`__tests__/utils.ts`, Django's
+`tests/models.py`) matches it so too; test support (a file under `fixtures`, `mocks`,
+`stubs`, `fakes`, `testdata`, or `test-utils` without a test marker in its name) tests
+no file of its name and gets no subject. A test with no such match looks for one
+subject near it, among the changed core
 files under its root (the path above its last test directory, else its own directory):
 first its name without leading area words (words of its directories, or `mobile`,
 `web`, `test`, `spec`, `e2e`, `unit`, `integration`) matched exactly
@@ -455,12 +460,16 @@ gen_diffs.py reads a tag that git cut at 80 bytes, that hides a `>` in an attrib
 or that spans lines from the file's old version), which the viewer uses to highlight
 a hunk in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
 language (it falls back to the tags inside the hunks and a guess for diffs without it).
-A text file moved without a change (similarity 100%, so git gives no hunk) carries its
-whole content at the tip as one hunk of context lines (`@@ -1,n +1,n @@`, after `--- a/`
-and `+++ b/` lines) and `"moved": "<old path>"`; the viewer says "moved from … without
-changes" above it, and review notes and tour steps can anchor on any line (validate.py
-finds them inside the hunk). Its `fp` stays the rename's (from, to, similarity), so a
-refresh does not flag it changed.
+A text file moved without a change (similarity 100%, so git gives no hunk) carries
+`"moved": "<old path>"` and, while it has at most 400 lines and the page's budget of 4000
+such lines lasts (files in diff order), its whole content at the tip as one hunk of
+context lines (`@@ -1,n +1,n @@`, after `--- a/` and `+++ b/` lines); the viewer says
+"moved from … without changes" above it, and review notes and tour steps can anchor on
+any line (validate.py finds them inside the hunk). Past the limits its `diff` is empty:
+the viewer says it moved and that its lines are not in the page, and validate.py warns
+that a tour step into it opens the file. Its `fp` stays the rename's (from, to,
+similarity), so a refresh does not flag it changed. A path git C-quotes in a diff
+header (a name with a double quote, a backslash, or a control character) is unquoted.
 A file that two or more parts of a PR change has, on the entry of the last part that
 changes it, `"whole": {"diff": "…", "truncated"?: n}`: its diff over the whole PR (first
 part's start to last part's end), shown read-only by the viewer's whole-PR toggle.
