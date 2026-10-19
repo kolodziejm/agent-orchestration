@@ -18,11 +18,14 @@ Steps:
    python3 <skill dir>/scripts/build_graph.py --out <scratch dir>/graphs.json \
      --pr <KEY REPO RANGE> --name <KEY NAME> [... one pair per PR] \
      [--title <KEY "PR title">] [--repo <KEY owner/name> when origin does not name it] \
-     [--alias SPEC=PATH for workspace packages / tsconfig paths] \
+     [--alias SPEC=PATH for workspace packages, SPEC=PATH@DIR for importers under DIR only] \
      [--groups <scratch dir>/groups.json] --overlay <scratch dir>/overlay.json \
      [--chunks <scratch dir>/chunks.json for a PR split into parts, in place of its --pr]
-   Start with an empty overlay ({}). Resolve package aliases from package.json
-   "exports"/"name" and tsconfig "paths" at the tip with `git show`, not by guessing.
+   Start with an empty overlay ({}). The script reads tsconfig/jsconfig "paths" and
+   "baseUrl" nearest to each importer and follows re-exports through unchanged barrels
+   itself; give --alias only for what those miss (workspace packages, resolved from
+   package.json "exports"/"name" at the tip with `git show`, not by guessing), scoped
+   with @DIR when two parts of the repo use the same prefix differently.
 2. Read the printed summary and the generated graphs.json. For each PR check:
    - Every changed file is in exactly one node (groups list theirs in `files`).
    - Layers are right; fix wrong guesses with overlay `nodes.<ref>.layer`.
@@ -32,7 +35,8 @@ Steps:
      translations (`config`), a client calling a handler in another service or an
      earlier PR (`http`), a base class or router a changed file depends on as an
      unchanged reference node (`extraNodes` + `import`).
-   - Tests point at their subject with kind `test` (add the edge when the stems differ).
+   - Tests point at their subject with kind `test` (the script also matches a test to one
+     nearby file by its name's words; add the edge when it finds none or the wrong one).
    - For a PR split into parts, each part is a PR (`Ma`, `Mb`, …). Put what holds for a
      file in every part under the parent key (`M:path`), what holds in one part under
      the part key (`Mb:path`); see <skill dir>/references/chunks.md.
@@ -40,6 +44,8 @@ Steps:
      when most of the PR uses it as a utility (i18n, error text, shared types); set
      `nodes.<ref>.hub` to false for a central file whose links carry the flow, or to
      true for a missed utility.
+   - The summary says which mode each PR reads from (`readFrom`) and why; it follows
+     from the graph, so fix wrong edges or layers rather than the mode.
 3. Fill `role` for every node (one line, at most ~60 characters, report language)
    and `note` for files a reviewer could misread (one or two sentences, report
    language, may use <code>). Take them from the change maps; verify against the code.
@@ -58,8 +64,8 @@ Steps:
    the whole file is the step.
 4. Re-run build_graph.py with the overlay until the summary shows no missing roles,
    no core files without an area where you authored areas, every tour with its step
-   count, and no warnings you have not checked. If it reports a dependency cycle, confirm it is real or drop the wrong
-   edge with `dropEdges`.
+   count, and no warnings you have not checked. If it reports an import cycle (type-only
+   imports never make one), confirm it is real or drop the wrong edge with `dropEdges`.
 5. Generate diffs and confirm every node has one:
    python3 <skill dir>/scripts/gen_diffs.py --graph <scratch dir>/graphs.json \
      --out <scratch dir>/diffs.json --pr <KEY REPO RANGE> [...] [--chunks <same file>] --strict

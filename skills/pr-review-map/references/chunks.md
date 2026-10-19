@@ -1,8 +1,9 @@
 # Parts: one large PR as a virtual stack cut from its commits
 
 A pull request of 200 files reads like a stack of five once its commits are cut into
-consecutive parts: each part gets its own tab, reading order, map, and diffs, and the
-parts link to each other like stacked PRs. The skill never rewrites history; a part
+consecutive parts: each part gets its own tab, reading order (with its own shared
+dependencies and recommended reading mode), map, and diffs, and the parts link to
+each other like stacked PRs. The skill never rewrites history; a part
 is only a commit range (`from..to`) of the branch as it is.
 
 ## When

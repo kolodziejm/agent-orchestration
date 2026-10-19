@@ -31,7 +31,8 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    order. Add a callout when the branches carry merge commits.
 2. **Interactive reading graph** (the core). Per-PR tabs. Nodes are changed
    files; translations, catalogs, deploy config, docs, and lockfiles collapse into
-   one node each. Edges are real dependencies: resolved imports, PHP `use`, DI and
+   one node each. Edges are real dependencies: resolved imports (also through
+   unchanged barrels; type-only ones drawn dotted and lighter), PHP `use`, DI and
    routing bindings, test → subject, code → config it reads, HTTP calls across
    services, and links to files of earlier PRs. The default view is a step list
    pinned beside the detail panel and diff: one row per file in reading order
@@ -41,12 +42,16 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    selected file's dependencies and dependents as arcs between rows ("All links"
    draws every dependency; above 60 rows only nearby arcs and the selected
    file's). Files of earlier PRs the PR uses head the list, grouped
-   by PR. Shared dependencies (files at least a quarter of the PR's linked files
-   use, flagged `hub`) come next as the first steps in both modes, in their own
-   group; arcs into them show only while one is selected, and the neighbourhood
-   lists them on one "+ shared:" line. "Group by folder" (or "by area") splits the rest
-   into collapsible sections that keep the step numbers. The order runs "from the entry point" (default, reverse dependency
-   order) or "from dependencies"; in both, a file connected to the one just read
+   by PR. Shared dependencies (files many of the PR's linked files use, at least
+   max(4, ⌈1.25·√linked⌉), flagged `hub`; trivially changed ones last) come next
+   as the first steps in both modes, in their own group; arcs into them show only
+   while one is selected, and the neighbourhood lists them on one "+ shared:" line.
+   "Group by folder" (or "by area") splits the rest into collapsible sections that
+   keep the step numbers. The order runs "from the entry point" (reverse dependency
+   order) or "from dependencies"; each PR opens in the one build_graph.py recommends
+   (`readFrom`: from dependencies when most entry points are small changes over
+   larger ones underneath; a note says why) until the reader picks one for it. In
+   both, a file connected to the one just read
    comes next when the dependencies allow, tests follow their subject, files with
    no edge to another file of the PR come after the connected ones, docs/config/
    i18n last, and step numbers stay fixed when the test filter hides tests.
@@ -143,8 +148,10 @@ writing.
 
 Hand `references/graph-prompt.md` to one subagent. It runs
 `scripts/build_graph.py`, which scaffolds `graphs.json` from git without a
-checkout (numstat, grouping, a first-guess layer, JS/TS imports with aliases,
-Python imports, PHP `use`, test → subject, dependency order), then records what
+checkout (numstat, grouping, a first-guess layer, JS/TS imports with tsconfig
+paths and aliases, re-exports through unchanged barrels, type-only imports, Python
+imports, PHP `use`, test → subject, dependency order, a recommended reading mode),
+then records what
 git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,
 unchanged reference files, a `role` for every node, `note`s from the change
 maps, a `hub` override where the shared-dependency rule misjudges a file, for a

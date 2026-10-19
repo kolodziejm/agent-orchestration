@@ -54,6 +54,10 @@ PR fields:
   name (anything else is refused, since it lands in CSS); by default PR *n* gets
   palette slot `--pal-n` (8 slots, light and dark variants).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
+- `readFrom`, `readFromWhy` — the reading mode build_graph.py recommends for the PR,
+  `"dependencies"` or `"entry"`, and the numbers behind it, `{"entries": 31, "light":
+  25, "entryLines": 10, "baseLines": 60}` (see Reading order below). The viewer opens
+  the PR in that mode until the reader picks one for it.
 - `clusters` — the areas the PR's nodes use, from the overlay (see Areas below):
   `[{"id": "auth", "label": "Sign-in", "order": 1}]`, by order; absent without them.
 - `chunk` — only on a part of a PR split by its commits (`--chunks`,
@@ -92,11 +96,15 @@ Node fields:
 | `note` | Optional per-file reviewer note, report language. HTML limited to `code`, `b`/`strong`, `i`/`em`, `br`, `kbd`, `sub`, `sup`, and links to `https://`/`#` addresses; other tags keep only their text and lose their attributes, `script`/`style` are dropped. Shown in the detail panel. |
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
+| `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines, both versions with their imports and white space removed), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
-`kind`, and `external` (`true` when `to` is in another PR; listed in that PR's
-colour in the header group of the step list and in the map's left band). An edge
+`kind`, `external` (`true` when `to` is in another PR; listed in that PR's
+colour in the header group of the step list and in the map's left band), and `via`
+on an edge found only through unchanged barrels (below): the files it went through,
+`"packages/core/src/index.ts > packages/core/src/nested/index.ts"`, shown in the
+neighbourhood's tooltip. An edge
 reads "`from` depends on `to`". The viewer derives the reverse direction ("used by
 PR B") from every PR's edges, so a later PR's dependency needs no extra field.
 
@@ -108,6 +116,21 @@ HTTP clients) · `rest` (controllers, handlers, routes) · `ui` · `wiring` (ent
 points, DI, routing config, barrels) · `test` · `config` (package manifests,
 lockfiles, deploy config) · `i18n` · `docs`.
 
+The first guess matches whole path segments (a directory name) and file-name
+suffixes, never a word inside a name, in this order: tests and test support (test
+directories, and `fixtures`, `__fixtures__`, `testdata`, `mocks`, `stubs`, `fakes`,
+`test-utils`/`test-helpers`/`test-support` directories), DI/routing YAML, config,
+data (`migrations`, `db`, `prisma`, `seeds`, `.sql`), then `ui` for a component,
+stylesheet, or template file (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.css`,
+`.html`, …) before any directory word can claim it, contract (`contracts`, `schemas`,
+`dto` directories; `schema.ts`, `-contracts.ts`, `schemas.py`), domain, infra (`infra`,
+`adapters`, `repositories`, `gateways`, `persistence`, `integrations` directories;
+`-client.ts`, `.repository.ts`, `StripeClient.php`), rest (`controllers`, `handlers`,
+`routes`, … directories; `.controller.ts`, `Controller.php`), wiring (`index`, `main`,
+`app`, `bootstrap`, … files), else logic. So `resources/js/client/pages/x.tsx` is `ui`,
+`client-error-text.ts` is `logic`, and `ui/fixtures/x.tsx` is `test`. A `client/` or
+`providers/` directory names no layer: a front-end app and React providers live in them.
+
 Tests are indented under their subject in the step list and drawn dashed on the
 map. `docs`, `config`, and `i18n` always read last.
 
@@ -115,12 +138,38 @@ map. `docs`, `config`, and `i18n` always read last.
 
 | Kind | When |
 | --- | --- |
-| `import` | Real import, `use`, `require`, or `from … import`, resolved to a changed file. |
+| `import` | Real import, `use`, `require`, or `from … import`, resolved to a changed file (also through an unchanged barrel, with `via`). |
+| `type` | A type-only import: `import type`, `import { type A, type B }` (every specifier a type), `export type … from`, or a barrel path with an `export type` on it. Orders like `import` unless it closes a cycle; drawn dotted and lighter. |
 | `test` | Test → the file it tests. Decides where the test sits in the reading order. |
 | `di` | DI binding or service definition (Symfony `services.yml`, Nest module, container registration). |
 | `route` | Routing config → controller/handler. |
 | `config` | Code → the config, env, or i18n it reads; catalog → translations. |
 | `http` | A call across a service boundary (client → handler in another PR or repo). Drawn dashed. |
+
+### Imports the script resolves
+
+A relative specifier resolves against the importer (`.js` also finds `.ts`); any
+other one tries, in order, and takes the first that names a file in the tree at the
+tip: a scoped `--alias SPEC=PATH@DIR` whose DIR holds the importer (the longest DIR
+first), the `compilerOptions.paths` of the `tsconfig.json` or `jsconfig.json` nearest
+to the importer (JSON with comments; its in-repo `extends` followed; the longest
+matching prefix first; targets relative to `baseUrl` when one is set, else to the file
+that sets `paths`) and then its `baseUrl`, and last the unscoped `--alias SPEC=PATH`.
+`SPEC` is an exact specifier or a prefix ending in `/`. A PATH that is itself in the
+tree keeps an `@` in it (`src/@core/`); a trailing `@` also marks an alias unscoped. An
+alias whose path or directory is in no PR's tree is reported. The summary line counts
+the imports each tsconfig resolved.
+
+An import that resolves to a file the PR does not change is followed when that file
+re-exports (`export * from`, `export { X as Y } from`, `export * as ns from`, `export
+type … from`): its re-export targets are resolved from it, at most 4 files deep and
+never one file twice (re-export cycles end), until a changed file (or a file of an
+earlier PR, or an `extraNodes` reference) is reached; the edge goes to that file with
+`via`. With named imports only the re-exports of those names are followed: an `export
+{ … }` that lists one, an `export * as` with that name, and an `export *` whose changed
+target declares one of them (or whose exports cannot be read: an `export *` of its own,
+CommonJS, destructuring). `import * as`, side-effect imports, `require`, and dynamic
+imports follow everything. An edge found directly too carries no `via`.
 
 ### Shared dependencies
 
@@ -129,13 +178,17 @@ A file that most of a PR depends on (an i18n entry point, a failure-text helper,
 to every other one in the reading order. `build_graph.py` flags such a file `hub`.
 Counting only core nodes (not tests, not `docs`/`config`/`i18n`) and their non-`test`
 edges within the PR, with `linked` the core nodes that share such an edge with another
-core node: a node is a hub when at least `max(4, ceil(linked / 4))` other core nodes
-depend on it (25 linked files: 7). Then a core node that only hubs depend on joins
-them, repeated until nothing changes, so a hub's private helper is read with it. The
-overlay's `"hub": true` or `false` on a node overrides the rule (`false` also keeps
-the node out of the second step); on a test or late node it is ignored with a
+core node: a node is a hub when at least `max(4, ceil(1.25 × sqrt(linked)))` other
+core nodes depend on it (10 linked files: 4; 25: 7; 105: 13; 400: 25). The threshold
+grows with the square root, not a share: a quarter asked for 27 of 105 linked files and
+missed the error-text helpers fifteen screens use. Then a core node that only hubs
+depend on joins them, repeated until nothing changes, so a hub's private helper is read
+with it. The overlay's `"hub": true` or `false` on a node overrides the rule (`false`
+also keeps the node out of the second step); on a test or late node it is ignored with a
 warning. A file with fewer than 4 dependents is never a hub, so most small PRs have
-none.
+none. A `trivial` change (above) can be a hub, since its many links would otherwise bind
+its users together, but it reads after the hubs with something to read: a one-line
+provider change that 28 files use is no first step.
 
 The viewer pins the hubs, each with its tests indented under it, in a "Wspólne
 zależności" / "Shared dependencies" group at the top of the step list, numbered as
@@ -149,12 +202,21 @@ edge into the band only for the selected file.
 ### Reading order
 
 `order` is dependency-first ("Od zależności" / "From dependencies"). build_graph.py
-reads the hubs first, then the other core nodes, and an edge between a hub and
-another node counts in neither part: a node linked only to hubs reads with the
-isolated ones, and hubs do not pull their users together. Within each part it splits
+reads the hubs first (those with something to read, then the `trivial` or unchanged
+ones), then the other core nodes, and an edge between two of these parts counts in
+neither: a node linked only to hubs reads with the isolated ones, and hubs do not pull
+their users together. Within each part it splits
 the nodes into connected ones, which share a non-`test` edge with another node of the
 part, and isolated ones; edges to tests, to late nodes, and to other PRs do not
-connect a node. It topologically sorts the connected nodes. When several are ready to be read, the
+connect a node. It topologically sorts the connected nodes. A `type` edge orders its
+files like an import unless it closes a cycle: type edges inside a strongly connected
+component of all these edges are left out of the ordering (they still connect their
+files), so a cycle closed only by a type-only import (transport ↔ refresh coordinator)
+neither warns nor reorders anything. Each strongly connected component left, a real
+import cycle, prints one warning naming only its files ("import cycle among 2 files
+(…)"); when such a cycle blocks every file, the candidates are the files of a cycle that
+waits on nothing outside itself, so breaking it never lets an unrelated or a waiting
+file jump ahead. When several are ready to be read, the
 flow rule picks the one that shares such an edge (either direction) with the most
 recently placed node, so a run like types → service → controller stays together
 instead of interleaving with unrelated files; remaining ties break by layer
@@ -166,8 +228,19 @@ wins; a test with no core target goes after all core nodes), and puts `docs`,
 the stored `order` as its last tie-break (for build_graph.py output that encodes
 the layer and path tie-break), so it reproduces the stored order exactly; on a
 hand-written graph the stored order decides only between equally connected files.
-The viewer's default mode, "Od punktu wejścia" / "From the entry point", reverses
-only the connected nodes of each part: the hubs still come first (read the shared
+The viewer opens each PR in the mode build_graph.py recommends (`readFrom`). Entry
+points are the connected core nodes outside the hubs that no other such node depends
+on, the files "from the entry point" opens with. One is light when it is `trivial` or
+unchanged, or when its change (added + removed lines) is at most a third of the largest
+change among the core files it depends on, directly or through others, hubs included.
+`readFrom` is `"dependencies"` when there are at least 3 entry points and more than half
+are light (a PR that adapts many callers to a change underneath reads best from that
+change), else `"entry"`. A note under the order buttons says why and marks the
+recommended button; a pick of the other mode is kept per PR (localStorage `omodes`,
+`{prKey: "top"|"bottom"}`) and dropped when the reader picks the recommended one again,
+so a rebuilt PR follows its new recommendation; a narrative button's `data-order` picks
+one for the visit only. (An earlier report-wide `omode` key is not read.) "Od punktu
+wejścia" / "From the entry point" reverses only the connected nodes of each part: the hubs still come first (read the shared
 pieces before the files that use them), and isolated nodes, the placement of tests,
 and the late layers stay as in the stored order, so an unrelated file (a collapsed
 import change, say) never opens either mode. Reversing keeps every adjacent pair
@@ -201,6 +274,18 @@ Its subject is the changed file whose name equals the test's name with those
 markers removed (`mobile-state-panel-test.tsx` → `mobile-state-panel.tsx`,
 `login.cy.ts` → `login.ts`, `PaymentITCase.java` → `Payment.java`), the nearest by
 path when several match. Django's `tests.py` has no name match; its imports place it.
+A test with no such match (and a name of its own: test support such as
+`fixtures/index.ts` has none) looks for one subject near it, among the changed core
+files under its root (the path above its last test directory, else its own directory):
+first its name without leading area words (words of its directories, or `mobile`,
+`web`, `test`, `spec`, `e2e`, `unit`, `integration`) matched exactly
+(`apps/mobile/__tests__/mobile-transport-test.ts` → `…/runtime/transport.ts`),
+then word overlap: a file all of whose name words are in the test's name (camelCase
+split, digits dropped, a plural `s` removed), scored by the test's other non-area words
+its name or its directories below the root share; the best score, at least 2, held by
+exactly one file wins (`mobile-auth-bootstrap-test` → `auth/bootstrap.ts`,
+`task-detail-mutations-test` → `details/task-detail.tsx`;
+`routine-agenda-detail-mutations-test` with two such files gets none).
 
 ### Areas (clusters)
 
@@ -331,7 +416,7 @@ node, an edge starts at the last part that changes its `from` and ends at the la
 part up to that one with its `to` (skipped with a warning when none has it),
 `dropEdges` drop it in every part, and `extraNodes` go to the first part. A part key
 (`Mb:path`) names one part. Overlay edges replace a
-weaker edge between the same nodes (`test > route > di > http > config > import`).
+weaker edge between the same nodes (`test > route > di > http > config > import > type`).
 A reference to a path the PR does not change (a typo, or a file a moved branch
 dropped) and an `extraNodes` file the PR now changes are skipped with a warning,
 so a refresh never fails on them; fix or remove them when you see the warning.
@@ -370,6 +455,12 @@ gen_diffs.py reads a tag that git cut at 80 bytes, that hides a `>` in an attrib
 or that spans lines from the file's old version), which the viewer uses to highlight
 a hunk in the middle of a `<template>`, `<script>`, or `<style>` block in that block's
 language (it falls back to the tags inside the hunks and a guess for diffs without it).
+A text file moved without a change (similarity 100%, so git gives no hunk) carries its
+whole content at the tip as one hunk of context lines (`@@ -1,n +1,n @@`, after `--- a/`
+and `+++ b/` lines) and `"moved": "<old path>"`; the viewer says "moved from … without
+changes" above it, and review notes and tour steps can anchor on any line (validate.py
+finds them inside the hunk). Its `fp` stays the rename's (from, to, similarity), so a
+refresh does not flag it changed.
 A file that two or more parts of a PR change has, on the entry of the last part that
 changes it, `"whole": {"diff": "…", "truncated"?: n}`: its diff over the whole PR (first
 part's start to last part's end), shown read-only by the viewer's whole-PR toggle.
