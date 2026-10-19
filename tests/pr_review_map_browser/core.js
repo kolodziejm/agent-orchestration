@@ -19,17 +19,72 @@ module.exports = {
     await t.fresh(STACK);
     t.noErrors('stack: no page errors on load');
     t.check('stack: default view is the list (map hidden)', await B.ev(`document.getElementById('g-canvas').hidden&&document.querySelector('[data-v=list]').getAttribute('aria-pressed')==='true'`));
+    // The order is picked per PR, so each tab gets the click.
     for (const mode of ['top', 'bottom']) {
-      await B.ev(`document.querySelector('[data-o=${mode}]').click()`);
       for (const k of ['A', 'B', 'C']) {
         await B.ev(`T.tabTo('${k}')`);
+        await B.ev(`document.querySelector('[data-o=${mode}]').click()`);
         const rows = await B.ev('T.rows()');
         const on = order[mode][k];
         const want = Object.keys(on).sort((a, b) => on[a] - on[b]);
         t.check(`stack ${mode} ${k}: list order and numbers match computeOrder`, JSON.stringify(rows.map((r) => r.id)) === JSON.stringify(want) && rows.every((r) => r.no === on[r.id]), { rows, on });
       }
     }
-    await B.ev(`document.querySelector('[data-o=top]').click()`);
+    for (const k of ['C', 'B', 'A']) { await B.ev(`T.tabTo('${k}')`); await B.ev(`document.querySelector('[data-o=top]').click()`); }
+
+    /* ---------- Reading order per PR: the recommendation by default, a pick kept for its PR only ---------- */
+    const rec = Object.fromEntries(exp.data.prs.map((p) => [p.key, p.readFrom === 'dependencies' ? 'bottom' : 'top']));
+    const flip = (m) => (m === 'top' ? 'bottom' : 'top');
+    const orderState = `({on:(document.querySelector('[data-o][aria-pressed=true]')||{dataset:{}}).dataset.o,rec:[].map.call(document.querySelectorAll('[data-o].rec'),function(b){return b.dataset.o;}),title:(document.querySelector('[data-o].rec')||{}).title,why:document.getElementById('g-why').hidden?null:document.getElementById('g-why').textContent,picks:localStorage.getItem(T.key()+'omodes')})`;
+    const strings = JSON.parse(await B.ev(`document.getElementById('review-config').textContent`)).strings;
+    await t.fresh(STACK);
+    for (const k of ['A', 'B', 'C']) {
+      await B.ev(`T.tabTo('${k}')`);
+      const st = await B.ev(orderState), why = exp.data.prs.find((p) => p.key === k).readFromWhy;
+      t.check(`order ${k}: opens in the recommended order, its button marked, and a note says why`,
+        st.on === rec[k] && JSON.stringify(st.rec) === JSON.stringify([rec[k]]) && st.title === strings.orderRec && !!st.why && st.why.includes(String(why.entries)) && !st.why.includes(strings.orderWhyPicked), st);
+    }
+    await B.ev(`T.tabTo('A')`);
+    await B.ev(`document.querySelector('[data-o=${flip(rec.A)}]').click()`);
+    let st = await B.ev(orderState);
+    const onA = order[flip(rec.A)].A;
+    t.check('order: picking the other order reorders the PR and the note says it was picked', st.on === flip(rec.A) && st.why.endsWith(strings.orderWhyPicked)
+      && JSON.stringify((await B.ev('T.rows()')).map((r) => r.id)) === JSON.stringify(Object.keys(onA).sort((a, b) => onA[a] - onA[b])), st);
+    t.check('order: the pick is stored for that PR only', JSON.stringify(JSON.parse(st.picks)) === JSON.stringify({ A: flip(rec.A) }), st.picks);
+    await B.ev(`T.tabTo('B')`);
+    t.check('order: another PR keeps its own (recommended) order', (await B.ev(orderState)).on === rec.B);
+    await t.reload(STACK);
+    await B.ev(`T.tabTo('A')`);
+    t.check('order: the pick survives a reload', (await B.ev(orderState)).on === flip(rec.A));
+    await B.ev(`document.querySelector('[data-o=${rec.A}]').click()`);
+    st = await B.ev(orderState);
+    t.check('order: picking the recommended order again drops the pick', st.on === rec.A && JSON.stringify(JSON.parse(st.picks)) === '{}' && !st.why.includes(strings.orderWhyPicked), st);
+    t.noErrors('order: no page errors');
+
+    /* ---------- Type-only imports: lighter, dotted arcs and edges, a legend entry, marked in the neighbourhood ---------- */
+    const typed = exp.data.prs.flatMap((p) => p.edges.filter((e) => e.kind === 'type').map((e) => ({ ...e, pr: p.key })));
+    t.check('fixture: the stack has type-only edges', typed.length > 0, typed);
+    t.check('legend: a type-only import entry', (await B.ev(`(document.querySelector('#g-legend .lg-type')||{}).textContent`)) === strings.typeEdge);
+    const ty = typed.find((e) => e.pr === 'A');
+    await B.ev(`T.tabTo('A')`);
+    await B.ev(`document.getElementById('g-all').click()`); await sleep(80);
+    await B.ev(`T.pick('${ty.from}')`); await sleep(100);
+    const lane = await B.ev(`[].map.call(document.querySelectorAll('#g-lane path.arc'),function(p){var c=getComputedStyle(p);return {f:p.dataset.f,t:p.dataset.t,type:p.classList.contains('type'),dash:c.strokeDasharray,op:+c.strokeOpacity,sel:p.classList.contains('dep')||p.classList.contains('use')};})`);
+    const kindOf = Object.fromEntries(exp.data.prs[0].edges.map((e) => [e.from + '>' + e.to, e.kind]));
+    t.check('lane: an arc is dotted ("type") exactly when its edge is type-only', lane.length > 0 && lane.every((a) => a.type === (kindOf[a.f + '>' + a.t] === 'type')) && lane.some((a) => a.type)
+      && lane.filter((a) => a.type).every((a) => a.dash !== 'none'), lane);
+    const plainOp = lane.filter((a) => !a.type && !a.sel && kindOf[a.f + '>' + a.t] !== 'http').map((a) => a.op), typeOp = lane.filter((a) => a.type && !a.sel).map((a) => a.op);
+    t.check('lane: an unselected type-only arc is lighter than an import arc', !typeOp.length || !plainOp.length || Math.max(...typeOp) < Math.min(...plainOp), { plainOp, typeOp });
+    const tyNb = await B.ev(`[].map.call(document.querySelectorAll('#g-detail .g-nbc.dep .g-nbi.ty'),function(b){return {go:b.dataset.go,title:b.title};})`);
+    const tyDeps = exp.data.prs[0].edges.filter((e) => e.from === ty.from && e.kind === 'type').map((e) => e.to);
+    t.check('neighbourhood: a type-only dependency is marked and its title says so', JSON.stringify(tyNb.map((x) => x.go).sort()) === JSON.stringify([...tyDeps].sort()) && tyNb.every((x) => x.title.includes(strings.nbType)), { tyNb, tyDeps });
+    await B.ev(`document.getElementById('g-all').click()`);
+    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(300);
+    const mapEd = await B.ev(`[].map.call(document.querySelectorAll('#g-canvas path.ed'),function(p){return {f:p.dataset.f,t:p.dataset.t,type:p.classList.contains('type')};})`);
+    t.check('map: an edge is dotted ("type") exactly when its edge is type-only', mapEd.some((e) => e.type) && mapEd.every((e) => !kindOf[e.f + '>' + e.t] || e.type === (kindOf[e.f + '>' + e.t] === 'type')), mapEd);
+    await B.ev(`document.querySelector('[data-v=list]').click()`);
+    t.noErrors('type edges: no page errors');
+    await t.fresh(STACK);
     await B.ev(`T.tabTo('A')`);
     const testIndent = await B.ev(`T.rows().filter(function(r){return r.t;}).map(function(r){return r.id;})`);
     const aTests = exp.data.prs[0].nodes.filter((n) => n.layer === 'test').map((n) => n.id);
@@ -306,7 +361,9 @@ module.exports = {
       const th = dark ? 'dark' : 'light';
       await t.fresh(BIG, { dark });
       const rows = await B.ev('T.rows()');
-      const on = expBig.order.top.P.on;
+      const bigRec = expBig.data.prs[0].readFrom === 'dependencies' ? 'bottom' : 'top';
+      const on = expBig.order[bigRec].P.on;
+      t.check(`big ${th}: opens in its recommended order (${bigRec})`, await B.ev(`document.querySelector('[data-o=${bigRec}]').getAttribute('aria-pressed')==='true'&&document.querySelector('[data-o=${bigRec}]').classList.contains('rec')`));
       t.check(`big ${th}: 103 rows in computeOrder order`, rows.length === 103 && rows.every((r, i) => i === 0 || on[r.id] > on[rows[i - 1].id]) && rows.every((r) => r.no === on[r.id]), rows.length);
       const none = await B.ev(`document.querySelectorAll('#g-lane path.arc').length`);
       const sid = rows[40].id;
