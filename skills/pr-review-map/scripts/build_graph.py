@@ -7,7 +7,7 @@ Usage:
       --pr S /path/repo main...feat/s        --name S "S #12680" \\
       --pr A /path/repo feat/s...feat/a      --name A "A #12681" \\
       [--title KEY "longer title"] [--repo KEY owner/name] \\
-      [--alias '@scope/pkg=libs/pkg/src/index.ts'] [--alias '@/=src/'] \\
+      [--alias '@scope/pkg=libs/pkg/src/index.ts'] [--alias '@/=apps/mobile/src/@apps/mobile'] \\
       [--groups groups.json] [--no-default-groups] [--overlay overlay.json] \\
       [--chunks chunks.json] [--previous graphs.json]
 
@@ -18,10 +18,23 @@ at each range's tip, so nothing is checked out.
 What the script resolves on its own:
   * nodes from `git diff --numstat` with +/- counts; lockfiles, translations,
     translation catalogs, deploy config, and docs collapse into one group node each
-  * a first-guess layer per file (refine it in the overlay)
-  * JS/TS imports (relative, `.js`→`.ts`, `--alias`), Python imports, PHP `use`
-  * test → subject edges by file name with the test marker removed
-    (`panel-test.tsx`, `panel.spec.ts`, `test_panel.py`, `panel_spec.rb` → `panel`)
+  * a first-guess layer per file from path segments and name suffixes (refine it in the overlay)
+  * JS/TS imports: relative, `.js`->`.ts`, `--alias SPEC=PATH` (an exact specifier, or a prefix ending
+    in `/`), scoped `--alias SPEC=PATH@DIR` (only for importers under DIR), and the `paths`/`baseUrl` of
+    the tsconfig.json or jsconfig.json nearest to the importer (its in-repo `extends` followed). For one
+    import a scoped alias goes first, then the importer's tsconfig, then the unscoped aliases; the first
+    that names a file in the tree wins. `import type`, `import { type A }` (every specifier a type), and
+    `export type ... from` become `type` edges.
+  * re-exports through unchanged barrels: an import that resolves to a file the PR does not change but
+    that re-exports (`export * from`, `export { X } from`, `export * as ns from`) is followed, read at the
+    tip, at most 4 files deep and never twice, to the changed files it re-exports; with named imports
+    only the re-exports of those names (for `export *`, a changed file that declares one of them). Such
+    an edge carries `via`, the unchanged files it went through.
+  * Python imports, PHP `use`
+  * test -> subject edges by file name with the test marker removed (`panel-test.tsx`, `panel.spec.ts`,
+    `test_panel.py`, `panel_spec.rb` -> `panel`); a test without such a match falls back to its name
+    without leading area words (`mobile-transport-test` -> `transport`), then to word overlap with a
+    changed file near it (`mobile-auth-bootstrap-test` -> `auth/bootstrap.ts`), only when one file wins
   * `hub`: shared dependencies, files that at least a quarter of the PR's linked files
     (and at least 4) depend on, plus files only they use; the viewer pins them in a
     "Shared dependencies" group and leaves their incoming links out of the arcs
@@ -94,7 +107,12 @@ DEFAULT_GROUPS = [
      "pattern": r"\.(md|mdx|rst|adoc|txt)$|(^|/)docs?/"},
 ]
 
-# First-guess layer for a single file, checked in order. A test is a file under a test directory or
+# First-guess layer for a single file, checked in order. Rules match whole path segments (a directory name between
+# slashes) or a file-name suffix, never a word inside a name, and a component file (.tsx, .jsx, .vue, .svelte, .astro)
+# or a stylesheet or template is `ui` before any directory word can claim it: `resources/js/client/components/x.tsx`
+# is ui, `client-error-text.ts` is logic, `api-client.ts` is infra. Test support (fixtures, mocks, stubs, fakes,
+# testdata, test-utils/helpers/support directories) reads as `test`.
+# A test is a file under a test directory or
 # one whose name carries its language's marker as its own name segment: `.test.`/`.spec.`/`.e2e.`
 # anywhere; a `-test`/`_test`/`-spec`/`_spec`/`-e2e`/`_e2e` suffix in JS/TS, Vue, and Svelte
 # (`mobile-state-panel-test.tsx`); Cypress `.cy.` in JS/TS; `_spec.rb`; `_test` in Go, Python, Ruby,
@@ -107,20 +125,25 @@ DEFAULT_GROUPS = [
 # `testing.c` are not tests. `*Suite` is left to test directories: domain names end in it too. The JS
 # suffix also tags a feature file such as `ab-test.tsx`, and the Kotlin suffix a data class such as
 # `PodSpec.kt`; fix those with an overlay `layer`.
+TEST_SUPPORT_DIRS = r"__fixtures__|fixtures?|testdata|test-?(?:support|utils|helpers)|mocks?|stubs?|fakes?"
 LAYER_RULES = [
-    ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec)/|\.(spec|test|e2e)\.[^/]+$"
+    ("test", r"(^|/)(__tests__|__mocks__|tests?|e2e|spec|" + TEST_SUPPORT_DIRS + r")/|\.(spec|test|e2e)\.[^/]+$"
              r"|[-_](spec|test|e2e)\.([cm]?[jt]sx?|vue|svelte)$|\.cy\.[cm]?[jt]sx?$|_spec\.rb$"
              r"|_test\.(go|py|rb|exs|c|cc|cpp|cxx)$|(^|/)test_[^/]+\.(py|rb|c|cc|cpp|cxx)$"
              r"|Tests?\.(php|java|kt|scala|groovy|cs|swift)$|[a-z0-9]Spec\.(kt|scala|groovy)$"
              r"|[a-z0-9]IT(Case)?\.(java|kt)$|(^|/)(tests|conftest)\.py$"),
     ("wiring", r"(^|/)([\w-]*-)?(services|routing|routes|di|container|bundles)(\.[\w-]+)?\.(ya?ml|xml)$"),
     ("config", r"(^|/)(package\.json|tsconfig[^/]*\.json|jsconfig\.json|pyproject\.toml|setup\.(cfg|py)|composer\.json|go\.mod|Cargo\.toml|Gemfile|requirements[^/]*\.txt|project\.json|nx\.json|turbo\.json)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|(^|/)\.[^/]*rc(\.[a-z]+)?$|\.(ya?ml|toml|ini|cfg|env)$"),
-    ("data", r"(^|/)(migrations?|db|database|prisma|seeds?|fixtures)/|\.(sql|prisma)$"),
-    ("contract", r"(^|/)(contracts?|schemas?|dto|dtos|openapi|proto|api-types)/|\.(proto|graphql|gql)$|\.(schema|contract|dto)\.[cm]?[jt]sx?$"),
+    ("data", r"(^|/)(migrations?|db|database|prisma|seeds?)/|\.(sql|prisma)$"),
+    ("ui", r"\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less|html|twig|erb|hbs)$"),
+    ("contract", r"(^|/)(contracts?|schemas?|dto|dtos|openapi|proto|api-types)/|\.(proto|graphql|gql)$"
+                 r"|(^|/|[._-])(schemas?|contracts?|dtos?)\.([cm]?[jt]s|py)$"),
     ("domain", r"(^|/)(domain|entities|entity|models?|value-?objects?)/"),
-    ("infra", r"(^|/)(infra|infrastructure|adapters?|providers?|repositor(y|ies)|clients?|gateways?|persistence|integrations?)/"),
-    ("rest", r"(^|/)(rest|controllers?|handlers?|routes?|endpoints?|resolvers?)/|(Controller|Handler|Resolver|Endpoint)\.[^/]+$|(^|/)(routes?|handlers?|router)\.[cm]?[jt]sx?$"),
-    ("ui", r"\.(tsx|jsx|vue|svelte|css|scss|sass|less|html|twig|erb|hbs)$"),
+    ("infra", r"(^|/)(infra|infrastructure|adapters?|repositor(y|ies)|gateways?|persistence|integrations?)/"
+              r"|[._-](client|repository|repo|gateway|adapter)\.([cm]?[jt]s|py|rb|go)$"
+              r"|[a-z0-9](Client|Repository|Gateway|Adapter)\.(php|java|kt|scala|cs|swift|ts)$"),
+    ("rest", r"(^|/)(rest|controllers?|handlers?|routes?|endpoints?|resolvers?)/|(Controller|Handler|Resolver|Endpoint)\.[^/]+$"
+             r"|(^|/)(routes?|handlers?|router)\.[cm]?[jt]sx?$|[._-](controller|handler|resolver|endpoint|routes?)\.[cm]?[jt]s$"),
     ("wiring", r"(^|/)(index|main|app|server|context|container|module|bootstrap|di|setup|register)\.[^/]+$|\.module\.[cm]?[jt]s$|(^|/)__init__\.py$"),
     ("logic", r""),
 ]
@@ -128,18 +151,28 @@ PRIO = {"contract": 0, "domain": 1, "data": 1, "logic": 2, "infra": 3, "rest": 4
         "wiring": 6, "test": 7, "config": 8, "i18n": 8, "docs": 9}
 LATE = {"docs", "config", "i18n"}
 HUB_MIN, HUB_SHARE = 4, 4  # a hub: at least 4 dependents and at least a quarter of the linked core files
+BARREL_DEPTH = 4        # re-export hops followed from an unchanged barrel
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
-KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1}
+KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1, "type": 0}
 KINDS = set(KIND_RANK)
 GENERIC_NAMES = re.compile(r"^(index|types?|context|handlers?|routes?|utils?|helpers?|constants?|config|main|app|mod|lib|__init__|package|README|readme|schema|models?)\.[^.]+$")
 JS_EXT = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte")
 JS_RESOLVE = (".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".json")
 JS_IMPORT = re.compile(
-    r"""(?:^|[;\s])(?:import|export)\s[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]"""
-    r"""|(?:^|[;\s])import\s*['"]([^'"]+)['"]"""
-    r"""|\b(?:require|import|(?:vi|jest)\.(?:mock|doMock|requireActual|importActual))\s*\(\s*['"]([^'"]+)['"]""",
+    r"""(?:^|[;\s])(?P<kw>import|export)\s(?P<clause>[^'"`;]*?)\bfrom\s*['"](?P<a>[^'"]+)['"]"""
+    r"""|(?:^|[;\s])import\s*['"](?P<b>[^'"]+)['"]"""
+    r"""|\b(?:require|import|(?:vi|jest)\.(?:mock|doMock|requireActual|importActual))\s*\(\s*['"](?P<c>[^'"]+)['"]""",
     re.MULTILINE,
 )
+# What an import or re-export clause names: `type`? then a default name, `* as ns` (or a bare `*`), and/or `{...}`.
+CLAUSE = re.compile(r"(?P<type>type\s+(?=[{*\w$]))?(?:(?P<default>[A-Za-z_$][\w$]*)\s*(?:,\s*)?)?"
+                    r"(?:(?P<star>\*)(?:\s*as\s+[\w$]+)?|\{(?P<list>[^}]*)\})?", re.DOTALL)
+REEXPORT = re.compile(r"""(?:^|[;\s])export\s+(?P<type>type\s+)?(?:\*\s*(?:as\s+(?P<ns>[\w$]+)\s*)?|\{(?P<list>[^}]*)\}\s*)"""
+                      r"""from\s*['"](?P<spec>[^'"]+)['"]""", re.MULTILINE)
+EXPORT_DECL = re.compile(r"(?:^|[;\s])export\s+(?:declare\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?"
+                         r"(?:function\s*\*?|class|const|let|var|type|interface|enum|namespace)\s+([A-Za-z_$][\w$]*)", re.MULTILINE)
+EXPORT_LIST = re.compile(r"(?:^|[;\s])export\s+(?:type\s+)?\{([^}]*)\}(?!\s*from\b)", re.MULTILINE)
+COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
 PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.MULTILINE)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
 # Stripped (repeatedly) from a test's stem to find its subject: `panel-test` -> `panel`,
@@ -147,6 +180,9 @@ PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(
 # `OrderSpec` -> `Order`, `UserRepositoryIT` -> `UserRepository`. Django's `tests` strips to nothing:
 # such a file has no name-matched subject and is placed by its imports.
 TEST_MARK = re.compile(r"([.\-_](spec|test|e2e)$|\.cy$|Tests?$|(?<=[a-z0-9])(Spec|IT(Case)?)$|^test_|^tests$)")
+TEST_DIRS = {"__tests__", "__mocks__", "test", "tests", "spec", "specs", "e2e"}
+# Words that name an area rather than a subject: dropped from the front of a test's name, and not counted as a match.
+AREA_WORDS = {"mobile", "web", "test", "spec", "e2e", "unit", "integration"}
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 SCP = re.compile(r"(?P<host>[^/:]{2,}):(?P<path>.*)")
 SAFE_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -270,16 +306,121 @@ def group_path(files: list[str]) -> str:
     return f"{common}/**" if common else ", ".join(sorted(files)[:3]) + (", …" if len(files) > 3 else "")
 
 
+def jsonc(text: str):
+    """JSON with comments and trailing commas (tsconfig.json), or None."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            out.append(text[i])
+            i += 1
+    try:
+        return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+    except ValueError:
+        return None
+
+
+def specifiers(text: str) -> list[tuple[str, str, bool]]:
+    """(name in the source module, name here, type-only) for each `a`, `a as b`, `type a` of a `{...}` list."""
+    out = []
+    for part in COMMENTS.sub("", text).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        type_only = False
+        if re.match(r"type\s+[\w$]", part) and not re.fullmatch(r"type\s+as\s+[\w$]+", part):
+            type_only, part = True, part[4:].strip()
+        names = re.split(r"\s+as\s+", part)
+        out.append((names[0].strip(), names[-1].strip(), type_only))
+    return out
+
+
+def clause_names(clause: str) -> tuple[bool, set[str] | None]:
+    """(type-only, names) of an `import <clause> from` or `export <clause> from`: the names it takes from the module
+    (`default` for a default import), or None for all of them (`* as ns`, `*`, or a clause this cannot read)."""
+    text = COMMENTS.sub("", clause).strip()
+    match = CLAUSE.fullmatch(text)
+    if not match or not text:
+        return False, None
+    specs = specifiers(match.group("list")) if match.group("list") is not None else []
+    type_only = bool(match.group("type")) or (
+        bool(specs) and not match.group("default") and not match.group("star") and all(t for _s, _l, t in specs))
+    if match.group("star"):
+        return type_only, None
+    names = {source for source, _local, _t in specs}
+    if match.group("default"):
+        names.add("default")
+    return type_only, names or None
+
+
 class Resolver:
     """Resolve import specifiers of one PR against its tip tree."""
 
-    def __init__(self, repo: str, tip: str, aliases: list[tuple[str, str]]):
-        self.repo, self.tip, self.aliases = repo, tip, aliases
+    def __init__(self, repo: str, tip: str, raw_aliases: list[str]):
+        self.repo, self.tip = repo, tip
         listing = git(repo, "ls-tree", "-r", "--name-only", "-z", "--end-of-options", tip) or ""
         self.tree = {path for path in listing.split("\0") if path}
+        self.dirs = {""}
+        for path in self.tree:
+            parts = path.split("/")[:-1]
+            for i in range(1, len(parts) + 1):
+                self.dirs.add("/".join(parts[:i]))
+        self.sources: dict[str, str] = {}
+        self.nearest: dict[str, str | None] = {}
+        self.ts_info: dict[str, tuple[list[tuple[str, list[str]]], str, str | None]] = {}
+        self.exports: dict[str, list[tuple[str, str, bool, object]]] = {}
+        self.ts_hits: dict[str, int] = {}
+        self.scoped: list[tuple[str, str, str]] = []
+        self.unscoped: list[tuple[str, str]] = []
+        self.missing: set[str] = set()  # aliases whose path or directory this tree lacks
+        for item in raw_aliases:
+            spec, target, scope = self.parse_alias(item)
+            if scope is None:
+                self.unscoped.append((spec, target))
+            else:
+                self.scoped.append((spec, target, scope))
+            if not self.exists(target) or (scope is not None and scope not in self.dirs):
+                self.missing.add(item)
+        self.unscoped.sort(key=lambda pair: -len(pair[0]))
+        self.scoped.sort(key=lambda item: (-len(item[2]), -len(item[0])))
+
+    def exists(self, path: str) -> bool:
+        """Whether a path (a file, a directory, or a module path without its extension) is in the tree."""
+        path = path.rstrip("/")
+        if not path:
+            return True
+        return path in self.dirs or any(c in self.tree for c in self._js_candidates(path))
+
+    def parse_alias(self, item: str) -> tuple[str, str, str | None]:
+        """SPEC=PATH, or SPEC=PATH@DIR for importers under DIR. A PATH that is itself in the tree keeps its `@`
+        (`src/@core/`); a trailing `@` (empty DIR) also says the alias is unscoped."""
+        if "=" not in item:
+            raise SystemExit(f"--alias {item!r}: expected SPEC=PATH or SPEC=PATH@DIR")
+        spec, target = item.split("=", 1)
+        scope = None
+        if "@" in target and not self.exists(target):
+            head, tail = target.rsplit("@", 1)
+            if head:
+                target, scope = head, tail.strip("/") or None
+        if spec.endswith("/") and target and not target.endswith("/"):
+            target += "/"
+        return spec, target, scope
 
     def source(self, path: str) -> str:
-        return git(self.repo, "show", "--end-of-options", f"{self.tip}:{path}", check=False) or ""
+        if path not in self.sources:
+            self.sources[path] = git(self.repo, "show", "--end-of-options", f"{self.tip}:{path}", check=False) or ""
+        return self.sources[path]
 
     def _js_candidates(self, base: str) -> list[str]:
         base = posixpath.normpath(base)
@@ -289,24 +430,170 @@ class Resolver:
             out += [root + alt for alt in (".ts", ".tsx", ".mts", ".cts")]
         return out
 
+    def _first(self, base: str) -> str | None:
+        return next((c for c in self._js_candidates(base) if c in self.tree), None)
+
+    @staticmethod
+    def _alias_bases(pairs, spec: str) -> list[str]:
+        out = []
+        for prefix, target in pairs:
+            if prefix.endswith("/") and spec.startswith(prefix):
+                out.append(target + spec[len(prefix):])
+            elif spec == prefix:
+                out.append(target)
+        return out
+
     def js(self, frm: str, spec: str) -> str | None:
         if spec.startswith("."):
-            base = posixpath.join(posixpath.dirname(frm), spec)
-        else:
-            base = None
-            for prefix, target in self.aliases:
-                if prefix.endswith("/") and spec.startswith(prefix):
-                    base = target + spec[len(prefix):]
-                    break
-                if spec == prefix:
-                    base = target
-                    break
-            if base is None:
-                return None
-        for candidate in self._js_candidates(base):
-            if candidate in self.tree:
-                return candidate
+            return self._first(posixpath.join(posixpath.dirname(frm), spec))
+        scoped = [(s, t) for s, t, scope in self.scoped if frm.startswith(scope + "/")]
+        for base in self._alias_bases(scoped, spec):
+            hit = self._first(base)
+            if hit:
+                return hit
+        config = self._nearest(posixpath.dirname(frm))
+        if config:
+            for base in self._tsconfig_bases(config, spec):
+                hit = self._first(base)
+                if hit:
+                    self.ts_hits[config] = self.ts_hits.get(config, 0) + 1
+                    return hit
+        for base in self._alias_bases(self.unscoped, spec):
+            hit = self._first(base)
+            if hit:
+                return hit
         return None
+
+    def _nearest(self, directory: str) -> str | None:
+        """The tsconfig.json or jsconfig.json in `directory` or the closest directory above it."""
+        if directory not in self.nearest:
+            here = next((p for p in (posixpath.join(directory, n) for n in ("tsconfig.json", "jsconfig.json")) if p in self.tree), None)
+            self.nearest[directory] = here if here or not directory else self._nearest(posixpath.dirname(directory))
+        return self.nearest[directory]
+
+    def _extends(self, config: str, value) -> list[str]:
+        """The in-repo configs `extends` names, last first (a later one overrides an earlier one); packages are skipped."""
+        out = []
+        for item in reversed(value if isinstance(value, list) else [value]):
+            if not isinstance(item, str) or not item.startswith((".", "/")) or item.startswith("/"):
+                continue
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(config), item))
+            for candidate in (path, path + ".json", posixpath.join(path, "tsconfig.json")):
+                if candidate in self.tree:
+                    out.append(candidate)
+                    break
+        return out
+
+    def _tsconfig_bases(self, config: str, spec: str) -> list[str]:
+        if config not in self.ts_info:
+            paths = base_url = paths_dir = None
+            order, seen = [config], set()
+            while order:
+                current = order.pop(0)
+                if current in seen or len(seen) > 16:
+                    continue
+                seen.add(current)
+                data = jsonc(self.source(current))
+                if not isinstance(data, dict):
+                    continue
+                options = data.get("compilerOptions") if isinstance(data.get("compilerOptions"), dict) else {}
+                if paths is None and isinstance(options.get("paths"), dict):
+                    paths, paths_dir = options["paths"], posixpath.dirname(current)
+                if base_url is None and isinstance(options.get("baseUrl"), str):
+                    base_url = posixpath.normpath(posixpath.join(posixpath.dirname(current), options["baseUrl"]))
+                order[:0] = self._extends(current, data.get("extends"))
+            if base_url == ".":
+                base_url = ""
+            patterns = [(pattern, [t for t in targets if isinstance(t, str)]) for pattern, targets in (paths or {}).items()
+                        if isinstance(pattern, str) and isinstance(targets, list)]
+            self.ts_info[config] = (patterns, base_url if base_url is not None else paths_dir or "", base_url)
+        patterns, root, base_url = self.ts_info[config]
+        out = []
+        exact = [targets for pattern, targets in patterns if "*" not in pattern and pattern == spec]
+        wild = []
+        for pattern, targets in patterns:
+            if "*" in pattern:
+                prefix, suffix = pattern.split("*", 1)
+                if spec.startswith(prefix) and spec.endswith(suffix) and len(spec) >= len(prefix) + len(suffix):
+                    wild.append((len(prefix), pattern, targets, spec[len(prefix):len(spec) - len(suffix)]))
+        for targets in exact:
+            out += [posixpath.join(root, t) for t in targets]
+        for _length, _pattern, targets, star in sorted(wild, key=lambda w: (-w[0], w[1])):
+            out += [posixpath.join(root, t.replace("*", star, 1)) for t in targets]
+        if base_url is not None:
+            out.append(posixpath.join(base_url, spec))
+        return [posixpath.normpath(b) for b in out]
+
+    def reexports(self, path: str) -> list[tuple[str, str, bool, object]]:
+        """(specifier, form, type-only, detail) per `export ... from` of a file: form "named" with its specifiers,
+        "ns" with the namespace name, or "star"."""
+        if path not in self.exports:
+            out = []
+            for m in REEXPORT.finditer(self.source(path)):
+                type_only = bool(m.group("type"))
+                if m.group("list") is not None:
+                    out.append((m.group("spec"), "named", type_only, specifiers(m.group("list"))))
+                elif m.group("ns"):
+                    out.append((m.group("spec"), "ns", type_only, m.group("ns")))
+                else:
+                    out.append((m.group("spec"), "star", type_only, None))
+            self.exports[path] = out
+        return self.exports[path]
+
+    def declares(self, path: str) -> set[str] | None:
+        """The names a module exports, or None when this cannot tell (an `export *`, CommonJS, destructuring)."""
+        src = self.source(path)
+        if (re.search(r"(?:^|[;\s])export\s+(?:type\s+)?\*\s*from", src) or "module.exports" in src
+                or re.search(r"\bexports\.\w", src) or re.search(r"(?:^|[;\s])export\s+(?:const|let|var)\s*[{\[]", src)):
+            return None
+        names = set(EXPORT_DECL.findall(src))
+        if re.search(r"(?:^|[;\s])export\s+default\b", src):
+            names.add("default")
+        for m in EXPORT_LIST.finditer(src):
+            names.update(local for _s, local, _t in specifiers(m.group(1)))
+        for _spec, form, _t, detail in self.reexports(path):
+            if form == "named":
+                names.update(local for _s, local, _t2 in detail)
+            elif form == "ns":
+                names.add(detail)
+        return names or None
+
+    def through(self, path: str, names: set[str] | None, changed, depth: int = 0, seen: set[str] | None = None):
+        """[(changed file, type-only, chain)]: the changed files `path`, an unchanged module, re-exports `names` from
+        (None: any), directly or through other unchanged modules, at most BARREL_DEPTH hops, each file once."""
+        seen = set() if seen is None else seen
+        if depth >= BARREL_DEPTH or path in seen or not path.endswith(JS_EXT):
+            return []
+        seen.add(path)
+        out = []
+        for spec, form, type_only, detail in self.reexports(path):
+            if form == "named":
+                picked = [(s, local, t) for s, local, t in detail if names is None or local in names]
+                if not picked:
+                    continue
+                child = {s for s, _local, _t in picked}
+                type_only = type_only or all(t for _s, _l, t in picked)
+            elif form == "ns":
+                if names is not None and detail not in names:
+                    continue
+                child = None
+            else:
+                child = None if names is None else names - {"default"}
+                if child is not None and not child:
+                    continue
+            target = self.js(path, spec)
+            if target is None:
+                continue
+            if changed(target):
+                if form == "star" and child is not None:
+                    declared = self.declares(target)
+                    if declared is not None and not declared & child:
+                        continue
+                out.append((target, type_only, (path,)))
+            else:
+                for hit, deeper_type, chain in self.through(target, child, changed, depth + 1, seen):
+                    out.append((hit, type_only or deeper_type, (path,) + chain))
+        return out
 
     def python(self, frm: str, module: str) -> list[str]:
         if module.startswith("."):
@@ -543,6 +830,62 @@ def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[
     return out, moves
 
 
+def words(text: str) -> list[str]:
+    """Lower-case words of a name or path (camelCase split, digits dropped, a plural `s` removed)."""
+    out = []
+    for word in re.split(r"[^A-Za-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text).lower()):
+        if not word or word.isdigit():
+            continue
+        out.append(word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word)
+    return out
+
+
+def test_root(test: str) -> str:
+    """Where a test's subjects live: the path above its last test directory (`apps/mobile` for
+    `apps/mobile/__tests__/x-test.ts`), else its own directory."""
+    dirs = test.split("/")[:-1]
+    cut = max((i for i, d in enumerate(dirs) if d in TEST_DIRS), default=None)
+    return "/".join(dirs[:cut] if cut is not None else dirs)
+
+
+def guess_subject(test: str, subjects: dict[str, list[str]], candidates: list[str]) -> str | None:
+    """A subject for a test its name does not match exactly; None unless exactly one file wins.
+
+    Only changed core files under test_root() count. First the test's name without leading area words (words of its
+    own directories, or mobile/web/test/spec/e2e/unit/integration): `mobile-transport-test` -> `transport`. Then word
+    overlap: a file all of whose name words are in the test's name, scored by the test's other words (area words do not
+    count) that its name or its directories below the root share; the best score, at least 2, held by one file wins:
+    `mobile-auth-bootstrap-test` -> `auth/bootstrap.ts`, `task-detail-mutations-test` -> `details/task-detail.tsx`.
+    """
+    root = test_root(test)
+    near = [c for c in candidates if not root or c.startswith(root + "/")]
+    area = AREA_WORDS | set(words(posixpath.dirname(test)))
+    name = test_stem(test)
+    match = re.match(r"([A-Za-z0-9]+)[-_.](.+)$", name)
+    while match and set(words(match.group(1))) <= area:
+        name = match.group(2)
+        found = [c for c in subjects.get(name, []) if c in near]
+        if len(found) == 1:
+            return found[0]
+        if found:
+            return None
+        match = re.match(r"([A-Za-z0-9]+)[-_.](.+)$", name)
+    mine = set(words(test_stem(test)))
+    wanted = mine - area
+    best, best_score, tied = None, 0, False
+    for candidate in near:
+        own = set(words(stem(candidate)))
+        if not own or not own <= mine:
+            continue
+        below = candidate[len(root) + 1:] if root else candidate
+        score = len((own | set(words(posixpath.dirname(below)))) & wanted)
+        if score > best_score:
+            best, best_score, tied = candidate, score, False
+        elif score == best_score and score:
+            tied = True
+    return best if best is not None and best_score >= 2 and not tied else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pr", action="append", nargs=3, metavar=("KEY", "REPO", "RANGE"), default=[])
@@ -550,8 +893,9 @@ def main() -> int:
     parser.add_argument("--title", action="append", nargs=2, metavar=("KEY", "TITLE"), default=[])
     parser.add_argument("--repo", action="append", nargs=2, metavar=("KEY", "REPO"), default=[],
                         help="repository label for copied review notes (default: owner/name from origin)")
-    parser.add_argument("--alias", action="append", default=[], metavar="SPEC=PATH",
-                        help="map an import specifier (exact) or prefix (ending in /) to a repo path")
+    parser.add_argument("--alias", action="append", default=[], metavar="SPEC=PATH[@DIR]",
+                        help="map an import specifier (exact) or prefix (ending in /) to a repo path; "
+                             "@DIR limits it to importers under DIR")
     parser.add_argument("--groups", type=Path, help="JSON list of extra group rules, checked before the defaults")
     parser.add_argument("--no-default-groups", action="store_true")
     parser.add_argument("--overlay", type=Path, help="authored roles, notes, layers, extra nodes and edges")
@@ -568,13 +912,9 @@ def main() -> int:
     names = dict(args.name)
     titles = dict(args.title)
     repos = dict(args.repo)
-    aliases = []
     for item in args.alias:
         if "=" not in item:
-            raise SystemExit(f"--alias {item!r}: expected SPEC=PATH")
-        spec, target = item.split("=", 1)
-        aliases.append((spec, target))
-    aliases.sort(key=lambda pair: -len(pair[0]))
+            raise SystemExit(f"--alias {item!r}: expected SPEC=PATH or SPEC=PATH@DIR")
     rules = json.loads(args.groups.read_text(encoding="utf-8")) if args.groups else []
     if not args.no_default_groups:
         rules = rules + DEFAULT_GROUPS
@@ -608,6 +948,7 @@ def main() -> int:
     for entry in entries:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
+        resolver = Resolver(repo, tip_of(rng), args.alias)
         nodes: dict[str, dict] = {}
         owner: dict[str, str] = {}
         for path in sorted(files):
@@ -635,7 +976,11 @@ def main() -> int:
             labels[repo] = repo_label(repo)
         prs.append({"key": key, "repo": repo, "label": repos.get(key) or repos.get(entry.get("parent", "")) or labels[repo],
                     "range": rng, "tip": tip_of(rng), "nodes": nodes, "owner": owner, "edges": {},
-                    "chunk": entry.get("chunk"), "parent": entry.get("parent")})
+                    "chunk": entry.get("chunk"), "parent": entry.get("parent"),
+                    "via": {}, "direct": set(), "resolver": resolver, "counts": {"barrel": 0, "tests": 0}})
+    for item in args.alias:
+        if all(item in pr["resolver"].missing for pr in prs):
+            warnings.append(f"--alias {item!r}: its path (or its @directory) is in no PR's tree at the tip; it resolves nothing")
 
     # Unchanged reference files first, so imports and `use` statements resolve to them.
     # One with a parent's key goes to its first part, so every part can link to it.
@@ -663,56 +1008,87 @@ def main() -> int:
                 return index, nk
         return None
 
-    def add_edge(index: int, frm: str, target: tuple[int, str], kind: str) -> None:
+    def add_edge(index: int, frm: str, target: tuple[int, str], kind: str, via: str | None = None) -> None:
+        """Record frm -> target; a stronger kind replaces a weaker one. `via` names the unchanged barrels an edge went
+        through; an edge found any other way too (a direct import, the overlay) carries none."""
         if (index, frm) == target:
             return
         edges = prs[index]["edges"]
         key = (frm, target)
         if key not in edges or KIND_RANK[kind] > KIND_RANK[edges[key]]:
             edges[key] = kind
+            if via is not None:
+                prs[index]["via"][key] = via
+        if via is None:
+            prs[index]["direct"].add(key)
+        else:
+            prs[index]["via"].setdefault(key, via)
 
     for index, pr in enumerate(prs):
-        resolver = Resolver(pr["repo"], pr["tip"], aliases)
+        resolver = pr["resolver"]
         changed_so_far = set().union(*(set(p["owner"]) for p in prs[: index + 1]))
+
+        def changed(path: str, index: int = index) -> bool:
+            return locate(path, index) is not None
+
         for path, nk in pr["owner"].items():
             if nk.startswith("#") or pr["nodes"][nk].get("unchanged"):
                 continue
-            targets: list[str] = []
             if path.endswith(JS_EXT):
                 src = resolver.source(path)
                 for match in JS_IMPORT.finditer(src):
-                    spec = match.group(1) or match.group(2) or match.group(3)
+                    spec = match.group("a") or match.group("b") or match.group("c")
+                    type_only, wanted = clause_names(match.group("clause")) if match.group("a") else (False, None)
                     target = resolver.js(path, spec)
-                    if target:
-                        targets.append(target)
+                    if not target:
+                        continue
+                    found = locate(target, index)
+                    if found is not None:
+                        add_edge(index, nk, found, "type" if type_only else "import")
+                        continue
+                    for hit, through_type, chain in resolver.through(target, wanted, changed):
+                        add_edge(index, nk, locate(hit, index), "type" if type_only or through_type else "import",
+                                 via=" > ".join(chain))
             elif path.endswith(".py"):
                 src = resolver.source(path)
                 for match in PY_IMPORT.finditer(src):
                     modules = [match.group(1)] if match.group(1) else [m.strip() for m in match.group(2).split(",")]
                     for module in modules:
-                        targets.extend(resolver.python(path, module))
+                        for target in resolver.python(path, module):
+                            found = locate(target, index)
+                            if found is not None:
+                                add_edge(index, nk, found, "import")
             elif path.endswith(".php"):
                 src = resolver.source(path)
                 for match in PHP_USE.finditer(src):
-                    targets.extend(php_targets(match.group(1), changed_so_far))
-            for target in targets:
-                found = locate(target, index)
-                if found is not None:
-                    add_edge(index, nk, found, "import")
+                    for target in php_targets(match.group(1), changed_so_far):
+                        found = locate(target, index)
+                        if found is not None:
+                            add_edge(index, nk, found, "import")
 
         own = pr["nodes"]
         subjects: dict[str, list[str]] = {}
         for nk, node in own.items():
             if not nk.startswith("#") and node["layer"] != "test":
                 subjects.setdefault(stem(nk), []).append(nk)
-        for nk, node in own.items():
+        candidates = sorted(nk for nk, node in own.items()
+                            if not nk.startswith("#") and is_core(node) and not node.get("unchanged"))
+        for nk in sorted(own):
+            node = own[nk]
             if nk.startswith("#") or node["layer"] != "test":
                 continue
             name = test_stem(nk)
-            candidates = subjects.get(name, []) if name else []
-            if candidates:
-                best = max(candidates, key=lambda c: len(posixpath.commonpath([c, nk])))
+            if name == stem(nk) and GENERIC_NAMES.match(posixpath.basename(nk)):
+                continue  # test support such as fixtures/index.ts: no name to match
+            found = subjects.get(name, []) if name else []
+            if found:
+                best = max(found, key=lambda c: len(posixpath.commonpath([c, nk])))
                 add_edge(index, nk, (index, best), "test")
+            elif name:
+                guess = guess_subject(nk, subjects, candidates)
+                if guess is not None:
+                    add_edge(index, nk, (index, guess), "test")
+                    pr["counts"]["tests"] += 1
 
     index_of = {pr["key"]: i for i, pr in enumerate(prs)}
 
@@ -784,6 +1160,7 @@ def main() -> int:
             where = "a shared dependency (the viewer's shared area; set hub false to keep it in an area)" if node.get("hub") \
                 else f"{node['layer']} (the viewer's docs, config, and i18n area)"
             warnings.append(f"{pr['key']}: overlay cluster {node.pop('cluster')!r} ignored for {node['path']}: it is {where}")
+
         order = reading_order(nodes, same_pr, lambda near: warnings.append(
             f"{pr['key']}: dependency cycle broken near {near}"))
         for position, nk in enumerate(order, 1):
@@ -837,6 +1214,9 @@ def main() -> int:
             entry["nodes"].append(item)
         for (frm, target), kind in sorted(pr["edges"].items(), key=lambda kv: (ids[(index, kv[0][0])], ids[kv[0][1]])):
             edge = {"from": ids[(index, frm)], "to": ids[target], "kind": kind, "external": target[0] != index}
+            if (frm, target) in pr["via"] and (frm, target) not in pr["direct"]:
+                edge["via"] = pr["via"][(frm, target)]
+                pr["counts"]["barrel"] += 1
             entry["edges"].append(edge)
             if edge["external"]:
                 out["crossEdges"].append({"from": edge["from"], "to": edge["to"], "kind": kind})
@@ -876,7 +1256,14 @@ def main() -> int:
         hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
         core = [node for node in entry["nodes"] if node["layer"] != "test" and node["layer"] not in LATE]
         areas = {c["id"]: sum(1 for node in core if node.get("cluster") == c["id"]) for c in entry.get("clusters", [])}
+        pr = prs[index]
+        found = [f"{pr['counts']['barrel']} through barrels" if pr["counts"]["barrel"] else "",
+                 f"{pr['counts']['tests']} tests matched by nearby names" if pr["counts"]["tests"] else ""]
+        hits = pr["resolver"].ts_hits
+        if hits:
+            found.append("tsconfig paths: " + ", ".join(f"{path} {n}" for path, n in sorted(hits.items())))
         print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
+              + (f" ({'; '.join(x for x in found if x)})" if any(found) else "")
               + (f"; shared dependencies: {', '.join(hubs)}" if hubs else "")
               + (f"; areas: {', '.join(f'{cid} {n}' for cid, n in areas.items())}" if areas else ""))
         loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]

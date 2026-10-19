@@ -499,7 +499,7 @@ class ReviewMapPipelineTests(unittest.TestCase):
         self.assertEqual(
             self.edges("A"),
             {
-                ("src/service.ts", "src/types.ts", "import", False),
+                ("src/service.ts", "src/types.ts", "type", False),  # `import type`
                 ("src/service.ts", "src/legacy.ts", "import", False),
                 ("src/service.spec.ts", "src/service.ts", "test", False),
                 ("src/index.ts", "src/service.ts", "import", False),
@@ -1867,7 +1867,7 @@ class ChunkTests(unittest.TestCase):
         self.assertIn(("web/page.tsx", ("Ma", "src/core/service.ts"), "import", True), edges("Mb"))
         self.assertIn(("web/page.tsx", ("Ma", "src/core/types.ts"), "config", True), edges("Mb"))
         self.assertIn(("src/core/service.ts", ("Mb", "web/page.spec.tsx"), "config", True), edges("Mc"))
-        self.assertIn(("src/core/service.ts", ("Ma", "src/core/types.ts"), "import", True), edges("Mc"))
+        self.assertIn(("src/core/service.ts", ("Ma", "src/core/types.ts"), "type", True), edges("Mc"))  # `import type`
         self.assertEqual((self.node("Ma", "src/core/service.ts")["role"], self.node("Mc", "src/core/service.ts")["role"]), ("Service", "Service"))
         self.assertEqual(self.node("Mb", "web/page.tsx")["note"], "Only in part 2.")
         self.assertIn("is in no part up to the one M:src/core/types.ts is in; skipped", self.build)
@@ -2414,6 +2414,190 @@ class TourTests(unittest.TestCase):
         self.assertEqual(out["paths"][0], {"pts": ["50,20", "300,130", "550,20", "50,20"],
                                            "marks": [{"x": 100, "y": 0, "steps": [0, 4]}, {"x": 400, "y": 100, "steps": [1, 2]}, {"x": 600, "y": 0, "steps": [3]}]})
         self.assertEqual(out["paths"][1], {"pts": ["300,130"], "marks": [{"x": 400, "y": 100, "steps": [0]}]})
+
+
+
+def skill_module(name: str):
+    """A skill script imported as a module, without leaving a __pycache__ in the skill."""
+    flag, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        return __import__(name)
+    finally:
+        sys.path.remove(str(SCRIPTS))
+        sys.dont_write_bytecode = flag
+
+
+def graph_edges(graph: dict, key: str) -> dict[tuple[str, str], dict]:
+    pr = next(pr for pr in graph["prs"] if pr["key"] == key)
+    path = {node["id"]: node["path"] for p in graph["prs"] for node in p["nodes"]}
+    return {(path[e["from"]], path[e["to"]]): e for e in pr["edges"]}
+
+
+class ResolutionTests(unittest.TestCase):
+    """What build_graph.py finds on its own: tsconfig paths and scoped aliases, re-exports through unchanged barrels,
+    type-only imports, tests by nearby names, and first-guess layers."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = repo = cls.root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        barrel = {
+            "packages/core/src/index.ts": "export * from './errors.js';\nexport * from './other';\nexport { makeThing as thing } from './things';\n"
+                                          "export * as fmt from './format';\nexport type { Shape } from './shapes';\nexport * from './nested';\n"
+                                          "export * from './loop';\n",
+            "packages/core/src/nested/index.ts": "export * from './deep';\n",
+            "packages/core/src/loop.ts": "export * from './index';\n",
+            "packages/core/src/errors.ts": "export class AppError {}\n",
+            "packages/core/src/other.ts": "export const other = 1;\n",
+            "packages/core/src/things.ts": "export const makeThing = 1;\n",
+            "packages/core/src/format.ts": "export const money = 1;\n",
+            "packages/core/src/shapes.ts": "export type Shape = number;\n",
+            "packages/core/src/nested/deep.ts": "export const deep = 1;\n",
+            # JSONC with comments and trailing commas; web's paths resolve from its baseUrl.
+            "web/tsconfig.json": '{\n  // web\n  "compilerOptions": {\n    "baseUrl": ".", /* here */\n    "paths": {"@/*": ["./js/*"],},\n  },\n}\n',
+            # Mobile's paths come through an in-repo `extends` and resolve from the file that sets them.
+            "apps/mobile/tsconfig.json": '{"extends": "./tsconfig.paths.json", "compilerOptions": {"strict": true}}\n',
+            "apps/mobile/tsconfig.paths.json": '{"compilerOptions": {"paths": {"@/*": ["./src/*"], "@/assets/*": ["./assets/*"]}}}\n',
+            "README.md": "# x\n",
+        }
+        commit_files(repo, barrel, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        core = "packages/core/src/"
+        changed = {
+            core + "errors.ts": "export class AppError {}\nexport const isAppError = (e: unknown) => e instanceof AppError;\n",
+            core + "other.ts": "export const other = 2;\n",
+            core + "things.ts": "export const makeThing = 2;\n",
+            core + "format.ts": "export const money = 2;\n",
+            core + "shapes.ts": "export type Shape = number | string;\n",
+            core + "nested/deep.ts": "export const deep = 2;\n",
+            "web/js/components/button.tsx": "export const Button = () => null;\n",
+            "web/js/pages/home.tsx": "import { Button } from '@/components/button';\nimport { util } from '@lib/util';\nexport const Home = () => Button();\n",
+            "libs/web-lib/src/util.ts": "export const util = 'web';\n",
+            "libs/mobile-lib/src/util.ts": "export const util = 'mobile';\n",
+            "apps/mobile/src/components/button.tsx": "export const Button = () => null;\n",
+            "apps/mobile/src/screens/home.tsx": "import { Button } from '@/components/button';\nimport { util } from '@lib/util';\nexport const Home = () => Button();\n",
+            "apps/mobile/src/errs.ts": "import { isAppError } from '@acme/core';\nexport const check = isAppError;\n",
+            "apps/mobile/src/thing-user.ts": "import { thing } from '@acme/core';\nexport const t = thing;\n",
+            "apps/mobile/src/all.ts": "import * as core from '@acme/core';\nexport const all = core;\n",
+            "apps/mobile/src/shape-user.ts": "import type { Shape } from '@acme/core';\nexport const s = (x: Shape) => x;\n",
+            "apps/mobile/src/deep-user.ts": "import { deep } from '@acme/core';\nexport const d = deep;\n",
+            "apps/mobile/src/fmt-user.ts": "import { fmt } from '@acme/core';\nexport const f = fmt.money;\n",
+            "apps/mobile/src/mixed.ts": "import { type Shape, isAppError } from '@acme/core';\nimport { type Button } from './components/button';\n"
+                                        "export const m = (s: Shape) => isAppError(s);\n",
+            # Tests: one exact name, three by nearby names, one ambiguous, one test support file with no name to match.
+            "apps/mobile/src/runtime/transport.ts": "export const send = 1;\n",
+            "apps/mobile/src/auth/bootstrap.ts": "export const boot = 1;\n",
+            "apps/mobile/src/auth/auth-state.ts": "export const state = 1;\n",
+            "apps/mobile/src/details/task-detail.tsx": "export const Task = () => null;\n",
+            "apps/mobile/src/details/agenda-detail.tsx": "export const Agenda = () => null;\n",
+            "apps/mobile/src/details/routine-detail.tsx": "export const Routine = () => null;\n",
+            "apps/mobile/src/query/mobile-lifecycle.ts": "export const life = 1;\n",
+            "apps/mobile/src/auth/auth-state.test.ts": "test('state', () => 1);\n",
+            "apps/mobile/__tests__/mobile-transport-test.ts": "test('transport', () => 1);\n",
+            "apps/mobile/__tests__/mobile-auth-bootstrap-test.ts": "test('bootstrap', () => 1);\n",
+            "apps/mobile/__tests__/task-detail-mutations-test.tsx": "test('task', () => 1);\n",
+            "apps/mobile/__tests__/mobile-query-lifecycle-test.ts": "test('life', () => 1);\n",
+            "apps/mobile/__tests__/routine-agenda-detail-mutations-test.tsx": "test('two subjects', () => 1);\n",
+            "apps/mobile/src/ui/fixtures/index.ts": "export const fixtures = [];\n",
+            "web/__tests__/web-transport-test.ts": "test('no subject under web', () => 1);\n",
+        }
+        commit_files(repo, changed, "feat")
+        cls.out = cls.root / "graphs.json"
+        cls.result = run_script("build_graph.py", "--out", str(cls.out), "--pr", "A", str(repo), "main...feat", "--no-manifest",
+                                "--alias", "@acme/core=packages/core/src/index.ts",
+                                "--alias", "@lib/=libs/web-lib/src/",
+                                "--alias", "@lib/=libs/mobile-lib/src/@apps/mobile",
+                                "--alias", "@gone/=no/such/dir/")
+        cls.graph = json.loads(cls.out.read_text(encoding="utf-8"))
+        cls.edges = graph_edges(cls.graph, "A")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_tsconfig_paths_and_scoped_aliases_resolve_per_importer(self):
+        """This test will fail when `@/` stops resolving through the tsconfig.json or jsconfig.json nearest to the importer (comments, trailing commas, baseUrl, an in-repo `extends`), when a scoped `--alias SPEC=PATH@DIR` applies outside DIR or loses to an unscoped one inside it, when an unscoped alias stops working, or when an alias whose path is in no tree goes unreported."""
+        e = self.edges
+        self.assertIn(("web/js/pages/home.tsx", "web/js/components/button.tsx"), e)
+        self.assertIn(("apps/mobile/src/screens/home.tsx", "apps/mobile/src/components/button.tsx"), e)
+        self.assertNotIn(("web/js/pages/home.tsx", "apps/mobile/src/components/button.tsx"), e)
+        self.assertIn(("web/js/pages/home.tsx", "libs/web-lib/src/util.ts"), e)
+        self.assertIn(("apps/mobile/src/screens/home.tsx", "libs/mobile-lib/src/util.ts"), e)
+        self.assertNotIn(("apps/mobile/src/screens/home.tsx", "libs/web-lib/src/util.ts"), e)
+        self.assertIn("tsconfig paths: apps/mobile/tsconfig.json 1, web/tsconfig.json 1", self.result.stdout)
+        self.assertIn("warning: --alias '@gone/=no/such/dir/': its path (or its @directory) is in no PR's tree at the tip", self.result.stdout)
+        self.assertNotIn("@acme/core", self.result.stdout)
+
+    def test_imports_through_unchanged_barrels_reach_the_changed_files_they_re_export(self):
+        """This test will fail when an import of an unchanged barrel stops reaching the changed files it re-exports (`export *`, `export { X as Y }`, `export * as ns`, `export type`, through a nested unchanged barrel, safely past a re-export cycle), reaches a changed file that does not export the imported name, or loses its `via` (the barrels it went through)."""
+        e, core = self.edges, "packages/core/src/"
+        reached = {frm: sorted(to for (f, to) in e if f == frm and to.startswith(core)) for frm in
+                   ("apps/mobile/src/errs.ts", "apps/mobile/src/thing-user.ts", "apps/mobile/src/all.ts", "apps/mobile/src/deep-user.ts",
+                    "apps/mobile/src/fmt-user.ts", "apps/mobile/src/shape-user.ts")}
+        self.assertEqual(reached, {
+            "apps/mobile/src/errs.ts": [core + "errors.ts"],
+            "apps/mobile/src/thing-user.ts": [core + "things.ts"],
+            "apps/mobile/src/all.ts": sorted(core + p for p in ("errors.ts", "other.ts", "things.ts", "format.ts", "shapes.ts", "nested/deep.ts")),
+            "apps/mobile/src/deep-user.ts": [core + "nested/deep.ts"],
+            "apps/mobile/src/fmt-user.ts": [core + "format.ts"],
+            "apps/mobile/src/shape-user.ts": [core + "shapes.ts"],
+        })
+        self.assertEqual(e[("apps/mobile/src/errs.ts", core + "errors.ts")]["via"], core + "index.ts")
+        self.assertEqual(e[("apps/mobile/src/deep-user.ts", core + "nested/deep.ts")]["via"], f"{core}index.ts > {core}nested/index.ts")
+        self.assertEqual(e[("apps/mobile/src/all.ts", core + "shapes.ts")]["kind"], "type")  # `export type { Shape } from`
+        self.assertEqual(e[("apps/mobile/src/all.ts", core + "errors.ts")]["kind"], "import")
+        self.assertNotIn("via", e[("web/js/pages/home.tsx", "web/js/components/button.tsx")])
+        self.assertIn("through barrels", self.result.stdout)
+
+    def test_type_only_imports_become_type_edges(self):
+        """This test will fail when `import type`, `export type ... from`, or an import whose every specifier is `type X` stops becoming a `type` edge, or when an import that also takes a value is marked type-only."""
+        e, core = self.edges, "packages/core/src/"
+        self.assertEqual(e[("apps/mobile/src/shape-user.ts", core + "shapes.ts")]["kind"], "type")
+        self.assertEqual(e[("apps/mobile/src/mixed.ts", "apps/mobile/src/components/button.tsx")]["kind"], "type")
+        self.assertEqual(e[("apps/mobile/src/mixed.ts", core + "errors.ts")]["kind"], "import")
+        self.assertEqual(e[("apps/mobile/src/mixed.ts", core + "shapes.ts")]["kind"], "type")
+        bg = skill_module("build_graph")
+        self.assertEqual(bg.clause_names("type { A, B as C }"), (True, {"A", "B"}))
+        self.assertEqual(bg.clause_names("{ type A, type B }"), (True, {"A", "B"}))
+        self.assertEqual(bg.clause_names("{ type A, b }"), (False, {"A", "b"}))
+        self.assertEqual(bg.clause_names("Def, { a }"), (False, {"default", "a"}))
+        self.assertEqual(bg.clause_names("type"), (False, {"default"}))  # a default import named `type`
+        self.assertEqual(bg.clause_names("* as ns"), (False, None))
+        self.assertEqual(bg.clause_names("type * as ns"), (True, None))
+        self.assertEqual(bg.clause_names("x = 1\nconst y"), (False, None))  # not a clause: any name
+
+    def test_tests_without_a_name_match_find_one_nearby_subject(self):
+        """This test will fail when a test whose name matches no file stops finding its subject by its name without leading area words (mobile-transport-test -> transport.ts) or by word overlap with a changed file under its package (mobile-auth-bootstrap-test -> auth/bootstrap.ts, task-detail-mutations-test -> details/task-detail.tsx), when exact name matches change, when a test with two equally good subjects or none under its package gets one, or when a test support file (fixtures/index.ts) is matched by its generic name."""
+        tests = {frm: to for (frm, to), e in self.edges.items() if e["kind"] == "test"}
+        self.assertEqual(tests, {
+            "apps/mobile/src/auth/auth-state.test.ts": "apps/mobile/src/auth/auth-state.ts",
+            "apps/mobile/__tests__/mobile-transport-test.ts": "apps/mobile/src/runtime/transport.ts",
+            "apps/mobile/__tests__/mobile-auth-bootstrap-test.ts": "apps/mobile/src/auth/bootstrap.ts",
+            "apps/mobile/__tests__/task-detail-mutations-test.tsx": "apps/mobile/src/details/task-detail.tsx",
+            "apps/mobile/__tests__/mobile-query-lifecycle-test.ts": "apps/mobile/src/query/mobile-lifecycle.ts",
+        })
+        self.assertIn("4 tests matched by nearby names", self.result.stdout)
+
+    def test_first_guess_layers_match_path_segments_and_suffixes_not_words(self):
+        """This test will fail when a directory word claims a component file (resources/js/client/**.tsx as infra), a fixtures directory is guessed as data instead of test support, a name that merely contains a word (client-error-text.ts) takes that word's layer, or a suffix rule (api-client.ts, order.repository.ts, StripeClient.php, user.controller.ts, detail-contracts.ts, schemas.py) stops working."""
+        guess = skill_module("build_graph").guess_layer
+        cases = {
+            "resources/js/client/components/agenda-details.tsx": "ui", "resources/js/client/pages/auth/login-page.tsx": "ui",
+            "resources/js/client/lib/api.ts": "logic", "packages/i18n/src/client-error-text.ts": "logic",
+            "apps/mobile/src/ui/fixtures/index.ts": "test", "apps/mobile/src/ui/fixtures/state-gallery.tsx": "test",
+            "src/mocks/handlers.ts": "test", "src/test-utils/render.tsx": "test", "src/test-utils.ts": "logic",
+            "src/http/api-client.ts": "infra", "src/orders/order.repository.ts": "infra", "src/Payments/StripeClient.php": "infra",
+            "src/infra/queue.ts": "infra", "src/providers/theme-provider.tsx": "ui", "src/orders/user.controller.ts": "rest",
+            "server/routes/users.ts": "rest", "app/routes/dashboard.tsx": "ui", "src/details/detail-contracts.ts": "contract",
+            "api/schemas.py": "contract", "db/migrations/001_init.sql": "data", "src/index.ts": "wiring",
+        }
+        self.assertEqual({path: guess(path) for path in cases}, cases)
+        layers = {node["path"]: node["layer"] for node in self.graph["prs"][0]["nodes"]}
+        self.assertEqual(layers["apps/mobile/src/ui/fixtures/index.ts"], "test")
 
 
 if __name__ == "__main__":
