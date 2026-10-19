@@ -2781,13 +2781,15 @@ svg .tpn.on rect{fill:var(--accent-ink)} svg .tpn.on text{fill:var(--surface)}
   }
 
   /* The recommended order's button gets a dot and a title, and the note under the toolbar says why it is recommended
-     (build_graph.py's `readFromWhy` counts) and whether the reader picked the other one; no note without them. */
+     (build_graph.py's `readFromWhy`: too few entry points to tell, or how many are small changes over larger ones) and
+     whether the reader picked the other one; no note without them. */
   function paintWhy(){
     var p=data.prs.find(function(x){return x.key===cur;}),w=p&&p.readFromWhy,box=document.getElementById('g-why'),rec=recMode(cur),known=!!w&&typeof w==='object';
     [].forEach.call(obtns,function(b){var r=known&&b.dataset.o===rec;b.classList.toggle('rec',r);if(r)b.title=S.orderRec;else b.removeAttribute('title');});
     if(!known){box.hidden=true;box.textContent='';return;}
     function num(x){return typeof x==='number'&&isFinite(x)?x:0;}
-    box.textContent=fmt(rec==='bottom'?S.orderWhyDeps:S.orderWhyEntry,{light:num(w.light),entries:num(w.entries),entryLines:num(w.entryLines),baseLines:num(w.baseLines)})+(omode!==rec?' '+S.orderWhyPicked:'');
+    var few=w.reason==='few'||(w.reason==null&&num(w.entries)<3);
+    box.textContent=fmt(rec==='bottom'?S.orderWhyDeps:few?S.orderWhyFew:S.orderWhyEntry,{light:num(w.light),entries:num(w.entries),entryLines:num(w.entryLines),baseLines:num(w.baseLines)})+(omode!==rec?' '+S.orderWhyPicked:'');
     box.hidden=false;
   }
   function render(){

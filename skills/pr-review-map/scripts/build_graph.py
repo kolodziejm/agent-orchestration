@@ -1037,8 +1037,8 @@ def read_from(nodes: dict[str, dict], edges: list[tuple[str, str, str]]) -> tupl
     most 1/MODE_RATIO of the largest change among the core files it depends on, directly or through
     others, hubs included. "dependencies" when there are at least MODE_ENTRIES entry points and more
     than half of them are light: a PR that adapts many callers to a change underneath reads best from
-    that change. Otherwise "entry". `why` holds the counts and the median change of the entry points
-    and of the largest change under each.
+    that change. Otherwise "entry". `why` holds the counts, the median change of the entry points and
+    of the largest change under each, and `reason`: "few" (fewer than MODE_ENTRIES entry points), "light", or "heavy".
     """
     core = {nk for nk in nodes if is_core(nodes[nk])}
     hubs = {nk for nk in core if nodes[nk].get("hub")}
@@ -1073,6 +1073,7 @@ def read_from(nodes: dict[str, dict], edges: list[tuple[str, str, str]]) -> tupl
            "entryLines": statistics.median_low([lines(nk) for nk in entries]) if entries else 0,
            "baseLines": statistics.median_low(list(bases.values())) if entries else 0}
     deps_first = len(entries) >= MODE_ENTRIES and 2 * len(light) > len(entries)
+    why["reason"] = "few" if len(entries) < MODE_ENTRIES else "light" if deps_first else "heavy"
     return ("dependencies" if deps_first else "entry"), why
 
 
@@ -1541,8 +1542,9 @@ def main() -> int:
               + (f"; shared dependencies: {', '.join(hubs)}" if hubs else "")
               + (f"; areas: {', '.join(f'{cid} {n}' for cid, n in areas.items())}" if areas else "")
               + f"; reads from {'dependencies' if entry['readFrom'] == 'dependencies' else 'the entry point'}"
-              + f" ({why['light']} of {why['entries']} entry points light: median {why['entryLines']} changed lines"
-              + f" over {why['baseLines']} underneath)")
+              + (f" (too few entry points, {why['entries']}, to recommend another order)" if why["reason"] == "few" else
+                 f" ({why['light']} of {why['entries']} entry points light: median {why['entryLines']} changed lines"
+                 f" over {why['baseLines']} underneath)"))
         loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]
         if areas and loose:
             print(f"hint: PR {entry['key']}: {len(loose)} core files have no area, so the map groups them by folder: "

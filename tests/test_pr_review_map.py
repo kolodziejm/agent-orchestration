@@ -2754,6 +2754,13 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual([top[ids["src/errors.ts"]], top[ids["src/provider.ts"]]], [1, 2])
         self.assertGreater(top[ids["src/refresh.ts"]], top[ids["src/transport.ts"]])
 
+    def test_read_from_says_why_it_recommends_a_mode(self):
+        """This test will fail when `readFromWhy` stops saying why ("few" below 3 entry points, so the viewer does not claim that 0 of 0 are small; "light" or "heavy" otherwise)."""
+        mode, why = skill_module("build_graph").read_from(
+            {n: {"layer": "logic", "path": n, "added": 1, "removed": 1} for n in ("a", "b", "c")}, [("a", "c", "import"), ("b", "c", "import")])
+        self.assertEqual((mode, why["reason"], why["entries"]), ("entry", "few", 2))
+        self.assertEqual(self.graph["prs"][0]["readFromWhy"]["reason"], "light")
+
     def test_a_pr_that_adapts_many_callers_recommends_reading_from_dependencies(self):
         """This test will fail when `readFrom` stops being "dependencies" for a PR whose entry points (at least 3) are mostly light (trivial, or at most a third of the largest change underneath them) and "entry" otherwise, or when `readFromWhy` loses its counts."""
         pr = self.graph["prs"][0]
@@ -2774,6 +2781,7 @@ class OrderingTests(unittest.TestCase):
         run_script("build_graph.py", "--out", str(out), "--pr", "F", str(repo), "main...feat", "--no-manifest")
         feature = json.loads(out.read_text(encoding="utf-8"))["prs"][0]
         self.assertEqual((feature["readFrom"], feature["readFromWhy"]["entries"], feature["readFromWhy"]["light"]), ("entry", 3, 0))
+        self.assertEqual(feature["readFromWhy"]["reason"], "heavy")
 
 
 class MovedFileTests(unittest.TestCase):

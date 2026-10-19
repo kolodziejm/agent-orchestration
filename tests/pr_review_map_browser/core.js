@@ -37,12 +37,17 @@ module.exports = {
     const flip = (m) => (m === 'top' ? 'bottom' : 'top');
     const orderState = `({on:(document.querySelector('[data-o][aria-pressed=true]')||{dataset:{}}).dataset.o,rec:[].map.call(document.querySelectorAll('[data-o].rec'),function(b){return b.dataset.o;}),title:(document.querySelector('[data-o].rec')||{}).title,why:document.getElementById('g-why').hidden?null:document.getElementById('g-why').textContent,picks:localStorage.getItem(T.key()+'omodes')})`;
     const strings = JSON.parse(await B.ev(`document.getElementById('review-config').textContent`)).strings;
+    // The note the viewer should show for a PR's readFromWhy: too few entry points, else the recommended order's reason.
+    const whyText = (p) => {
+      const w = p.readFromWhy, key = p.readFrom === 'dependencies' ? 'orderWhyDeps' : w.reason === 'few' ? 'orderWhyFew' : 'orderWhyEntry';
+      return strings[key].replace(/\{(\w+)\}/g, (m, k) => (w[k] != null ? String(w[k]) : m));
+    };
     await t.fresh(STACK);
     for (const k of ['A', 'B', 'C']) {
       await B.ev(`T.tabTo('${k}')`);
-      const st = await B.ev(orderState), why = exp.data.prs.find((p) => p.key === k).readFromWhy;
-      t.check(`order ${k}: opens in the recommended order, its button marked, and a note says why`,
-        st.on === rec[k] && JSON.stringify(st.rec) === JSON.stringify([rec[k]]) && st.title === strings.orderRec && !!st.why && st.why.includes(String(why.entries)) && !st.why.includes(strings.orderWhyPicked), st);
+      const st = await B.ev(orderState), pr = exp.data.prs.find((p) => p.key === k);
+      t.check(`order ${k}: opens in the recommended order, its button marked, and a note says why (${pr.readFromWhy.reason})`,
+        st.on === rec[k] && JSON.stringify(st.rec) === JSON.stringify([rec[k]]) && st.title === strings.orderRec && st.why === whyText(pr), { st, want: whyText(pr) });
     }
     await B.ev(`T.tabTo('A')`);
     await B.ev(`document.querySelector('[data-o=${flip(rec.A)}]').click()`);
@@ -364,6 +369,9 @@ module.exports = {
       const bigRec = expBig.data.prs[0].readFrom === 'dependencies' ? 'bottom' : 'top';
       const on = expBig.order[bigRec].P.on;
       t.check(`big ${th}: opens in its recommended order (${bigRec})`, await B.ev(`document.querySelector('[data-o=${bigRec}]').getAttribute('aria-pressed')==='true'&&document.querySelector('[data-o=${bigRec}]').classList.contains('rec')`));
+      const bigStrings = JSON.parse(await B.ev(`document.getElementById('review-config').textContent`)).strings, bw = expBig.data.prs[0].readFromWhy;
+      const bigWhy = bigStrings[bigRec === 'bottom' ? 'orderWhyDeps' : bw.reason === 'few' ? 'orderWhyFew' : 'orderWhyEntry'].replace(/\{(\w+)\}/g, (m, k) => (bw[k] != null ? String(bw[k]) : m));
+      t.check(`big ${th}: the note gives the recommendation's numbers`, await B.ev(`document.getElementById('g-why').textContent`) === bigWhy, bigWhy);
       t.check(`big ${th}: 103 rows in computeOrder order`, rows.length === 103 && rows.every((r, i) => i === 0 || on[r.id] > on[rows[i - 1].id]) && rows.every((r) => r.no === on[r.id]), rows.length);
       const none = await B.ev(`document.querySelectorAll('#g-lane path.arc').length`);
       const sid = rows[40].id;
