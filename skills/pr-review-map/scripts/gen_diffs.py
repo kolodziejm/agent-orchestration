@@ -21,7 +21,10 @@ build's to flag new and changed files and to clear read marks of changed ones. F
 Vue, Svelte, and Astro files each hunk's @@ line names the last block tag before
 the hunk, shortened to its name and lang (`<script lang="ts">`, `<template>`,
 `</script>`), so the viewer highlights a hunk in the middle of a block in that
-block's language. --chunks FILE (chunks.py) gives the ranges of a PR split into
+block's language. A text file moved without a change (similarity 100%, no hunk)
+gets its whole content at the tip as one hunk of context lines and `moved` (its
+old path), so the viewer shows it and review notes and tour steps can anchor on
+any line; its `fp` stays the rename's. --chunks FILE (chunks.py) gives the ranges of a PR split into
 parts, as for build_graph.py; a file that two or more parts change also gets its
 diff over the whole PR (first part's start to last part's end) as `whole` on the
 entry of the last part that changes it, for the viewer's whole-PR toggle. The
@@ -225,6 +228,35 @@ def split_files(diff: str) -> list[tuple[str, str, bool, str]]:
     return files
 
 
+def pure_renames(diff: str) -> dict[str, str]:
+    """new path -> old path for each file of a `git diff -M` that moved without a change (similarity 100%)."""
+    out = {}
+    for chunk in diff.split("\ndiff --git "):
+        head = chunk.split("\n@@", 1)[0].split("\n")
+        if "similarity index 100%" not in head:
+            continue
+        old = next((line[len("rename from "):] for line in head if line.startswith("rename from ")), None)
+        new = next((line[len("rename to "):] for line in head if line.startswith("rename to ")), None)
+        if old and new:
+            out[new] = old
+    return out
+
+
+def as_context(old: str, new: str, text: str) -> str:
+    """A file's whole text as one hunk of context lines (`@@ -1,n +1,n @@`), for a file moved without a change: its
+    lines show in the viewer, and notes and tour steps can anchor on any of them. Empty for an empty file."""
+    lines = text.split("\n")
+    final_newline = lines[-1] == ""
+    if final_newline:
+        lines.pop()
+    if not lines:
+        return ""
+    body = [f"--- a/{old}", f"+++ b/{new}", f"@@ -1,{len(lines)} +1,{len(lines)} @@"] + [" " + line for line in lines]
+    if not final_newline:
+        body.append("\\ No newline at end of file")
+    return "\n".join(body)
+
+
 def node_patterns(node: dict) -> list[str]:
     patterns = list(node.get("match", []))
     path = node.get("path", "")
@@ -288,17 +320,24 @@ def main() -> int:
     unassigned: list[str] = []
     folder = tempfile.TemporaryDirectory(prefix="review-map-")
 
-    def diff_of(repo: str, rng: str) -> list[tuple[str, str, bool, str]]:
-        """(path, body, binary, fp) per file of one range, Vue/Svelte/Astro hunk headers normalised."""
+    def diff_of(repo: str, rng: str) -> list[tuple[str, str, bool, str, str | None]]:
+        """(path, body, binary, fp, moved) per file of one range, Vue/Svelte/Astro hunk headers normalised. A text file
+        moved without a change gets its whole content at the range's tip as context (as_context()) and `moved`, its old
+        path; its fingerprint stays the one of the rename alone."""
         diff = git(repo, *sfc_options(repo, folder.name), "diff", "--no-color", "--no-ext-diff", "--full-index", "-M",
                    f"-U{args.context}", "--end-of-options", rng, "--")
+        renamed = pure_renames(diff)
+        tip = (rng.split("...", 1)[1] if "..." in rng else rng.split("..", 1)[1]) or "HEAD"
         files = []
         for path, body, binary, fp in split_files(diff):
+            moved = renamed.get(path) if not binary and not body.strip() else None
+            if moved is not None:
+                body = as_context(moved, path, git(repo, "show", "--end-of-options", f"{tip}:{path}"))
             if path.lower().endswith(SFC_EXT):
                 head = body.split("\n@@", 1)[0].split("\n")  # the file header lines before the first hunk
                 old = next((line[6:].rstrip("\t") for line in head if line.startswith("--- a/")), None)
                 body = normalise_sfc(body, lambda old=old, repo=repo, rng=rng: old_lines(repo, rng, old))
-            files.append((path, body, binary, fp))
+            files.append((path, body, binary, fp, moved if moved is not None and body else None))
         return files
 
     def capped(body: str, entry: dict) -> dict:
@@ -313,12 +352,14 @@ def main() -> int:
     parts_of: dict[tuple[str, str], int] = {}  # (parent, path) -> how many parts change the file
     for key, pr in prs.items():
         repo, rng = ranges[key]
-        for path, body, binary, fp in diff_of(repo, rng):
+        for path, body, binary, fp, moved in diff_of(repo, rng):
             node_id = assign(path, pr["nodes"])
             if node_id is None:
                 unassigned.append(f"{key}:{path}")
                 continue
             entry: dict = capped(body, {"path": path, "diff": body, "fp": fp})
+            if moved:
+                entry["moved"] = moved
             if binary:
                 entry["binary"] = True
             out.setdefault(node_id, []).append(entry)
@@ -329,7 +370,7 @@ def main() -> int:
         parent = expanded["parent"]
         wanted = {path for (pk, path), n in parts_of.items() if pk == parent["key"] and n > 1}
         if wanted:
-            for path, body, binary, _fp in diff_of(parent["repo"], f"{parent['start']}..{parent['end']}"):
+            for path, body, binary, _fp, _moved in diff_of(parent["repo"], f"{parent['start']}..{parent['end']}"):
                 if path in wanted and not binary:
                     last_entry[(parent["key"], path)]["whole"] = capped(body, {})
 

@@ -705,7 +705,7 @@ svg .tpn.on rect{fill:var(--accent-ink)} svg .tpn.on text{fill:var(--surface)}
   function table(f,ro){
     var l=lang(f.path),hs=parse(f.diff),at=ro?function(){return '';}:atCell;sfcLangs(f.path,hs);
     if(!hs.length)return '<div class="df-note">'+esc(S.noHunks)+'</div>';
-    var html='<table class="dt '+(mode==='sbs'?'sbs':'uni')+'">';
+    var html=(typeof f.moved==='string'&&f.moved?'<div class="df-note">'+esc(fmt(S.movedNote,{from:f.moved}))+'</div>':'')+'<table class="dt '+(mode==='sbs'?'sbs':'uni')+'">';
     if(mode==='sbs')html+='<colgroup><col style="width:46px"><col><col style="width:46px"><col></colgroup>';
     else html+='<colgroup><col style="width:46px"><col style="width:46px"><col></colgroup>';
     hs.forEach(function(h){

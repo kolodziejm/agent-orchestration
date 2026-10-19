@@ -2728,5 +2728,45 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual((feature["readFrom"], feature["readFromWhy"]["entries"], feature["readFromWhy"]["light"]), ("entry", 3, 0))
 
 
+class MovedFileTests(unittest.TestCase):
+    """A file moved without a change carries its whole content, so notes and tour steps can anchor in it."""
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_a_file_moved_without_changes_shows_whole_and_takes_tour_anchors(self):
+        """This test will fail when gen_diffs.py leaves a file renamed at 100% similarity without lines to show (no hunk), so a tour step on it is "outside every hunk" in validate.py, when its content stops coming as one all-context hunk with `moved` naming the old path, or when its fingerprint stops being the rename's alone (a refresh would flag it changed)."""
+        root = Path(tempfile.mkdtemp())
+        try:
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            body = "".join(f"export const v{i} = {i};\n" for i in range(9))
+            commit_files(repo, {"lib/old/values.ts": body, "README.md": "# x\n"}, "base")
+            git(repo, "checkout", "-q", "-b", "feat")
+            (repo / "lib" / "new").mkdir()
+            git(repo, "mv", "lib/old/values.ts", "lib/new/values.ts")
+            commit_files(repo, {"lib/new/user.ts": "import { v1 } from './values';\nexport const u = v1;\n"}, "move")
+            d = root / "scratch"
+            d.mkdir()
+            (d / "overlay.json").write_text(json.dumps({"tours": [{"id": "move", "name": "Move", "steps": [
+                {"ref": "A:lib/new/values.ts", "lines": "4-6", "note": "Moved code"}, {"ref": "A:lib/new/user.ts", "lines": "1"},
+                {"ref": "A:lib/new/values.ts", "lines": "9"}]}]}), encoding="utf-8")
+            (d / "narrative.html").write_text("<section id=\"s\"><h2>S</h2></section>\n<!-- review-map:graph -->\n", encoding="utf-8")
+            run_script("build_graph.py", "--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--overlay", str(d / "overlay.json"))
+            run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--pr", "A", str(repo), "main...feat", "--strict")
+            entry = next(e for entries in json.loads((d / "diffs.json").read_text(encoding="utf-8")).values() for e in entries if e["path"] == "lib/new/values.ts")
+            self.assertEqual(entry["moved"], "lib/old/values.ts")
+            self.assertEqual(entry["diff"].split("\n"), ["--- a/lib/old/values.ts", "+++ b/lib/new/values.ts", "@@ -1,9 +1,9 @@"]
+                             + [" " + line for line in body.splitlines()])
+            gen = skill_module("gen_diffs")
+            raw = git(repo, "diff", "--full-index", "-M", "main...feat")
+            self.assertEqual(entry["fp"], {path: fp for path, _b, _bin, fp in gen.split_files(raw)}["lib/new/values.ts"])
+            run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                       "--title", "Move", "--target", "local", "--out", str(d / "review.html"))
+            result = run_script("validate.py", str(d / "review.html"))
+            self.assertNotIn("outside every hunk", result.stdout)
+        finally:
+            shutil.rmtree(root)
+
+
 if __name__ == "__main__":
     unittest.main()
