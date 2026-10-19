@@ -45,3 +45,11 @@ generate_all "$SECOND"
 for output in "${OUTPUTS[@]}"; do
   diff -ruN "$FIRST/$output" "$SECOND/$output"
 done
+
+# Headless-Chrome checks of the pr-review-map viewer (about 35 s); they skip themselves without Node 22+ or Chrome.
+# SKIP_BROWSER_CHECKS=1 leaves them out.
+if [[ "${SKIP_BROWSER_CHECKS:-}" == "1" ]]; then
+  printf '%s\n' 'pr-review-map browser checks: skipped (SKIP_BROWSER_CHECKS=1)'
+else
+  PYTHON="$PYTHON" "$ROOT/scripts/check-browser"
+fi

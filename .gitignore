@@ -4,3 +4,4 @@ __pycache__/
 .backups/
 build/
 generated/
+node_modules/

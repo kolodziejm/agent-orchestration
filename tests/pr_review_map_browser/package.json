@@ -1,0 +1,8 @@
+{
+  "name": "pr-review-map-browser-checks",
+  "private": true,
+  "description": "Optional dev dependency of the pr-review-map browser checks: micromark renders copied review notes as CommonMark. Install with npm ci here; without it those checks are skipped.",
+  "devDependencies": {
+    "micromark": "4.0.2"
+  }
+}

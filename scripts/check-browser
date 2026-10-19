@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Headless-Chrome checks of the pr-review-map viewer (tests/pr_review_map_browser): builds synthetic fixtures into a
+# temporary directory, runs every suite in light and dark at the sizes it covers, prints one line per suite, and exits
+# non-zero on a failure. Without Node, Node 22+ (built-in WebSocket), or Chrome/Chromium it prints why and exits 0;
+# without network access to cdnjs it skips the highlighting suites; without micromark (npm ci in
+# tests/pr_review_map_browser) it skips the CommonMark checks. Options: --only SUITE[,SUITE] --jobs N --verbose
+# --shots DIR --keep --offline. Environment: PYTHON (default python3), CHROME (the browser binary).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if ! command -v node >/dev/null 2>&1; then
+  printf '%s\n' 'pr-review-map browser checks: skipped (node is not installed)'
+  exit 0
+fi
+exec env PYTHON="${PYTHON:-python3}" node "$ROOT/tests/pr_review_map_browser/run.js" "$@"

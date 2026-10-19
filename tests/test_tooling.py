@@ -21,7 +21,7 @@ class ToolingContractTests(unittest.TestCase):
             shutil.copytree(
                 ROOT,
                 isolated,
-                ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__"),
+                ignore=shutil.ignore_patterns(".git", ".venv", "__pycache__", "node_modules"),
             )
             python_stub = Path(directory) / "python-stub"
             python_stub.write_text(
@@ -35,6 +35,7 @@ class ToolingContractTests(unittest.TestCase):
                 {
                     "AGENT_ORCHESTRATION_UV_RUN": "1",
                     "PYTHON": str(python_stub),
+                    "SKIP_BROWSER_CHECKS": "1",
                 }
             )
 
@@ -139,6 +140,32 @@ class ToolingContractTests(unittest.TestCase):
         ignored = (ROOT / ".gitignore").read_text().splitlines()
         self.assertIn("build/", ignored)
         self.assertIn("generated/", ignored)
+
+    def test_browser_checks_run_from_check_and_skip_cleanly_without_node_or_chrome(self):
+        """This test will fail when the pr-review-map browser checks fail, instead of skipping, where Node or Chrome is missing."""
+        entry = ROOT / "scripts" / "check-browser"
+        self.assertTrue(os.access(entry, os.X_OK), "check-browser is not executable")
+        check = (ROOT / "scripts" / "check").read_text()
+        self.assertIn('"$ROOT/scripts/check-browser"', check)
+        self.assertIn("SKIP_BROWSER_CHECKS", check)
+        with tempfile.TemporaryDirectory() as directory:
+            # A PATH with just what the entry script needs besides node.
+            tools = Path(directory)
+            for tool in ("bash", "dirname"):
+                (tools / tool).symlink_to(shutil.which(tool))
+            no_node = subprocess.run([str(entry)], env={"PATH": str(tools)}, text=True, capture_output=True)
+        self.assertEqual(no_node.returncode, 0, no_node.stderr)
+        self.assertIn("pr-review-map browser checks: skipped (node is not installed)", no_node.stdout)
+        if shutil.which("node"):
+            no_chrome = subprocess.run(
+                [str(entry), "--only", "core,hubs"],
+                env={**os.environ, "CHROME": ""},
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(no_chrome.returncode, 0, no_chrome.stdout + no_chrome.stderr)
+            self.assertIn("skipped core: ", no_chrome.stdout)
+            self.assertIn("pr-review-map browser checks: skipped (nothing could run)", no_chrome.stdout)
 
     def test_ci_exercises_the_reproducible_uv_check_entrypoint(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()

@@ -103,6 +103,29 @@ check. Where `uv` is unavailable, the documented local fallback is:
 PYTHON=.venv/bin/python ./scripts/check
 ```
 
+It ends with `./scripts/check-browser`, about 370 headless-Chrome checks of the
+`pr-review-map` viewer in `tests/pr_review_map_browser/`: one file per feature and
+one shared harness, `lib.js`, which drives Chrome over the DevTools protocol with
+Node's built-in WebSocket. `fixtures.py` builds every review page they open from
+small synthetic git repositories through the skill's own scripts into a temporary
+directory. Suites run in light and dark, at 1440 and 800 px where layout matters,
+four at once (about 35 s, `--jobs N` to change), and print one line per suite plus
+each failure; any failure exits non-zero. They need Node 22 or newer and Chrome or
+Chromium (found on `PATH` or in the usual install location; `CHROME=/path/to/binary`
+names another). Whatever is missing is skipped with the reason, and with nothing
+left to run the command exits 0: without Node or Chrome everything skips, without
+network access to cdnjs (the viewer loads highlight.js from it) the highlighting
+suites skip and the rest run offline, and without micromark the CommonMark checks of
+copied notes skip. `SKIP_BROWSER_CHECKS=1 ./scripts/check` leaves the browser checks
+out.
+
+```bash
+(cd tests/pr_review_map_browser && npm ci)    # optional: the pinned micromark for the CommonMark checks
+./scripts/check-browser                       # every suite
+./scripts/check-browser --only hubs,refresh --verbose
+./scripts/check-browser --shots /tmp/shots    # also write screenshots to look at
+```
+
 ## Installation
 
 Installers merge generated artifacts into a harness configuration, record what they
@@ -287,7 +310,7 @@ Nothing in this repository rewrites those files for you.
   the managed policy-section and skill helpers shared by the generators and
   installers, and `harnesses/validate.py` — the source-validation entrypoint run by
   `scripts/check`.
-- `scripts/` — `generate`, `check`, `check-runtime`, and the per-harness installers.
+- `scripts/` — `generate`, `check`, `check-browser`, `check-runtime`, and the per-harness installers.
 - `skills/<name>/` — the Agent Skills packages this repository distributes.
   `planned-change-report` and `completed-change-report` render a visual HTML
   explanation of a change before and after it is made; a harness may invoke them
@@ -307,7 +330,8 @@ Nothing in this repository rewrites those files for you.
   toggle away; `refresh.py` rebuilds it after the branches move, flagging changed
   files and moved or stale notes, keeping the parts, and moving tour steps with
   their code; it carries its viewer template, Python scripts, and subagent prompts
-  as supporting files and is covered by `tests/test_pr_review_map.py`. Every generator except DeepSeek Harness
+  as supporting files and is covered by `tests/test_pr_review_map.py` and the
+  headless-Chrome checks in `tests/pr_review_map_browser/`. Every generator except DeepSeek Harness
   copies them into its bundle, the OpenCode, Claude Code, Pi, and OMP installers
   install them into the harness's skills directory, and Codex takes a manual copy.
 - `evaluations/` — versioned evaluation configuration validated by `validate.py`.
