@@ -1572,37 +1572,61 @@ svg .tpn.on rect{fill:var(--accent-ink)} svg .tpn.on text{fill:var(--surface)}
   }
   function ordered(){return G.nodes.slice().sort(function(a,b){return ON[a.id]-ON[b.id];});}
   /* Step numbers for one whole PR (tests included), so hiding tests leaves gaps instead of renumbering.
-     Core files (not tests, not docs/config/i18n) are read in two parts: the shared dependencies (core nodes flagged
-     `hub` by build_graph.py; HUB records them) first in both modes, then the other core files; an edge between a hub
-     and another file counts in neither part. In each part the files with a non-test edge to another file of that
-     part come first, each after its dependencies; when several are ready, the one connected to the most recently
-     placed file goes next (then the stored order), so related files stay adjacent. That is build_graph.py's rule, so
-     "bottom" reproduces its stored order; "top" reverses these files of each part. The part's files with no such
-     edge follow in stored order in both modes. Each test goes right after the core file it tests (its kind:test
-     subject first, else its other edges; the one read last wins; SUBJ records it), a test with no core target after
-     all core files, then docs/config/i18n. LINKED holds the linked files of the second part. */
+     Core files (not tests, not docs/config/i18n) are read in three parts: the shared dependencies (core nodes flagged
+     `hub` by build_graph.py; HUB records them) with something to read, then the trivial or unchanged ones, both first
+     in both modes, then the other core files; an edge between two parts counts in neither. Edges are the non-test
+     edges between core files. A type-only edge (kind "type") orders its files like an import unless it closes a cycle:
+     type edges inside a strongly connected component of all these edges are left out of the ordering (they still
+     link the files). In each part the files with an edge to another file of that part come first, each after its
+     dependencies; when a cycle blocks every file, the files of a cycle that waits on nothing outside itself are the
+     candidates; when several are ready, the one connected to the most recently placed file goes next (then the stored
+     order), so related files stay adjacent. That is build_graph.py's rule, so "bottom" reproduces its stored order;
+     "top" reverses these files of each part. The part's files with no such edge follow in stored order in both modes.
+     Each test goes right after the core file it tests (its kind:test subject first, else its other edges; the one
+     read last wins; SUBJ records it), a test with no core target after all core files, then docs/config/i18n. LINKED
+     holds the linked files of the last part. */
   function computeOrder(p){
     ON={};SUBJ={};LINKED={};HUB={};
-    var nodes=p.nodes.map(function(n){return all[n.id];}),byOrder=function(a,b){return a.order-b.order;},core={};
-    nodes.forEach(function(n){if(n.layer!=='test'&&!LATE[n.layer]){core[n.id]=1;if(n.hub)HUB[n.id]=1;}});
+    var nodes=p.nodes.map(function(n){return all[n.id];}),byOrder=function(a,b){return a.order-b.order;},core={},light={};
+    nodes.forEach(function(n){if(n.layer!=='test'&&!LATE[n.layer]){core[n.id]=1;if(n.hub){HUB[n.id]=1;if(n.trivial||n.unchanged)light[n.id]=1;}}});
+    var rel=p.edges.filter(function(e){return e.kind!=='test'&&e.from!==e.to&&core[e.from]&&core[e.to];});
+    /* Strongly connected components (Tarjan) of the core files over the edges in `list`: id -> component number. */
+    function scc(list){
+      var adj={},idx={},low={},on={},st=[],out={},n=0,c=0;
+      nodes.forEach(function(x){if(core[x.id])adj[x.id]=[];});
+      list.forEach(function(e){adj[e.from].push(e.to);});
+      function visit(v){
+        idx[v]=low[v]=n++;st.push(v);on[v]=1;
+        adj[v].forEach(function(w){if(idx[w]==null){visit(w);low[v]=Math.min(low[v],low[w]);}else if(on[w])low[v]=Math.min(low[v],idx[w]);});
+        if(low[v]===idx[v]){var w;do{w=st.pop();on[w]=0;out[w]=c;}while(w!==v);c++;}
+      }
+      Object.keys(adj).forEach(function(v){if(idx[v]==null)visit(v);});
+      return out;
+    }
+    var loose=scc(rel),hard=rel.filter(function(e){return e.kind!=='type'||loose[e.from]!==loose[e.to];}),comp=scc(hard);
     function part(inPart){
       var deps={},near={},link={},placedAt={},conn=[];
       nodes.forEach(function(n){if(inPart(n.id)){deps[n.id]=[];near[n.id]=[];}});
-      p.edges.forEach(function(e){if(e.kind!=='test'&&e.from!==e.to&&deps[e.from]&&deps[e.to]){deps[e.from].push(e.to);near[e.from].push(e.to);near[e.to].push(e.from);link[e.from]=link[e.to]=1;}});
+      rel.forEach(function(e){if(deps[e.from]&&deps[e.to]){near[e.from].push(e.to);near[e.to].push(e.from);link[e.from]=link[e.to]=1;}});
+      hard.forEach(function(e){if(deps[e.from]&&deps[e.to])deps[e.from].push(e.to);});
       var left=nodes.filter(function(n){return link[n.id];}).sort(byOrder);
       function recent(n){var m=-1;near[n.id].forEach(function(x){if(placedAt[x]!=null&&placedAt[x]>m)m=placedAt[x];});return m;}
       while(left.length){
         var ready=left.filter(function(n){return deps[n.id].every(function(d){return placedAt[d]!=null;});});
-        if(!ready.length)ready=left;
+        if(!ready.length){
+          var blocked={};
+          left.forEach(function(n){deps[n.id].forEach(function(d){if(placedAt[d]==null&&comp[d]!==comp[n.id])blocked[comp[n.id]]=1;});});
+          ready=left.filter(function(n){return !blocked[comp[n.id]];});
+        }
         var take=ready.slice().sort(function(a,b){return recent(b)-recent(a)||a.order-b.order;})[0];
         placedAt[take.id]=conn.length;conn.push(take);left.splice(left.indexOf(take),1);
       }
       if(omode!=='bottom')conn.reverse();
       return {link:link,seq:conn.concat(nodes.filter(function(n){return deps[n.id]&&!link[n.id];}).sort(byOrder))};
     }
-    var hubs=part(function(id){return HUB[id];}),rest=part(function(id){return core[id]&&!HUB[id];});
+    var heavy=part(function(id){return HUB[id]&&!light[id];}),thin=part(function(id){return light[id];}),rest=part(function(id){return core[id]&&!HUB[id];});
     LINKED=rest.link;
-    var seq=hubs.seq.concat(rest.seq).map(function(n){return n.id;});
+    var seq=heavy.seq.concat(thin.seq,rest.seq).map(function(n){return n.id;});
     var idx={};seq.forEach(function(id,i){idx[id]=i;});var attach={};
     nodes.filter(function(n){return n.layer==='test';}).sort(byOrder).forEach(function(t){
       var tg=p.edges.filter(function(e){return e.from===t.id&&idx[e.to]!=null;}),pref=tg.filter(function(e){return e.kind==='test';});

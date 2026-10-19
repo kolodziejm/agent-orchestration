@@ -2428,10 +2428,22 @@ def skill_module(name: str):
         sys.dont_write_bytecode = flag
 
 
+def lines_of(n: int, name: str) -> str:
+    """n distinct code lines, so a change has a size."""
+    return "".join(f"export const {name}{i} = {i};\n" for i in range(n))
+
+
 def graph_edges(graph: dict, key: str) -> dict[tuple[str, str], dict]:
     pr = next(pr for pr in graph["prs"] if pr["key"] == key)
     path = {node["id"]: node["path"] for p in graph["prs"] for node in p["nodes"]}
     return {(path[e["from"]], path[e["to"]]): e for e in pr["edges"]}
+
+
+def viewer_orders(root: Path, graph_path: Path) -> dict:
+    script = root / "viewer-order.js"
+    script.write_text(VIEWER_ORDER, encoding="utf-8")
+    result = subprocess.run(["node", str(script), str(SKILL / "assets" / "viewer.html"), str(graph_path)], capture_output=True, text=True, check=True)
+    return json.loads(result.stdout)
 
 
 class ResolutionTests(unittest.TestCase):
@@ -2598,6 +2610,122 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual({path: guess(path) for path in cases}, cases)
         layers = {node["path"]: node["layer"] for node in self.graph["prs"][0]["nodes"]}
         self.assertEqual(layers["apps/mobile/src/ui/fixtures/index.ts"], "test")
+
+
+def ordering_repo(repo: Path) -> None:
+    """A PR with a substantive hub, a trivially changed hub, a type-only cycle, a real import cycle, and import-only edits."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    base = {"src/provider.ts": lines_of(6, "p"), "src/screens/s0.ts": "export const s0 = 0;\n", "README.md": "# x\n",
+            "src/legacy.ts": "import { a } from './a';\nimport { b } from './b';\n" + lines_of(8, "legacy")}
+    commit_files(repo, base, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    files = {
+        "src/errors.ts": lines_of(30, "err"),
+        "src/provider.ts": lines_of(6, "p").replace("p5 = 5", "p5 = 50"),  # one line changed
+        "src/transport.ts": "import { refresh } from './refresh';\nexport type Transport = { send(): void };\n" + lines_of(12, "tr"),
+        "src/refresh.ts": "import type { Transport } from './transport';\nexport const refresh = (t?: Transport) => t;\n" + lines_of(6, "rf"),
+        "src/bootstrap.ts": "import { refresh } from './refresh';\nimport { tr0 } from './transport';\nimport { err1 } from './errors';\n" + lines_of(5, "bo"),
+        "src/x.ts": "import { y0 } from './y';\n" + lines_of(4, "x"),
+        "src/y.ts": "import { x0 } from './x';\n" + lines_of(4, "y"),
+        "src/z.ts": "import { x0 } from './x';\nimport { err1 } from './errors';\n" + lines_of(4, "z"),
+        "src/a.ts": lines_of(3, "a"), "src/b.ts": lines_of(3, "b"),
+        # Only its import lines change: trivial although 3 lines change.
+        "src/legacy.ts": "import { a0 } from './a';\nimport { b0 } from './b';\nimport { err0 } from './errors';\n" + lines_of(8, "legacy"),
+    }
+    for i in range(1, 7):
+        files[f"src/screens/s{i}.ts"] = ("import { err0 } from '../errors';\nimport { p0 } from '../provider';\n"
+                                         f"export const s{i} = err0 + p0;\n")
+    commit_files(repo, files, "feat")
+
+
+class OrderingTests(unittest.TestCase):
+    """How substance orders a PR: hubs by a sublinear threshold, trivial hubs after the others, import cycles per strongly
+    connected component with type-only edges left out, and the reading mode recommended per PR."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        ordering_repo(cls.root / "repo")
+        cls.path = cls.root / "graphs.json"
+        cls.result = run_script("build_graph.py", "--out", str(cls.path), "--pr", "O", str(cls.root / "repo"), "main...feat", "--no-manifest")
+        cls.graph = json.loads(cls.path.read_text(encoding="utf-8"))
+        cls.nodes = {node["path"]: node for node in cls.graph["prs"][0]["nodes"]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def order(self) -> list[str]:
+        return [node["path"] for node in sorted(self.graph["prs"][0]["nodes"], key=lambda node: node["order"])]
+
+    def test_the_hub_threshold_grows_with_the_square_root_of_the_linked_files(self):
+        """This test will fail when the shared-dependency threshold stops being max(4, ceil(1.25 * sqrt(linked))): a file 15 of 105 linked files use must be a hub (a quarter asked for 27), one 3 of 10 use must not, and one 4 of 10 use must."""
+        find = skill_module("build_graph").find_hubs
+
+        def hubs(linked: int, users: int) -> bool:
+            nodes = {f"f{i}.ts": {"layer": "logic", "path": f"f{i}.ts"} for i in range(linked)}
+            edges = [(f"f{i}.ts", f"f{i + 1}.ts", "import") for i in range(1, linked - 1)]  # a chain links them all
+            edges += [(f"f{i}.ts", "f0.ts", "import") for i in range(1, users + 1)]
+            return "f0.ts" in find(nodes, edges, {})
+
+        self.assertEqual([hubs(105, 15), hubs(105, 12), hubs(40, 8), hubs(40, 7), hubs(10, 4), hubs(10, 3)],
+                         [True, False, True, False, True, False])
+
+    def test_a_trivially_changed_hub_is_read_after_the_substantive_ones(self):
+        """This test will fail when a file changed in at most 2 lines (or only in its import lines) is not flagged `trivial`, or when a trivially changed shared dependency is read before a substantive one (it may stay a hub so its many links still bind nothing)."""
+        n = self.nodes
+        self.assertTrue(n["src/provider.ts"].get("trivial") and n["src/legacy.ts"].get("trivial"))
+        self.assertFalse(n["src/errors.ts"].get("trivial") or n["src/transport.ts"].get("trivial"))
+        self.assertTrue(n["src/errors.ts"].get("hub") and n["src/provider.ts"].get("hub"))
+        self.assertEqual(self.order()[:2], ["src/errors.ts", "src/provider.ts"])
+
+    def test_only_real_import_cycles_warn_once_each_and_type_only_ones_order_nothing(self):
+        """This test will fail when a cycle closed only by a type-only import (refresh.ts imports types from transport.ts) warns or blocks the order, when a real import cycle warns more than once or names files outside it, or when breaking a cycle lets a file that waits on it (z.ts) or an unrelated one jump ahead."""
+        cycles = [line for line in self.result.stdout.splitlines() if "cycle" in line]
+        self.assertEqual(cycles, ["warning: O: import cycle among 2 files (src/x.ts, src/y.ts); read in flow order. "
+                                  "Confirm it, or drop a wrong edge with dropEdges"])
+        e = graph_edges(self.graph, "O")
+        self.assertEqual((e[("src/refresh.ts", "src/transport.ts")]["kind"], e[("src/transport.ts", "src/refresh.ts")]["kind"]), ("type", "import"))
+        order = self.order()
+        self.assertLess(order.index("src/refresh.ts"), order.index("src/transport.ts"))
+        self.assertLess(order.index("src/transport.ts"), order.index("src/bootstrap.ts"))
+        self.assertLess(max(order.index("src/x.ts"), order.index("src/y.ts")), order.index("src/z.ts"))
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's ordering code")
+    def test_the_viewer_orders_cycles_type_edges_and_trivial_hubs_as_build_graph_does(self):
+        """This test will fail when the viewer's computeOrder() drifts from build_graph.py on type-only edges inside a cycle, the strongly connected components it breaks cycles in, or trivial hubs after substantive ones, in either mode."""
+        orders = viewer_orders(self.root, self.path)
+        pr = self.graph["prs"][0]
+        stored = {node["id"]: node["order"] for node in pr["nodes"]}
+        self.assertEqual(orders["bottom"]["O"], stored)
+        top = orders["top"]["O"]
+        self.assertEqual(sorted(top.values()), list(range(1, len(stored) + 1)))
+        ids = {node["path"]: node["id"] for node in pr["nodes"]}
+        self.assertEqual([top[ids["src/errors.ts"]], top[ids["src/provider.ts"]]], [1, 2])
+        self.assertGreater(top[ids["src/refresh.ts"]], top[ids["src/transport.ts"]])
+
+    def test_a_pr_that_adapts_many_callers_recommends_reading_from_dependencies(self):
+        """This test will fail when `readFrom` stops being "dependencies" for a PR whose entry points (at least 3) are mostly light (trivial, or at most a third of the largest change underneath them) and "entry" otherwise, or when `readFromWhy` loses its counts."""
+        pr = self.graph["prs"][0]
+        self.assertEqual(pr["readFrom"], "dependencies")
+        self.assertGreaterEqual(pr["readFromWhy"]["entries"], 3)
+        self.assertGreater(2 * pr["readFromWhy"]["light"], pr["readFromWhy"]["entries"])
+        self.assertIn("reads from dependencies", self.result.stdout)
+        repo = self.root / "feature"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        files = {"src/repo.ts": lines_of(30, "r"), "src/service.ts": "import { r0 } from './repo';\n" + lines_of(40, "s")}
+        for name in ("orders", "users", "items"):
+            files[f"src/{name}.controller.ts"] = "import { s0 } from './service';\n" + lines_of(30, name)
+        commit_files(repo, files, "feat")
+        out = self.root / "feature.json"
+        run_script("build_graph.py", "--out", str(out), "--pr", "F", str(repo), "main...feat", "--no-manifest")
+        feature = json.loads(out.read_text(encoding="utf-8"))["prs"][0]
+        self.assertEqual((feature["readFrom"], feature["readFromWhy"]["entries"], feature["readFromWhy"]["light"]), ("entry", 3, 0))
 
 
 if __name__ == "__main__":

@@ -35,11 +35,16 @@ What the script resolves on its own:
     `test_panel.py`, `panel_spec.rb` -> `panel`); a test without such a match falls back to its name
     without leading area words (`mobile-transport-test` -> `transport`), then to word overlap with a
     changed file near it (`mobile-auth-bootstrap-test` -> `auth/bootstrap.ts`), only when one file wins
-  * `hub`: shared dependencies, files that at least a quarter of the PR's linked files
-    (and at least 4) depend on, plus files only they use; the viewer pins them in a
-    "Shared dependencies" group and leaves their incoming links out of the arcs
+  * `trivial`: a file that changes at most 2 lines, or only import/re-export lines
+  * `hub`: shared dependencies, files that at least max(4, ceil(1.25 * sqrt(linked))) of the PR's linked
+    files depend on, plus files only they use; the viewer pins them in a "Shared dependencies" group,
+    trivial ones after the others, and leaves their incoming links out of the arcs
   * `order`: dependency-first reading order that keeps connected files adjacent, shared
-    dependencies first (the viewer reverses the rest for the "from the entry point" mode)
+    dependencies first (the viewer reverses the rest for the "from the entry point" mode); a type-only
+    edge orders its files unless it closes a cycle; one warning per real import cycle names its files
+  * each PR's `readFrom`: "dependencies" when most of its (at least 3) entry points are light, trivial or
+    changing at most a third of the largest change underneath them, else "entry"; `readFromWhy` has the
+    numbers. The viewer opens the PR in that mode unless the reader picked one for it
   * each PR's `repo` label: `--repo`, else `owner/name` from the `origin` remote
     URL path (never its host, credentials, query, or fragment), else the
     repository directory name
@@ -82,8 +87,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import posixpath
 import re
+import statistics
 import subprocess
 import sys
 from pathlib import Path
@@ -150,8 +157,16 @@ LAYER_RULES = [
 PRIO = {"contract": 0, "domain": 1, "data": 1, "logic": 2, "infra": 3, "rest": 4, "ui": 5,
         "wiring": 6, "test": 7, "config": 8, "i18n": 8, "docs": 9}
 LATE = {"docs", "config", "i18n"}
-HUB_MIN, HUB_SHARE = 4, 4  # a hub: at least 4 dependents and at least a quarter of the linked core files
+# A hub has at least max(HUB_MIN, ceil(HUB_SCALE * sqrt(linked))) dependents among the PR's `linked` core files: 4 up
+# to 10 linked files, 7 at 25, 13 at 105, 25 at 400. A share (a quarter) asked for 27 of 105 and missed the error-text
+# helpers fifteen screens use.
+HUB_MIN, HUB_SCALE = 4, 1.25
+TRIVIAL_LINES = 2       # a change of at most this many lines is trivial
+IMPORT_ONLY_MAX = 60    # a larger change is never checked for being import lines only
 BARREL_DEPTH = 4        # re-export hops followed from an unchanged barrel
+# readFrom (see read_from()): "dependencies" when a PR has at least MODE_ENTRIES entry points and most of them are light:
+# trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
+MODE_ENTRIES, MODE_RATIO = 3, 3
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1, "type": 0}
 KINDS = set(KIND_RANK)
@@ -175,6 +190,13 @@ EXPORT_LIST = re.compile(r"(?:^|[;\s])export\s+(?:type\s+)?\{([^}]*)\}(?!\s*from
 COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
 PY_IMPORT = re.compile(r"^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))", re.MULTILINE)
 PHP_USE = re.compile(r"^\s*use\s+(?:function\s+|const\s+)?\\?([A-Za-z_][\w\\]*)(?:\s+as\s+\w+)?\s*;", re.MULTILINE)
+# Import statements, removed from both versions of a file to tell an import-only change (see trivial()).
+IMPORT_LINES = {
+    "js": re.compile(r"""^[ \t]*(?:import\b[^'"`;]*?['"][^'"\n]*['"]|export\s+(?:type\s+)?(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*"""
+                     r"""from\s*['"][^'"\n]*['"]|(?:const|let|var)\s+[^=;\n]+=\s*require\(\s*['"][^'"\n]*['"]\s*\))[ \t]*;?""", re.MULTILINE),
+    "py": re.compile(r"^[ \t]*(?:from\s+[\w.]+\s+import\s+(?:\([^)]*\)|[^\n]*)|import\s+[^\n]*)", re.MULTILINE),
+    "php": re.compile(r"^[ \t]*use\s+[^;{]+;", re.MULTILINE),
+}
 # Stripped (repeatedly) from a test's stem to find its subject: `panel-test` -> `panel`,
 # `app.e2e-spec` -> `app`, `test_service` -> `service`, `UserTest` -> `User`, `login.cy` -> `login`,
 # `OrderSpec` -> `Order`, `UserRepositoryIT` -> `UserRepository`. Django's `tests` strips to nothing:
@@ -235,6 +257,15 @@ def tip_of(rng: str) -> str:
     raise SystemExit(f"range {rng!r} must be base...tip or base..tip")
 
 
+def base_of(repo: str, rng: str) -> str:
+    """The version a range's diff starts from: the merge base for `A...B`, `A` for `A..B` ("" when git cannot tell)."""
+    tip = tip_of(rng)
+    base = rng.split("..." if "..." in rng else "..", 1)[0] or "HEAD"
+    if "..." in rng:
+        base = (git(repo, "merge-base", "--end-of-options", base, tip, check=False) or "").strip()
+    return base
+
+
 def range_commits(repo: str, rng: str) -> dict[str, str]:
     """Short SHAs of the two versions the diff compares: `base` (the merge base for
     `A...B`, `A` for `A..B`) and `tip`. A commit git cannot resolve is left out."""
@@ -243,18 +274,16 @@ def range_commits(repo: str, rng: str) -> dict[str, str]:
         out = git(repo, "rev-parse", "--verify", "--quiet", "--short", "--end-of-options", f"{rev}^{{commit}}", check=False)
         return (out or "").strip()
 
-    tip = tip_of(rng)
-    base = rng.split("..." if "..." in rng else "..", 1)[0] or "HEAD"
-    if "..." in rng:
-        base = (git(repo, "merge-base", "--end-of-options", base, tip, check=False) or "").strip()
-    commits = {"base": short(base) if base else "", "tip": short(tip)}
+    base = base_of(repo, rng)
+    commits = {"base": short(base) if base else "", "tip": short(tip_of(rng))}
     return {name: sha for name, sha in commits.items() if sha}
 
 
-def numstat(repo: str, rng: str) -> dict[str, tuple[int, int]]:
+def numstat(repo: str, rng: str) -> dict[str, tuple[int, int, bool, str | None]]:
+    """path -> (added, removed, binary, path before a rename or None)."""
     out = git(repo, "diff", "--numstat", "-M", "-z", "--end-of-options", rng, "--") or ""
     tokens = out.split("\0")
-    files: dict[str, tuple[int, int]] = {}
+    files: dict[str, tuple[int, int, bool, str | None]] = {}
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -262,10 +291,12 @@ def numstat(repo: str, rng: str) -> dict[str, tuple[int, int]]:
         if not token:
             continue
         added, removed, path = token.split("\t", 2)
+        old = None
         if path == "":
-            path = tokens[i + 1]
+            old, path = tokens[i], tokens[i + 1]
             i += 2
-        files[path] = (int(added) if added.isdigit() else 0, int(removed) if removed.isdigit() else 0)
+        files[path] = (int(added) if added.isdigit() else 0, int(removed) if removed.isdigit() else 0,
+                       added == "-" and removed == "-", old)
     return files
 
 
@@ -626,19 +657,34 @@ def php_targets(namespace: str, candidates: set[str]) -> list[str]:
     return [best] if best is not None and best_len >= min(2, len(parts)) else []
 
 
+def import_free(path: str, text: str) -> str | None:
+    """A code file's text without its import statements and white space; None for other files."""
+    lang = "js" if path.endswith(JS_EXT) else "py" if path.endswith(".py") else "php" if path.endswith(".php") else None
+    if lang is None:
+        return None
+    return re.sub(r"\s+", "", IMPORT_LINES[lang].sub("", text))
+
+
 def is_core(node: dict) -> bool:
     return node["layer"] != "test" and node["layer"] not in LATE
+
+
+def is_light(node: dict) -> bool:
+    """A trivial change or an unchanged reference file: nothing to read first."""
+    return bool(node.get("trivial") or node.get("unchanged"))
 
 
 def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced: dict[str, bool]) -> set[str]:
     """Shared dependencies ("hubs") of one PR; `edges` are its same-PR (from, to, kind).
 
     Only core files (not tests, not docs/config/i18n) and their non-test edges to each other
-    count. A file is a hub when at least max(HUB_MIN, ceil(linked / HUB_SHARE)) other core files
-    depend on it, `linked` being the core files that share such an edge with another one (in a
-    47-file PR with 25 linked files: 7). Then a file that only hubs depend on joins them
-    (repeated until nothing changes), so a hub's private helpers are read with it. `forced` is
-    the overlay's per-node `hub: true/false`; `false` also keeps a file out of the second step.
+    count. A file is a hub when at least max(HUB_MIN, ceil(HUB_SCALE * sqrt(linked))) other core
+    files depend on it, `linked` being the core files that share such an edge with another one (10
+    linked files: 4; 25: 7; 105: 13). Then a file that only hubs depend on joins them (repeated
+    until nothing changes), so a hub's private helpers are read with it. `forced` is the overlay's
+    per-node `hub: true/false`; `false` also keeps a file out of the second step. A trivial change
+    can be a hub (its links would otherwise bind every user together); the order reads it after
+    the other hubs.
     """
     core = {nk for nk in nodes if is_core(nodes[nk])}
     users: dict[str, set[str]] = {nk: set() for nk in core}
@@ -647,7 +693,7 @@ def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced:
         if frm in core and to in core and kind != "test" and frm != to:
             users[to].add(frm)
             linked.update((frm, to))
-    need = max(HUB_MIN, -(-len(linked) // HUB_SHARE))
+    need = max(HUB_MIN, math.ceil(HUB_SCALE * math.sqrt(len(linked))))
     hubs = {nk for nk in core if len(users[nk]) >= need or forced.get(nk) is True}
     hubs -= {nk for nk, value in forced.items() if value is False}
     grown = True
@@ -680,23 +726,70 @@ def read_clusters(overlay: dict) -> dict[str, dict]:
     return out
 
 
+def components(members: list[str], deps: dict[str, set[str]]) -> dict[str, int]:
+    """Strongly connected components (Tarjan, iterative): node -> component number; `members` sets the visit order."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    comp: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    count = 0
+    for root in members:
+        if root in index:
+            continue
+        index[root] = low[root] = len(index)
+        stack.append(root)
+        on_stack.add(root)
+        work = [(root, iter(sorted(deps[root])))]
+        while work:
+            node, rest = work[-1]
+            for nxt in rest:
+                if nxt not in index:
+                    index[nxt] = low[nxt] = len(index)
+                    stack.append(nxt)
+                    on_stack.add(nxt)
+                    work.append((nxt, iter(sorted(deps[nxt]))))
+                    break
+                if nxt in on_stack:
+                    low[node] = min(low[node], index[nxt])
+            else:
+                work.pop()
+                if work:
+                    low[work[-1][0]] = min(low[work[-1][0]], low[node])
+                if low[node] == index[node]:
+                    while True:
+                        member = stack.pop()
+                        on_stack.discard(member)
+                        comp[member] = count
+                        if member == node:
+                            break
+                    count += 1
+    return comp
+
+
 def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_cycle=None) -> list[str]:
     """Dependency-first reading order of one PR's nodes; `edges` are its same-PR (from, to, kind).
 
-    Core files (not tests, not docs/config/i18n) are read in two parts: the shared dependencies
-    (nodes with `hub` set, see find_hubs) first, then the others; an edge between a hub and a
-    non-hub file counts in neither part, so hubs neither pull files towards the top nor bind
-    files that share nothing else. In each part the files that share a non-test edge with
-    another file of that part come first, topologically sorted; the part's files with no such
-    edge (edges to tests, late files, and other PRs do not count) follow, so an unrelated file
-    never opens either reading mode. Among the files ready to be read next, the one connected
-    (by such an edge, either direction) to the most recently placed file wins, so a chain such
-    as types -> service -> controller reads as a run instead of interleaving with unrelated
-    files; then (PRIO, path). Each test goes right after the core file it tests (its `test`
-    edge first, else its other edges; the last such file wins), a test with no core target
-    after all core files, then docs/config/i18n. The viewer's computeOrder() applies the same
-    rule (its final tie-break is this stored order) and reverses only the connected files of
-    each part for "from the entry point", so the shared dependencies open both modes.
+    Core files (not tests, not docs/config/i18n) are read in three parts: the shared dependencies
+    (nodes with `hub` set, see find_hubs) with something to read, then the trivial or unchanged
+    ones, then the other files; an edge between two parts counts in neither, so hubs neither pull
+    files towards the top nor bind files that share nothing else. Edges are non-test edges between
+    core files. A `type` edge (a type-only import) orders its files like an import unless it closes
+    a cycle: type edges inside a strongly connected component of all edges are dropped from the
+    ordering (they still link the files), so a type-only cycle orders nothing and warns nothing.
+    Each strongly connected component left (a real import cycle) is reported once through
+    `on_cycle(paths)`. In each part the files that share an edge with another file of that part
+    come first, topologically sorted; when a cycle blocks every file, the files of a cycle that
+    waits on nothing outside itself are the candidates. The part's files with no such edge (edges
+    to tests, late files, and other PRs do not count) follow, so an unrelated file never opens
+    either reading mode. Among the candidates, the one connected (by such an edge, either
+    direction) to the most recently placed file wins, so a chain such as types -> service ->
+    controller reads as a run instead of interleaving with unrelated files; then (PRIO, path).
+    Each test goes right after the core file it tests (its `test` edge first, else its other
+    edges; the last such file wins), a test with no core target after all core files, then
+    docs/config/i18n. The viewer's computeOrder() applies the same rule (its final tie-break is
+    this stored order) and reverses only the connected files of each part for "from the entry
+    point", so the shared dependencies open both modes.
     """
 
     def rank(nk: str, default: int = 5) -> tuple[int, str, str]:
@@ -704,15 +797,34 @@ def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_
 
     core = {nk for nk in nodes if is_core(nodes[nk])}
     hubs = {nk for nk in core if nodes[nk].get("hub")}
+    light = {nk for nk in hubs if is_light(nodes[nk])}
+    rel = sorted({(frm, to, kind) for frm, to, kind in edges if frm in core and to in core and kind != "test" and frm != to})
+    members = sorted(core, key=rank)
+    every: dict[str, set[str]] = {nk: set() for nk in core}
+    for frm, to, _kind in rel:
+        every[frm].add(to)
+    loose = components(members, every)
+    hard = {(frm, to) for frm, to, kind in rel if kind != "type" or loose[frm] != loose[to]}
+    strict: dict[str, set[str]] = {nk: set() for nk in core}
+    for frm, to in hard:
+        strict[frm].add(to)
+    comp = components(members, strict)
+    cycles: dict[int, list[str]] = {}
+    for nk in members:
+        cycles.setdefault(comp[nk], []).append(nodes[nk]["path"])
+    if on_cycle:
+        for paths in sorted((sorted(p) for p in cycles.values() if len(p) > 1)):
+            on_cycle(paths)
 
     def part(members: set[str]) -> list[str]:
         deps: dict[str, set[str]] = {nk: set() for nk in members}
         near: dict[str, set[str]] = {nk: set() for nk in members}
-        for frm, to, kind in edges:
-            if frm in members and to in members and kind != "test" and frm != to:
-                deps[frm].add(to)
+        for frm, to, _kind in rel:
+            if frm in members and to in members:
                 near[frm].add(to)
                 near[to].add(frm)
+                if (frm, to) in hard:
+                    deps[frm].add(to)
         linked = {nk for nk in members if near[nk]}
         seq: list[str] = []
         placed: dict[str, int] = {}
@@ -725,16 +837,15 @@ def reading_order(nodes: dict[str, dict], edges: list[tuple[str, str, str]], on_
         while remaining:
             ready = [nk for nk in remaining if not deps[nk] & remaining]
             if not ready:
-                ready = list(remaining)
-                if on_cycle:
-                    on_cycle(sorted(remaining)[:3])
+                blocked = {comp[nk] for nk in remaining if any(comp[d] != comp[nk] for d in deps[nk] & remaining)}
+                ready = [nk for nk in remaining if comp[nk] not in blocked]
             pick = min(ready, key=flow)
             placed[pick] = len(seq)
             seq.append(pick)
             remaining.discard(pick)
         return seq + sorted(members - linked, key=rank)
 
-    order = part(hubs) + part(core - hubs)
+    order = part(hubs - light) + part(light) + part(core - hubs)
     tests = sorted((nk for nk in nodes if nodes[nk]["layer"] == "test"), key=lambda nk: (nodes[nk]["path"], nk))
     attached = []
     for test in tests:
@@ -828,6 +939,54 @@ def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[
             continue
         out.append({"id": tour["id"], "name": tour["name"], "steps": steps})
     return out, moves
+
+
+def read_from(nodes: dict[str, dict], edges: list[tuple[str, str, str]]) -> tuple[str, dict[str, int]]:
+    """The reading mode to open a PR in, and the numbers behind it.
+
+    Entry points are the linked core files outside the hubs that no other such file depends on (the
+    files "from the entry point" opens with). An entry point is light when it is trivial (at most 2
+    changed lines, or only import lines) or unchanged, or when its change (added + removed lines) is at
+    most 1/MODE_RATIO of the largest change among the core files it depends on, directly or through
+    others, hubs included. "dependencies" when there are at least MODE_ENTRIES entry points and more
+    than half of them are light: a PR that adapts many callers to a change underneath reads best from
+    that change. Otherwise "entry". `why` holds the counts and the median change of the entry points
+    and of the largest change under each.
+    """
+    core = {nk for nk in nodes if is_core(nodes[nk])}
+    hubs = {nk for nk in core if nodes[nk].get("hub")}
+    rest = core - hubs
+    below: dict[str, set[str]] = {nk: set() for nk in core}
+    linked: set[str] = set()
+    used: set[str] = set()
+    for frm, to, kind in edges:
+        if frm in core and to in core and kind != "test" and frm != to:
+            below[frm].add(to)
+            if frm in rest and to in rest:
+                linked.update((frm, to))
+                used.add(to)
+    entries = sorted(linked - used)
+
+    def lines(nk: str) -> int:
+        return nodes[nk]["added"] + nodes[nk]["removed"]
+
+    def base(nk: str) -> int:
+        seen, stack, top = {nk}, [nk], 0
+        while stack:
+            for dep in below[stack.pop()]:
+                if dep not in seen:
+                    seen.add(dep)
+                    stack.append(dep)
+                    top = max(top, lines(dep))
+        return top
+
+    bases = {nk: base(nk) for nk in entries}
+    light = [nk for nk in entries if is_light(nodes[nk]) or MODE_RATIO * lines(nk) <= bases[nk]]
+    why = {"entries": len(entries), "light": len(light),
+           "entryLines": statistics.median_low([lines(nk) for nk in entries]) if entries else 0,
+           "baseLines": statistics.median_low(list(bases.values())) if entries else 0}
+    deps_first = len(entries) >= MODE_ENTRIES and 2 * len(light) > len(entries)
+    return ("dependencies" if deps_first else "entry"), why
 
 
 def words(text: str) -> list[str]:
@@ -949,10 +1108,11 @@ def main() -> int:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
         resolver = Resolver(repo, tip_of(rng), args.alias)
+        base = base_of(repo, rng)
         nodes: dict[str, dict] = {}
         owner: dict[str, str] = {}
         for path in sorted(files):
-            added, removed = files[path]
+            added, removed, binary, old = files[path]
             rule = next((r for r in rules if re.search(r["pattern"], path)), None)
             if rule is not None and rule.get("group", True):
                 nk = "#" + rule["id"]
@@ -964,6 +1124,15 @@ def main() -> int:
                 layer = rule.get("layer") if rule else None
                 node = nodes.setdefault(nk, {"label": posixpath.basename(path), "layer": layer or guess_layer(path),
                                              "role": "", "added": 0, "removed": 0, "files": [path], "path": path})
+                lines = added + removed
+                if not binary and lines <= TRIVIAL_LINES:
+                    node["trivial"] = True
+                elif not binary and lines <= IMPORT_ONLY_MAX and base:
+                    now = import_free(path, resolver.source(path))
+                    if now is not None:
+                        before = git(repo, "show", "--end-of-options", f"{base}:{old or path}", check=False) or ""
+                        if now == import_free(path, before):
+                            node["trivial"] = True
             node["added"] += added
             node["removed"] += removed
             owner[path] = nk
@@ -1161,12 +1330,17 @@ def main() -> int:
                 else f"{node['layer']} (the viewer's docs, config, and i18n area)"
             warnings.append(f"{pr['key']}: overlay cluster {node.pop('cluster')!r} ignored for {node['path']}: it is {where}")
 
-        order = reading_order(nodes, same_pr, lambda near: warnings.append(
-            f"{pr['key']}: dependency cycle broken near {near}"))
+        def on_cycle(paths: list[str], key: str = pr["key"]) -> None:
+            shown = ", ".join(paths[:6]) + (f" and {len(paths) - 6} more" if len(paths) > 6 else "")
+            warnings.append(f"{key}: import cycle among {len(paths)} files ({shown}); read in flow order. "
+                            "Confirm it, or drop a wrong edge with dropEdges")
+
+        order = reading_order(nodes, same_pr, on_cycle)
         for position, nk in enumerate(order, 1):
             ids[(index, nk)] = f"{pr['key']}{position}"
             nodes[nk]["order"] = position
         pr["order"] = order
+        pr["readFrom"] = read_from(nodes, same_pr)
 
     tour_out, tour_moves = resolve_tours(tour_specs, prs, ids, index_of, parent_parts, previous_graph, warnings)
 
@@ -1188,6 +1362,7 @@ def main() -> int:
                  "repo": pr["label"], **range_commits(pr["repo"], pr["range"])}
         if pr["chunk"]:
             entry["chunk"] = pr["chunk"]
+        entry["readFrom"], entry["readFromWhy"] = pr["readFrom"]
         used = {node["cluster"] for node in nodes.values() if "cluster" in node}
         if used:
             entry["clusters"] = sorted((clusters[cid] for cid in used), key=lambda c: (c["order"], c["id"]))
@@ -1205,6 +1380,8 @@ def main() -> int:
                 item["note"] = node["note"]
             if node.get("unchanged"):
                 item["unchanged"] = True
+            if node.get("trivial"):
+                item["trivial"] = True
             if node.get("hub"):
                 item["hub"] = True
             if "cluster" in node:
@@ -1262,10 +1439,14 @@ def main() -> int:
         hits = pr["resolver"].ts_hits
         if hits:
             found.append("tsconfig paths: " + ", ".join(f"{path} {n}" for path, n in sorted(hits.items())))
+        why = entry["readFromWhy"]
         print(f"{entry['key']}: {len(entry['nodes'])} nodes, {len(entry['edges'])} edges"
               + (f" ({'; '.join(x for x in found if x)})" if any(found) else "")
               + (f"; shared dependencies: {', '.join(hubs)}" if hubs else "")
-              + (f"; areas: {', '.join(f'{cid} {n}' for cid, n in areas.items())}" if areas else ""))
+              + (f"; areas: {', '.join(f'{cid} {n}' for cid, n in areas.items())}" if areas else "")
+              + f"; reads from {'dependencies' if entry['readFrom'] == 'dependencies' else 'the entry point'}"
+              + f" ({why['light']} of {why['entries']} entry points light: median {why['entryLines']} changed lines"
+              + f" over {why['baseLines']} underneath)")
         loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]
         if areas and loose:
             print(f"hint: PR {entry['key']}: {len(loose)} core files have no area, so the map groups them by folder: "
