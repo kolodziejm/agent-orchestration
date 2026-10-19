@@ -261,9 +261,13 @@ the last part that changes the file on the new side, the first on the old side; 
 code the PR removes). `lines` is a line or a range on that side; without it the step
 opens the whole file. `note` (report language) says what to look at in 80 characters or
 fewer. The id takes an area id's form. build_graph.py reads each step's lines with `git
-show` and writes graphs.json `tours` (above); an unknown key, a path no node of the PR
-has, a file missing on that side, lines outside the file, and a tour list beyond the
-limits stop it. validate.py checks each step's node and path against the diff data and
+show` and writes graphs.json `tours` (above); an unknown key, a group, malformed lines or
+side, and a tour list beyond the limits stop it. What a moved branch can cause degrades
+with a warning instead, as other overlay references do: a step whose file the PR no
+longer changes is left out (and a tour left with fewer than 3 steps with it), and a step
+whose file is missing on its side or whose lines run past the file's end goes stale (it
+opens the whole file; a file gone from its side keeps the previous build's lines and
+code for when it comes back). validate.py checks each step's node and path against the diff data and
 warns when a step's lines lie outside every hunk on their side (the viewer then opens the
 whole file) and when a narrative `data-tour` button names no tour.
 
@@ -273,8 +277,8 @@ resolved on with the viewer's note matcher (exact, white space ignored, or a clo
 match, found once on the same side; scripts/tours.py ports it). Moved code moves the step
 ("moved 12-30 → 18-36"); code that changed leaves it stale, a warning, and the viewer opens
 the whole file with "code changed". The overlay is never rewritten: change a step's
-`lines` there to anchor it afresh. A step whose file left the PR stops the refresh; fix
-the overlay and run it again.
+`lines` there to anchor it afresh. A step whose file left the PR, or whose file a new
+commit deleted, degrades as above and never stops the refresh.
 
 The viewer puts a tour picker beside the view toggle. A chosen tour shows a bar at the
 foot of the graph, held at the bottom of the window: "Krok 3 z 8" / "Step 3 of 8", the

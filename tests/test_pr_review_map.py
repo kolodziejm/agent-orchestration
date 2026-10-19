@@ -2186,7 +2186,7 @@ class TourTests(unittest.TestCase):
         self.assertNotIn("tours", json.loads(plain.read_text(encoding="utf-8")))
 
     def test_build_graph_refuses_unknown_references_and_malformed_tours(self):
-        """This test will fail when build_graph.py accepts a tour step naming an unknown PR key, a path no node of the PR has, a group instead of a file, a file missing on the step's side, lines outside the file or malformed, an unknown side, or a tour list beyond the limits (more than 8 tours, fewer than 3 or more than 15 steps, a duplicate or malformed id)."""
+        """This test will fail when build_graph.py accepts a tour step naming an unknown PR key, a group instead of a file, malformed lines, an unknown side, or a tour list beyond the limits (more than 8 tours, fewer than 3 or more than 15 steps, a duplicate or malformed id). What a moved branch can cause (a file the PR no longer changes, a file missing on the step's side, lines past its end) degrades instead: see test_tour_steps_a_moved_branch_breaks_degrade_with_a_warning."""
         def step(**fields):
             return {"ref": "M:src/core/types.ts", "lines": "1", **fields}
 
@@ -2196,10 +2196,7 @@ class TourTests(unittest.TestCase):
         three = [step(), step(), step()]
         cases = {
             "unknown key": ([tour([step(ref="Z:src/core/types.ts"), step(), step()])], "unknown PR key 'Z'"),
-            "unknown path": ([tour([step(ref="M:src/nope.ts"), step(), step()])], "PR M has no node with the file 'src/nope.ts'"),
             "group": ([tour([step(ref="M:#docs"), step(), step()])], "a step names a file (KEY:path), not a group"),
-            "missing side": ([tour([step(side="old"), step(), step()])], "src/core/types.ts does not exist on the old side of PR Ma"),
-            "past the end": ([tour([step(lines="1-9"), step(), step()])], "lines 1-9 are outside the file (1 lines on the new side)"),
             "bad lines": ([tour([step(lines="3-1"), step(), step()])], "must be a line or a range"),
             "bad side": ([tour([step(side="left"), step(), step()])], "side 'left' must be"),
             "too few": ([tour([step(), step()])], "2 steps; a tour has 3 to 15"),
@@ -2216,6 +2213,73 @@ class TourTests(unittest.TestCase):
                                     "--overlay", str(overlay), "--no-manifest", check=False)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn(message, result.stderr)
+
+    def test_tour_steps_a_moved_branch_breaks_degrade_with_a_warning(self):
+        """This test will fail when build_graph.py stops a build on a tour step whose file the PR no longer changes, whose file is missing on the step's side, or whose lines run past the file's end, instead of leaving the step out (and a tour left with fewer than 3 steps with it) or making it stale (it opens the whole file) with a warning, or when such a build's page stops assembling."""
+        def step(**fields):
+            return {"ref": "M:src/core/types.ts", "lines": "1", **fields}
+
+        overlay = self.root / "degrading-tours.json"
+        overlay.write_text(json.dumps({"tours": [
+            {"id": "kept", "name": "Kept", "steps": [step(ref="M:src/nope.ts"), step(side="old"), step(lines="1-9"), step(), step()]},
+            {"id": "dropped", "name": "Dropped", "steps": [step(ref="M:src/nope.ts"), step(), step()]},
+        ]}), encoding="utf-8")
+        out = self.root / "degrading.json"
+        result = run_script("build_graph.py", "--out", str(out), "--chunks", str(self.scratch / "chunks.json"), "--overlay", str(overlay), "--no-manifest")
+        self.assertIn("warning: tour kept step 1 (M:src/nope.ts): PR M has no node with the file 'src/nope.ts'", result.stdout)
+        self.assertIn("any more; the step is left out until the overlay is updated", result.stdout)
+        self.assertIn("warning: tour kept step 2 (M:src/core/types.ts): src/core/types.ts does not exist on the old side of PR Ma", result.stdout)
+        self.assertIn("warning: tour kept step 3 (M:src/core/types.ts): lines 1-9 are outside the file (1 lines on the new side); the step opens the whole file", result.stdout)
+        self.assertIn("warning: tour dropped: 2 of its 3 steps are left; a tour has 3 to 15, so it is left out", result.stdout)
+        graph = json.loads(out.read_text(encoding="utf-8"))
+        (kept,) = graph["tours"]
+        self.assertEqual(kept["id"], "kept")
+        self.assertEqual([(s["side"], s.get("stale", False), s.get("a")) for s in kept["steps"]], [("old", True, None), ("new", True, None), ("new", False, 1), ("new", False, 1)])
+        self.assertEqual(self.page(graph, "degraded").returncode, 0)
+
+    @unittest.skipUnless(NODE, "node is required to validate the refreshed page")
+    def test_a_refresh_survives_tour_steps_whose_files_were_deleted_or_left_the_pr(self):
+        """This test will fail when refresh.py stops (and leaves the page unrefreshed) after a commit deletes the file of a tour step: with parts, the last part that touches the file deletes it, so the step's new side is gone (it must go stale, keeping its lines and code); without parts, a file the PR adds and then deletes leaves the PR (its step must be left out, the tour kept with its other steps)."""
+        repo, d = self.root / "gone-repo", self.root / "gone"
+        shutil.copytree(self.repo, repo)
+        shutil.copytree(self.scratch, d)
+        chunks_file = json.loads((d / "chunks.json").read_text(encoding="utf-8"))
+        chunks_file["parent"]["repo"] = str(repo.resolve())
+        (d / "chunks.json").write_text(json.dumps(chunks_file, indent=1), encoding="utf-8")
+        run_script("build_graph.py", "--out", str(d / "graphs.json"), "--chunks", str(d / "chunks.json"), "--overlay", str(d / "overlay.json"))
+        run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--chunks", str(d / "chunks.json"), "--strict")
+        run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
+                   "--title", "Gone", "--target", "local", "--out", str(d / "review.html"))
+        git(repo, "rm", "-q", "src/core/service.ts")
+        git(repo, "commit", "-q", "-m", "refactor(core): drop the service")
+        result = run_script("refresh.py", str(d), check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("warning: tour flow step 1 (M:src/core/service.ts): src/core/service.ts does not exist on the new side of PR Md", result.stdout)
+        first = json.loads((d / "graphs.json").read_text(encoding="utf-8"))["tours"][0]["steps"][0]
+        self.assertEqual((first["path"], first["stale"], first["a"], first["b"], first["code"]), ("src/core/service.ts", True, 3, 5, TOUR_SERVICE[2:5]))
+        self.assertFalse(list(d.glob("*.new")))
+        # Without parts: a file the PR adds and then deletes leaves it.
+        plain_repo, p = self.root / "left-repo", self.root / "left"
+        plain_repo.mkdir()
+        p.mkdir()
+        git(plain_repo, "init", "-q", "-b", "main")
+        commit_files(plain_repo, {"README.md": "# x\n"}, "base")
+        git(plain_repo, "checkout", "-q", "-b", "feat")
+        commit_files(plain_repo, {f"src/{n}.ts": f"export const {n} = 1;\nexport const {n}2 = 2;\n" for n in ("a", "b", "c", "gone")}, "feat")
+        (p / "overlay.json").write_text(json.dumps({"tours": [{"id": "t", "name": "T", "steps": [
+            {"ref": f"A:src/{n}.ts", "lines": "2"} for n in ("a", "gone", "b", "c")]}]}), encoding="utf-8")
+        (p / "narrative.html").write_text("<section id=\"s\"><h2>S</h2></section>\n<!-- review-map:graph -->\n", encoding="utf-8")
+        run_script("build_graph.py", "--out", str(p / "graphs.json"), "--pr", "A", str(plain_repo), "main...feat", "--overlay", str(p / "overlay.json"))
+        run_script("gen_diffs.py", "--graph", str(p / "graphs.json"), "--out", str(p / "diffs.json"), "--pr", "A", str(plain_repo), "main...feat")
+        run_script("assemble.py", "--graph", str(p / "graphs.json"), "--diffs", str(p / "diffs.json"), "--narrative", str(p / "narrative.html"),
+                   "--title", "Left", "--target", "local", "--out", str(p / "review.html"))
+        git(plain_repo, "rm", "-q", "src/gone.ts")
+        git(plain_repo, "commit", "-q", "-m", "drop gone")
+        result = run_script("refresh.py", str(p), check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("warning: tour t step 2 (A:src/gone.ts): PR A has no node with the file 'src/gone.ts'", result.stdout)
+        tour = json.loads((p / "graphs.json").read_text(encoding="utf-8"))["tours"][0]
+        self.assertEqual([s["path"] for s in tour["steps"]], ["src/a.ts", "src/b.ts", "src/c.ts"])
 
     @unittest.skipUnless(NODE, "node is required to validate the assembled page")
     def test_validate_and_assemble_check_tour_steps_against_the_diff_data(self):

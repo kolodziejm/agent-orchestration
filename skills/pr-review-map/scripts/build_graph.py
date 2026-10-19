@@ -55,10 +55,11 @@ nodes gets a hint to split it.
 Tours ("Trasy", scripts/tours.py): the overlay's `tours` ([{id, name, steps: [{ref, side, lines, note}]}], at most 8
 of 3 to 15 steps) become graphs.json `tours`, each step resolved to a node (for a parent's key the last part that
 changes the file on the new side, the first on the old side) with its lines read by `git show` at the PR's tip (new
-side) or base (old side); an unknown key, a path no node of the PR has, a file missing on that side, and lines outside
-the file stop it. --previous FILE (refresh.py passes the graphs.json this build replaces) lets each step follow the
-code it was resolved on: it prints "moved 12-30 → 18-36" or warns that a step went stale (it then opens the whole
-file). The overlay is never rewritten.
+side) or base (old side); an unknown key or a group stops it. A step whose file the PR no longer changes is left out
+(a tour left with fewer than 3 steps with it), and one whose file is missing on its side or whose lines run past the
+file's end goes stale (it opens the whole file), each with a warning. --previous FILE (refresh.py passes the
+graphs.json this build replaces) lets each step follow the code it was resolved on: it prints "moved 12-30 → 18-36" or
+warns that a step went stale (it then opens the whole file). The overlay is never rewritten.
 Its arguments and each PR's full tip SHA go in the `build_graph` section of
 review-map.json beside --out (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
@@ -469,7 +470,10 @@ def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[
     key the last part that has the file on the new side, the first on the old side. Its lines are read with `git show`
     at the PR's tip (new side) or base (old side: the merge base for A...B) and placed by tours.place(), from the
     previous build's step with the same tour, ref, side, and lines when `previous` has one. A stale step's message goes
-    to `warnings`."""
+    to `warnings`. An unknown PR key or a group stops the build (the overlay is wrong); what a moved branch can cause
+    degrades with a warning, as other overlay references do: a step whose file the PR no longer changes is left out
+    (and a tour left with fewer than tours.MIN_STEPS steps with it), a step whose file is missing on its side opens
+    the whole file (stale, keeping the previous build's lines and code for when the file comes back)."""
     if not specs:
         return [], []
     revs: dict[tuple[int, str], str | None] = {}
@@ -502,20 +506,25 @@ def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[
                 raise SystemExit(f"{where}: a step names a file (KEY:path), not a group")
             found = [i for i in parent_parts.get(key, [index_of.get(key)]) if path in prs[i]["owner"]]
             if not found:
-                raise SystemExit(f"{where}: PR {key} has no node with the file {path!r} (a changed file or an extraNodes reference)")
+                warnings.append(f"{where}: PR {key} has no node with the file {path!r} (a changed file or an extraNodes reference) "
+                                "any more; the step is left out until the overlay is updated")
+                continue
             index = found[-1] if spec["side"] == "new" else found[0]
             placed, message = {}, None
             if spec["a"] is not None:
-                rev = side_rev(index, spec["side"])
-                text = git(prs[index]["repo"], "show", "--end-of-options", f"{rev}:{path}", check=False) if rev else None
-                if text is None:
-                    raise SystemExit(f"{where}: {path} does not exist on the {spec['side']} side of PR {prs[index]['key']} "
-                                     f"({'tip' if spec['side'] == 'new' else 'base'} {(rev or '?')[:7]}); use the other side or drop the lines")
                 match = (tour["id"], spec["ref"], spec["side"], spec["lines"])
                 earlier = before.get(match, [])
                 previous_step = earlier[seen.get(match, 0)] if seen.get(match, 0) < len(earlier) else None
                 seen[match] = seen.get(match, 0) + 1
-                placed, message = tours.place(spec, tours.file_lines(text), previous_step, where)
+                rev = side_rev(index, spec["side"])
+                text = git(prs[index]["repo"], "show", "--end-of-options", f"{rev}:{path}", check=False) if rev else None
+                if text is None:
+                    placed = tours.gone(previous_step)
+                    message = (f"{where}: {path} does not exist on the {spec['side']} side of PR {prs[index]['key']} "
+                               f"({'tip' if spec['side'] == 'new' else 'base'} {(rev or '?')[:7]}); the step opens the whole file "
+                               "until its side or lines in the overlay are updated")
+                else:
+                    placed, message = tours.place(spec, tours.file_lines(text), previous_step, where)
             if message:
                 (warnings if placed.get("stale") else moves).append(message)
             step = {"node": ids[(index, prs[index]["owner"][path])], "path": path, "side": spec["side"]}
@@ -526,6 +535,10 @@ def resolve_tours(specs: list[dict], prs: list[dict], ids: dict, index_of: dict[
             if "code" in placed:
                 step["code"] = placed["code"]
             steps.append(step)
+        if len(steps) < tours.MIN_STEPS:
+            warnings.append(f"tour {tour['id']}: {len(steps)} of its {len(tour['steps'])} steps are left; a tour has {tours.MIN_STEPS} to "
+                            f"{tours.MAX_STEPS}, so it is left out until the overlay is updated")
+            continue
         out.append({"id": tour["id"], "name": tour["name"], "steps": steps})
     return out, moves
 

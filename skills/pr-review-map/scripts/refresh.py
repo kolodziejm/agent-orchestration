@@ -31,8 +31,10 @@ SCRATCH_DIR too.
 Tours (the overlay's `tours`, scripts/tours.py) follow their code: build_graph.py gets the
 graphs.json it replaces as --previous, so a step whose code moved points at its new lines
 ("moved 12-30 → 18-36") and one whose code changed goes stale (a warning; the viewer then
-opens the whole file). The overlay is never rewritten: update a step's lines there to keep
-the new place as authored.
+opens the whole file), as does one whose file is gone from its side or shorter than its
+lines; a step whose file left the PR is left out (a warning), and a tour with fewer than 3
+steps left with it. None of these stops the refresh. The overlay is never rewritten: update
+a step's lines there to keep the new place as authored.
 
 The narrative is never rewritten. When a tip moved, refresh.py warns that the
 narrative's claims may be outdated, lists the lines of narrative.html that still show

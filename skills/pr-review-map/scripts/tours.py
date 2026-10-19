@@ -14,7 +14,9 @@ the file on the new side (its tip has the PR tip's version) and the first one on
 base's), and reads the step's lines with `git show` (new side: the PR's tip; old side: its base). It writes
 graphs.json "tours": [{"id", "name", "steps": [{"node", "path", "side", "a", "b", "note", "ref", "lines", "code"}]}],
 where `ref` and `lines` are the step as authored and `code` the lines a..b held when the step was resolved. An unknown
-PR key, a path no node of the PR has, a file missing on the step's side, and lines outside the file stop it.
+PR key or a group stops it. What a moved branch can cause degrades with a warning instead, as other overlay references
+do: a step whose file the PR no longer changes is left out (a tour left with fewer than 3 steps with it), and a step
+whose file is missing on its side or whose lines run past the file's end goes stale (it opens the whole file).
 
 Relocation: with `--previous` (refresh.py passes the graphs.json the build replaces) a step whose tour, ref, side, and
 lines are unchanged follows its previous code with assess() and locate(), a port of the viewer's note matcher (exact,
@@ -194,7 +196,7 @@ def place(spec: dict, rows: list[str], previous: dict | None, where: str) -> tup
 
     `rows` are the file's lines on the step's side, `previous` the step as the build before resolved it. A previous
     step with code is followed (assess()); without one the authored lines are taken as they are, and lines past the end
-    of the file stop the build."""
+    of the file make the step stale (it opens the whole file; the overlay's lines need updating)."""
     if spec["a"] is None:
         return {}, None
     numbered = list(enumerate(rows, 1))
@@ -214,8 +216,22 @@ def place(spec: dict, rows: list[str], previous: dict | None, where: str) -> tup
             f"{where}: stale, the code it was written on (at {was}) is gone; the step opens the whole file until its lines in the "
             "overlay are updated")
     if spec["b"] > len(rows):
-        raise SystemExit(f"{where}: lines {spec['lines']} are outside the file ({len(rows)} lines on the {spec['side']} side)")
+        return {"stale": True}, (f"{where}: lines {spec['lines']} are outside the file ({len(rows)} lines on the {spec['side']} side); "
+                                 "the step opens the whole file until its lines in the overlay are updated")
     return {"a": spec["a"], "b": spec["b"], "code": rows[spec["a"] - 1:spec["b"]]}, None
+
+
+def gone(previous: dict | None) -> dict:
+    """A step whose file is missing on its side: stale (the viewer opens the whole file), keeping the lines and code the
+    previous build resolved, if any, so a later refresh can follow them when the file comes back."""
+    out: dict = {"stale": True}
+    if isinstance(previous, dict):
+        pa, pb, code = previous.get("a"), previous.get("b"), previous.get("code")
+        if isinstance(pa, int) and isinstance(pb, int) and not isinstance(pa, bool) and not isinstance(pb, bool) and 1 <= pa <= pb:
+            out.update(a=pa, b=pb)
+        if isinstance(code, list) and code and all(isinstance(x, str) for x in code):
+            out["code"] = code
+    return out
 
 
 def file_lines(text: str) -> list[str]:
