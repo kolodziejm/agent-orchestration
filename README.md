@@ -103,13 +103,13 @@ check. Where `uv` is unavailable, the documented local fallback is:
 PYTHON=.venv/bin/python ./scripts/check
 ```
 
-It ends with `./scripts/check-browser`, about 370 headless-Chrome checks of the
+It ends with `./scripts/check-browser`, about 530 headless-Chrome checks of the
 `pr-review-map` viewer in `tests/pr_review_map_browser/`: one file per feature and
 one shared harness, `lib.js`, which drives Chrome over the DevTools protocol with
 Node's built-in WebSocket. `fixtures.py` builds every review page they open from
 small synthetic git repositories through the skill's own scripts into a temporary
 directory. Suites run in light and dark, at 1440 and 800 px where layout matters,
-four at once (about 35 s, `--jobs N` to change), and print one line per suite plus
+four at once (about 40 s, `--jobs N` to change), and print one line per suite plus
 each failure; any failure exits non-zero. They need Node 22 or newer and Chrome or
 Chromium (found on `PATH` or in the usual install location; `CHROME=/path/to/binary`
 names another). Whatever is missing is skipped with the reason, and with nothing
@@ -324,7 +324,10 @@ Nothing in this repository rewrites those files for you.
   neighbourhood and side-by-side diff beside it, the list grouped by folder or by
   area on request, tours that walk each flow step by step across tabs and parts with
   their path on the map, review notes on lines, files, or whole PRs that copy as
-  Markdown for an agent, plus architecture, rules, risks, and verification;
+  Markdown for an agent (the report's `path:line` references open their lines and
+  each risk becomes a note in one click), a review plan per area with a reading-time
+  estimate and the files resolved by hand in merges marked, and a full-window
+  workspace, plus architecture, rules, risks, and verification;
   `chunks.py` splits a pull request too large for one map into parts cut from its
   commits, shown as tabs grouped under it with each shared file's whole-PR diff a
   toggle away; `refresh.py` rebuilds it after the branches move, flagging changed

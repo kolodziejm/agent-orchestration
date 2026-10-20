@@ -18,6 +18,7 @@ tips they leave ({"A": sha, "B": sha}, short SHAs).
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import random
@@ -512,6 +513,14 @@ def sec(d: Path) -> dict:
     script("gen_diffs.py", "--graph", graph, "--out", diffs, "--pr", "X", repo, "main...feat", "--no-manifest")
     data = json.loads(graph.read_text(encoding="utf-8"))
     data["prs"][0]["nodes"][0]["added"] = IMG.format("'added'")  # counts are data too
+    # An area, a bucket, and merges carry text too: the area's label and why, a bucket that is no bucket, a "SHA" that
+    # is markup (dropped) beside a real one (kept).
+    data["prs"][0]["clusters"] = [{"id": "c1", "label": "area " + IMG.format("'alabel'"), "order": 1, "depth": IMG.format("'depth'"),
+                                   "why": "why " + IMG.format("'why'")}]
+    for node in data["prs"][0]["nodes"]:
+        node["cluster"] = "c1"
+        node["bucket"] = IMG.format("'bucket'")
+        node["conflict"] = ["abc1234", IMG.format("'conflict'")]
     graph.write_text(json.dumps(data), encoding="utf-8")
     entries = json.loads(diffs.read_text(encoding="utf-8"))
     files = {e["path"]: e["fp"] for es in entries.values() for e in es}
@@ -520,13 +529,97 @@ def sec(d: Path) -> dict:
                                     "files": {"X": {**{p: "0" * 12 for p in files}, "src/" + IMG.format("'removed'") + ".ts": "1" * 12},
                                               "Y": {IMG.format("'gonepr'"): "2" * 12}}}), encoding="utf-8")
     narr = d / "narrative.html"
-    narr.write_text("<header><h1>Fixtures</h1></header>\n<!-- review-map:graph -->\n", encoding="utf-8")
+    ref = html.escape("src/" + bad + ":1", quote=False)  # the markup-named file, referenced as text from a risk
+    narr.write_text("<header><h1>Fixtures</h1></header>\n<!-- review-map:graph -->\n"
+                    f'<section id="risks"><h2>Risks</h2><ul class="risk-list"><li class="sev-h">Odd name: <code>{ref}</code></li></ul></section>\n', encoding="utf-8")
     assemble(graph, diffs, narr, "xss", d / "xss.html", previous=previous)
     nofp = d / "nofp-diffs.json"
     nofp.write_text(json.dumps({k: [{kk: v for kk, v in e.items() if kk != "fp"} for e in es] for k, es in entries.items()}), encoding="utf-8")
     assemble(graph, nofp, narr, "nofp", d / "nofp.html")
     assemble(graph, nofp, narr, "nofp", d / "nofp-prev.html", previous=previous)
     return {"xss": str(d / "xss.html"), "nofp": str(d / "nofp.html"), "nofpPrev": str(d / "nofp-prev.html")}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# plan: two stacked PRs for the review plan, conflicts, narrative references, and the workspace. P has three authored
+# areas (read, skim, tool, each with a why), a generated file alone in its folder, docs and i18n, and two files resolved
+# by hand in merges; Q (on P) has no areas, buckets, or conflicts, like a report from before them. The narrative's risks
+# name lines inside and outside the diff, a bare file name, a continuation, and references that must stay plain.
+
+PLAN_NARRATIVE = """<header><h1>Plan sample</h1><p class="sub">Areas, conflicts, and references.</p></header>
+<!-- review-map:graph -->
+<section id="risks"><h2>Risks</h2>
+<ul class="risk-list">
+<li class="sev-h"><span class="who tag c-P">P</span><strong>Token lifetime.</strong> The TTL moved: <code>src/auth/session.ts:40</code>.</li>
+<li class="sev-m"><span class="who tag c-P">P</span><strong>Rounding.</strong> See <code>invoice.ts:3-4</code> and <code>:8</code>.</li>
+<li class="sev-l"><span class="who tag c-P">P</span><strong>Header.</strong> <code>src/auth/session.ts:2</code> sits outside the diff.</li>
+<li class="sev-l"><span class="who tag c-Q">Q</span><strong>No references.</strong> <code>nowhere.ts:5</code>, <code>index.ts:1</code>, and <code>12:30</code> stay plain.</li>
+</ul>
+<p>Elsewhere: <code>token.ts:10-12</code>, and in a block <code>web/app.ts:1</code> inside <a href="#risks"><code>web/app.ts:2</code></a>.</p>
+<pre class="code"><code>src/auth/session.ts:40</code></pre>
+</section>
+"""
+PLAN_AREAS = {"auth": ("read", "Token lifetime and storage"), "billing": ("skim", "Mechanical rounding change"), "util": ("tool", "Formatting only")}
+PLAN_CONFLICTS = {"src/auth/session.ts": ["abc1234", "def5678"], "src/billing/invoice.ts": ["0badc0d1"]}
+
+
+def plan(d: Path) -> dict:
+    repo = new_repo(d / "repo")
+    session = [f"export const s{i} = {i};" for i in range(1, 61)]
+    invoice = [f"export const i{k} = {k};" for k in range(1, 11)]
+    commit(repo, {"README.md": "# plan\n", "src/auth/session.ts": "\n".join(session) + "\n", "src/billing/invoice.ts": "\n".join(invoice) + "\n",
+                  "locales/en.json": '{"a": "b"}\n'}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/p")
+    session[39] = "export const s40 = 4000;"
+    for k in (3, 4, 8):
+        invoice[k - 1] = f"export const i{k} = Math.round({k} * 100) / 100;"
+    commit(repo, {
+        "src/auth/session.ts": "\n".join(session) + "\n",
+        "src/auth/token.ts": "import { s1 } from './session';\n" + "".join(f"export const t{i} = s1 + {i};\n" for i in range(2, 51)),
+        "src/auth/index.ts": "export * from './session';\nexport * from './token';\n",
+        "src/auth/session.spec.ts": "import { s40 } from './session';\ntest('ttl', () => expect(s40).toBe(4000));\n",
+        "src/billing/invoice.ts": "\n".join(invoice) + "\n",
+        "src/billing/index.ts": "export * from './invoice';\n",
+        "src/billing/invoice.spec.ts": "import { i3 } from './invoice';\ntest('rounds', () => expect(i3).toBe(3));\n",
+        "src/util/fmt.ts": "export const fmt = (n: number): string => n.toFixed(2);\n",
+        "gen/api.ts": "".join(f"export const op{i} = '/api/{i}';\n" for i in range(30)),
+        "locales/en.json": '{"a": "b", "ttl": "Session length"}\n',
+        "docs/plan.md": "# Plan\n\nWhy the TTL changed.\n",
+    }, "P")
+    git(repo, "checkout", "-q", "-b", "feat/q")
+    commit(repo, {"web/app.ts": "import { s40 } from '../src/auth/index';\nexport const app = () => s40;\n",
+                  "web/app.spec.ts": "import { app } from './app';\ntest('app', () => expect(app()).toBe(4000));\n"}, "Q")
+    overlay = d / "overlay.json"
+    overlay.write_text(json.dumps({
+        "clusters": {"auth": {"label": "Sign-in", "order": 1}, "billing": {"label": "Billing", "order": 2}, "util": {"label": "Utilities", "order": 3}},
+        "nodes": {"P:src/auth/session.ts": {"cluster": "auth"}, "P:src/auth/token.ts": {"cluster": "auth"}, "P:src/auth/index.ts": {"cluster": "auth"},
+                  "P:src/billing/invoice.ts": {"cluster": "billing"}, "P:src/billing/index.ts": {"cluster": "billing"},
+                  "P:src/util/fmt.ts": {"cluster": "util"}},
+    }), encoding="utf-8")
+    graph, diffs, narr, out = d / "graphs.json", d / "diffs.json", d / "narrative.html", d / "review.html"
+    prs = [("P", "main...feat/p", "P #11"), ("Q", "feat/p...feat/q", "Q #12")]
+    args: list[object] = ["--out", graph, "--overlay", overlay]
+    for key, rng, name in prs:
+        args += ["--pr", key, repo, rng, "--name", key, name]
+    script("build_graph.py", *args, "--no-manifest")
+    # The data side's fields (build_graph.py writes them in newer versions): area depth and why, buckets, conflicts.
+    data = json.loads(graph.read_text(encoding="utf-8"))
+    for c in data["prs"][0].get("clusters", []):
+        c["depth"], c["why"] = PLAN_AREAS[c["id"]]
+    for n in data["prs"][0]["nodes"]:
+        n["bucket"] = "generated" if n["path"] == "gen/api.ts" else {"test": "test", "i18n": "i18n", "docs": "docs", "config": "config"}.get(n["layer"], "logic")
+        if n["path"] in PLAN_CONFLICTS:
+            n["conflict"] = PLAN_CONFLICTS[n["path"]]
+    graph.write_text(json.dumps(data), encoding="utf-8")
+    args = ["--graph", graph, "--out", diffs]
+    for key, rng, _ in prs:
+        args += ["--pr", key, repo, rng]
+    script("gen_diffs.py", *args, "--strict", "--no-manifest")
+    narr.write_text(PLAN_NARRATIVE, encoding="utf-8")
+    assemble(graph, diffs, narr, "Plan sample", out)
+    pl = d / "review-pl.html"
+    assemble(graph, diffs, narr, "Plan sample", pl, lang="pl")
+    return {"page": str(out), "pl": str(pl)}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -724,7 +817,7 @@ def demo_rebuild(demo: Path, out: Path | None = None) -> dict:
     return _demo_tips(demo / "repo")
 
 
-FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec}
+FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan}
 
 
 def main(argv: list[str]) -> None:
