@@ -82,10 +82,17 @@ def new_repo(path: Path) -> Path:
     return path
 
 
-def validate(page: Path) -> None:
-    out = script("validate.py", page).strip().splitlines()
-    if not out or "OK" not in out[-1]:
-        raise SystemExit(f"validate.py {page}:\n" + "\n".join(out))
+def validate(page: Path, *, rejects: tuple[str, ...] = ()) -> None:
+    """validate.py must pass `page`; with `rejects` it must instead fail with exactly those errors (a substring each, in order)."""
+    result = subprocess.run([sys.executable, str(SCRIPTS / "validate.py"), str(page)], env=ENV, capture_output=True, text=True)
+    out = result.stdout.strip().splitlines()
+    if rejects:
+        errors = [line for line in out if line.startswith("error:")]
+        ok = result.returncode != 0 and len(errors) == len(rejects) and all(r in e for r, e in zip(rejects, errors))
+    else:
+        ok = result.returncode == 0 and bool(out) and "OK" in out[-1]
+    if not ok:
+        raise SystemExit(f"validate.py {page}:\n" + "\n".join(out) + result.stderr)
 
 
 def page(
@@ -109,10 +116,11 @@ def page(
     return out
 
 
-def assemble(graph: Path, diffs: Path, narr: Path, title: str, out: Path, *, lang: str = "en", previous: Path | None = None) -> None:
+def assemble(graph: Path, diffs: Path, narr: Path, title: str, out: Path, *, lang: str = "en", previous: Path | None = None,
+             rejects: tuple[str, ...] = ()) -> None:
     script("assemble.py", "--graph", graph, "--diffs", diffs, "--narrative", narr, "--title", title, "--lang", lang,
            "--target", "local", "--out", out, "--no-manifest", *(["--previous", previous] if previous else []))
-    validate(out)
+    validate(out, rejects=rejects)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -532,11 +540,14 @@ def sec(d: Path) -> dict:
     ref = html.escape("src/" + bad + ":1", quote=False)  # the markup-named file, referenced as text from a risk
     narr.write_text("<header><h1>Fixtures</h1></header>\n<!-- review-map:graph -->\n"
                     f'<section id="risks"><h2>Risks</h2><ul class="risk-list"><li class="sev-h">Odd name: <code>{ref}</code></li></ul></section>\n', encoding="utf-8")
-    assemble(graph, diffs, narr, "xss", d / "xss.html", previous=previous)
+    # validate.py refuses these values (a real report cannot carry them); the pages are built anyway so the viewer is
+    # tested against them, and the fixture asserts that validate.py rejects exactly those fields, nothing else.
+    bad_fields = ("node X1 has bucket", "node X1: conflict", "node X2 has bucket", "node X2: conflict", "cluster 'c1' depth")
+    assemble(graph, diffs, narr, "xss", d / "xss.html", previous=previous, rejects=bad_fields)
     nofp = d / "nofp-diffs.json"
     nofp.write_text(json.dumps({k: [{kk: v for kk, v in e.items() if kk != "fp"} for e in es] for k, es in entries.items()}), encoding="utf-8")
-    assemble(graph, nofp, narr, "nofp", d / "nofp.html")
-    assemble(graph, nofp, narr, "nofp", d / "nofp-prev.html", previous=previous)
+    assemble(graph, nofp, narr, "nofp", d / "nofp.html", rejects=bad_fields)
+    assemble(graph, nofp, narr, "nofp", d / "nofp-prev.html", previous=previous, rejects=bad_fields)
     return {"xss": str(d / "xss.html"), "nofp": str(d / "nofp.html"), "nofpPrev": str(d / "nofp-prev.html")}
 
 
