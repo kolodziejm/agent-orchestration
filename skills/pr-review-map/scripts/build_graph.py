@@ -50,12 +50,18 @@ What the script resolves on its own:
     repository directory name
   * each PR's `base` and `tip`: short SHAs of the two versions its diff compares
     (the merge base for `A...B`), so copied review notes can name them
+  * each node's `bucket` for the viewer's review plan: "generated" (lockfiles, test snapshots, minified files, or the
+    overlay's `generated: true`), else test, i18n, docs, or config from its layer, else "logic"
+  * each node's `conflict`: short SHAs of the PR's merge commits (the newest 50) whose recorded result for its files
+    differs from git's automatic re-merge (`git show --remerge-diff`, git 2.36+); an older git, a shallow clone, or a
+    failing call skips this with one warning
 
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files, areas) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
 
-Areas ("clusters"): the overlay's `clusters` ({id: {label, order}}) and each node's
+Areas ("clusters"): the overlay's `clusters` ({id: {label, order, depth?, why?}}, depth one of
+read, skim, tool, passed on as given) and each node's
 `cluster` (a parent-key reference reaches every part) become each PR's `clusters`
 list (the areas its nodes use, by order) and the node's `cluster`. A hub or a
 docs/config/i18n node keeps none, with a warning (the viewer puts them in its
@@ -101,9 +107,10 @@ import chunks  # noqa: E402
 import manifest  # noqa: E402
 import tours  # noqa: E402
 
+LOCKFILES = (r"(^|/)(pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|composer\.lock|poetry\.lock"
+             r"|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|Podfile\.lock|packages\.lock\.json)$")
 DEFAULT_GROUPS = [
-    {"id": "lockfiles", "label": "lockfiles", "layer": "config",
-     "pattern": r"(^|/)(pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|composer\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|Podfile\.lock|packages\.lock\.json)$"},
+    {"id": "lockfiles", "label": "lockfiles", "layer": "config", "pattern": LOCKFILES},
     {"id": "catalogs", "label": "translation catalogs", "layer": "i18n",
      "pattern": r"(^|/)translations?-catalogs?/"},
     {"id": "translations", "label": "translations", "layer": "i18n",
@@ -170,6 +177,14 @@ BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-onl
 # trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
 MODE_ENTRIES, MODE_RATIO = 3, 3
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
+# A node's `bucket`, the kind of change the viewer's review plan counts its lines under: "generated" for lockfiles, test
+# snapshots, and minified files (every file of a group) or the overlay's `generated: true`, else its layer's own bucket
+# (test, i18n, docs, config), else "logic".
+GENERATED = re.compile(LOCKFILES + r"|\.snap$|(^|/)__snapshots__/|\.min\.(?:[cm]?js|css)$")
+BUCKETS = {"test": "test", "i18n": "i18n", "docs": "docs", "config": "config"}
+DEPTHS = ("read", "skim", "tool")  # an area's `depth`: read closely, skim, or covered by a tool (`why` names the check)
+REMERGE_GIT = (2, 36)  # first git with `show --remerge-diff`
+MERGE_CAP = 50         # merge commits per PR checked for hand-resolved conflicts (the newest)
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1, "type": 0}
 KINDS = set(KIND_RANK)
 GENERIC_NAMES = re.compile(r"^(index|types?|context|handlers?|routes?|utils?|helpers?|constants?|config|main|app|mod|lib|__init__|package|README|readme|schema|models?)\.[^.]+$")
@@ -756,6 +771,71 @@ def is_core(node: dict) -> bool:
     return node["layer"] != "test" and node["layer"] not in LATE
 
 
+def bucket(node: dict) -> str:
+    """The node's `bucket`: "generated" when the overlay says so or every file is a lockfile, a test snapshot, or a
+    minified file (overlay `generated: false` keeps such a node in its layer's bucket), else test, i18n, docs, or
+    config from its layer, else logic."""
+    generated = node.get("generated")
+    if generated is None:
+        generated = all(GENERATED.search(path) for path in node["files"] or [node["path"]])
+    return "generated" if generated else BUCKETS.get(node["layer"], "logic")
+
+
+class Conflicts:
+    """Files whose recorded merge result differs from git's automatic re-merge: per merge commit of a PR (`git rev-list
+    --merges`, the newest MERGE_CAP), the paths `git show --remerge-diff --name-only` lists (git 2.36+). Hand-resolved
+    conflicts show up there, and so does anything else the merge commit changed by hand. An older git, a shallow
+    repository (its re-merges may lack their merge base), or a failing call turns the check off with one warning; it
+    never stops the build."""
+
+    def __init__(self, warnings: list[str]) -> None:
+        self.warnings = warnings
+        self.version: tuple[int, int] | None = None
+        self.off = False
+        self.shallow: dict[str, bool] = {}  # repo -> is a shallow clone
+        self.rank: dict[str, int] = {}  # short SHA -> place among the merges checked, oldest first
+
+    def stop(self, why: str) -> None:
+        self.off = True
+        self.warnings.append(f"{why}; files with hand-resolved merge conflicts are not marked")
+
+    def supported(self, repo: str) -> bool:
+        if self.version is None and not self.off:
+            found = re.search(r"(\d+)\.(\d+)", git(repo, "version", check=False) or "")
+            self.version = (int(found.group(1)), int(found.group(2))) if found else REMERGE_GIT
+            if self.version < REMERGE_GIT:
+                self.stop(f"git {self.version[0]}.{self.version[1]} has no --remerge-diff (2.36+)")
+        if self.off:
+            return False
+        if repo not in self.shallow:
+            self.shallow[repo] = (git(repo, "rev-parse", "--is-shallow-repository", check=False) or "").strip() == "true"
+            if self.shallow[repo]:
+                self.warnings.append(f"{repo} is a shallow clone; files with hand-resolved merge conflicts are not marked in it")
+        return not self.shallow[repo]
+
+    def of(self, key: str, repo: str, rng: str) -> dict[str, list[str]]:
+        """path at the merge -> short SHAs of the merges that changed it by hand, oldest first."""
+        if not self.supported(repo):
+            return {}
+        listed = git(repo, "rev-list", "--merges", "--end-of-options", rng.replace("...", "..", 1), check=False)
+        if listed is None:
+            self.stop(f"PR {key}: git rev-list --merges failed")
+            return {}
+        merges = listed.split()
+        if len(merges) > MERGE_CAP:
+            self.warnings.append(f"PR {key}: {len(merges)} merge commits; only the newest {MERGE_CAP} are checked for hand-resolved conflicts")
+        found: dict[str, list[str]] = {}
+        for sha in reversed(merges[:MERGE_CAP]):
+            self.rank.setdefault(sha[:7], len(self.rank))
+            out = git(repo, "show", "--remerge-diff", "--format=", "--name-only", "-z", "--end-of-options", sha, check=False)
+            if out is None:
+                self.stop(f"PR {key}: git show --remerge-diff {sha[:7]} failed")
+                return {}
+            for path in filter(None, out.split("\0")):
+                found.setdefault(path, []).append(sha[:7])
+        return found
+
+
 def is_light(node: dict) -> bool:
     """A trivial change or an unchanged reference file: nothing to read first."""
     return bool(node.get("trivial") or node.get("unchanged"))
@@ -794,7 +874,8 @@ def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced:
 
 
 def read_clusters(overlay: dict) -> dict[str, dict]:
-    """The overlay's areas, {id: {"id", "label", "order"}}; `order` defaults to the area's place in the overlay."""
+    """The overlay's areas, {id: {"id", "label", "order", "depth"?, "why"?}}; `order` defaults to the area's place in the
+    overlay, `depth` (read, skim, tool) and `why` (what covers a "tool" area) are optional and passed on as given."""
     raw = overlay.get("clusters", {})
     if not isinstance(raw, dict):
         raise SystemExit('overlay "clusters" must be an object: {"auth": {"label": "Sign-in", "order": 1}}')
@@ -810,6 +891,15 @@ def read_clusters(overlay: dict) -> dict[str, dict]:
         if not isinstance(order, int) or isinstance(order, bool):
             raise SystemExit(f"overlay cluster {cid!r}: order must be an integer")
         out[cid] = {"id": cid, "label": label.strip(), "order": order}
+        if "depth" in fields:
+            if fields["depth"] not in DEPTHS:
+                raise SystemExit(f"overlay cluster {cid!r}: depth must be one of {', '.join(DEPTHS)}")
+            out[cid]["depth"] = fields["depth"]
+        if "why" in fields:
+            why = fields["why"]
+            if not isinstance(why, str) or not why.strip() or chunks.CONTROL.search(why):
+                raise SystemExit(f"overlay cluster {cid!r}: why must be non-empty text")
+            out[cid]["why"] = why
     return out
 
 
@@ -1193,9 +1283,11 @@ def main() -> int:
             warnings.append(f"--previous {args.previous}: cannot read it ({error}); tour steps take the overlay's lines as they are")
     labels: dict[str, str] = {}
     blobs: dict[str, Blobs] = {}
+    merges = Conflicts(warnings)
     for entry in entries:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
+        resolved = merges.of(key, repo, rng)
         reader = blobs.setdefault(repo, Blobs(repo))
         resolver = Resolver(repo, tip_of(rng), args.alias, reader)
         base = base_of(repo, rng)
@@ -1226,6 +1318,10 @@ def main() -> int:
             node["added"] += added
             node["removed"] += removed
             owner[path] = nk
+            # A merge names the file as it was then: its path at the tip, or before a rename the PR makes.
+            shas = set(resolved.get(path, [])) | set(resolved.get(old, []) if old else [])
+            if shas:
+                node["conflict"] = sorted(shas | set(node.get("conflict", [])), key=merges.rank.__getitem__)
         for nk, node in nodes.items():
             if nk.startswith("#"):
                 node["path"] = group_path(node["files"])
@@ -1379,6 +1475,10 @@ def main() -> int:
                 if not isinstance(fields["hub"], bool):
                     raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
                 node["forced_hub"] = fields["hub"]
+            if "generated" in fields:
+                if not isinstance(fields["generated"], bool):
+                    raise SystemExit(f"overlay nodes {text!r}: generated must be true or false")
+                node["generated"] = fields["generated"]
             if "cluster" in fields:
                 if not isinstance(fields["cluster"], str) or fields["cluster"] not in clusters:
                     raise SystemExit(f"overlay nodes {text!r}: unknown cluster {fields['cluster']!r}; define it under clusters")
@@ -1469,7 +1569,7 @@ def main() -> int:
             label = node["label"]
             if not nk.startswith("#") and (counts[label] > 1 or GENERIC_NAMES.match(label)) and "/" in node["path"]:
                 label = "/".join(node["path"].split("/")[-2:])
-            item = {"id": ids[(index, nk)], "label": label, "path": node["path"], "layer": node["layer"],
+            item = {"id": ids[(index, nk)], "label": label, "path": node["path"], "layer": node["layer"], "bucket": bucket(node),
                     "role": node["role"], "added": node["added"], "removed": node["removed"], "order": node["order"]}
             if nk.startswith("#"):
                 item["files"] = node["files"]
@@ -1483,6 +1583,8 @@ def main() -> int:
                 item["hub"] = True
             if "cluster" in node:
                 item["cluster"] = node["cluster"]
+            if node.get("conflict"):
+                item["conflict"] = node["conflict"]
             if not item["role"]:
                 missing_roles += 1
             entry["nodes"].append(item)
@@ -1545,6 +1647,10 @@ def main() -> int:
               + (f" (too few entry points, {why['entries']}, to recommend another order)" if why["reason"] == "few" else
                  f" ({why['light']} of {why['entries']} entry points light: median {why['entryLines']} changed lines"
                  f" over {why['baseLines']} underneath)"))
+        resolved = [f"{node['path']} ({', '.join(node['conflict'])})" for node in entry["nodes"] if node.get("conflict")]
+        if resolved:
+            print(f"hint: PR {entry['key']}: {len(resolved)} files changed by hand in merge commits (conflict resolutions; "
+                  "check each and say in its note what it kept): " + ", ".join(resolved[:5]) + (", …" if len(resolved) > 5 else ""))
         loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]
         if areas and loose:
             print(f"hint: PR {entry['key']}: {len(loose)} core files have no area, so the map groups them by folder: "

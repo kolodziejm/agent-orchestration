@@ -9,6 +9,18 @@ is long or carries tags.
 Colour per PR: class `c-<KEY>` sets `--c` to that PR's palette colour (the same
 colour as its graph tab). Use it on `.pr-card`, `.tag`, and `ol.steps`.
 
+Code references: write every one as `path:line` or `path:start-end`, relative to the
+repository root, in `<code>` (`<code>apps/api/src/items/query.ts:26-95</code>`), in
+rules, PR sections, and risks alike. The viewer turns them into links that open the
+diff at those lines; it cannot place a bare file name or a path from another root.
+
+What to read and how long it takes is not prose: the viewer generates a "Plan review"
+table (a row per area: files, lines, depth, estimated time, merge conflicts) and a bar
+of changed lines by kind (logic, tests, i18n, docs, config, generated) from the graph.
+Do not write a "what to read first" list, time estimates, or line counts by kind; steer
+the plan through the areas' `depth` and `why` in the overlay (`references/graph-schema.md`,
+Areas) instead.
+
 ## 1. Header and PR stack (above the marker)
 
 ```html
@@ -150,7 +162,7 @@ sequenceDiagram
 </section>
 ```
 
-Every rule gets a concrete example row, and its source as `path:line`.
+Every rule gets a concrete example row, and its source as `path:line` (or `path:start-end`).
 
 ## 6. One section per PR
 
@@ -175,6 +187,13 @@ Every rule gets a concrete example row, and its source as `path:line`.
   request-flow section too.
 - No numbered reading-order list here: the graph owns the reading order, and
   per-file explanations live in the graph's `note` fields.
+- An intended change users will notice (a new default, a removed option, another
+  status code or message) is a fact of the PR, not a risk: state it in the lead or a
+  `<div class="callout warn"><strong>Behaviour change:</strong> …</div>`, never only as
+  a risk bullet.
+- A file the graph marks as finished by hand in a merge (`conflict`, a badge in the
+  viewer) deserves a look: when its resolution matters, name it with the merge's SHA in
+  a "To check" callout.
 - Collapse long file lists; group siblings on one line
   (`infra/providers/{client,url,mapper}.ts`, `+37 · +5 · +46`).
 - Extra blocks that help: a component tree in `<pre class="code">`, an a11y list,
@@ -187,7 +206,7 @@ Every rule gets a concrete example row, and its source as `path:line`.
   <h2>Risks and review questions</h2>
   <p class="lead">Most important first. The stripe colour is the severity.</p>
   <ul class="risk-list">
-    <li class="sev-h"><span class="who tag c-S">S</span><strong>Deploy order.</strong> Why it matters and how to confirm.</li>
+    <li class="sev-h"><span class="who tag c-S">S</span><strong>Deploy order.</strong> Why it matters and how to confirm (<code>libs/x/infra/monolith.client.ts:12-30</code>).</li>
     <li class="sev-m"><span class="who tag c-A">A</span><strong>…</strong> …</li>
     <li class="sev-l"><span class="who tag c-B">B</span><strong>…</strong> …</li>
   </ul>
@@ -195,6 +214,10 @@ Every rule gets a concrete example row, and its source as `path:line`.
   <p>…</p>
 </section>
 ```
+
+Each risk names the code it is about as `path:line` or `path:start-end` (above), so a
+click opens it in the diff. A risk is what could go wrong; a behaviour change the PR
+intends belongs in its section (above).
 
 ## 8. Verification, then footer
 
@@ -205,7 +228,7 @@ Every rule gets a concrete example row, and its source as `path:line`.
   <div class="callout warn"><strong>Not run:</strong> what only CI or a live check will cover.</div>
 </section>
 
-<footer>As of <date>. <code>file:line</code> references point at the branch tips listed in the PR stack.</footer>
+<footer>As of <date>. <code>path:line</code> references point at the branch tips listed in the PR stack.</footer>
 ```
 
 State only what was actually run. A suite you did not run goes under "Not run".

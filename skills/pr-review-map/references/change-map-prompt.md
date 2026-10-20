@@ -46,8 +46,11 @@ Write the map to <scratch dir>/pr-<key>.md with exactly these sections:
 7. Config and wiring: env vars, DI, routes, feature flags this PR adds or reads,
    with the file that defines and the file that reads each.
 8. Tests: each test file, what it covers, notable gaps.
-9. Reviewer risks: concrete, ranked high / medium / low, each with file:line and
-   the reason. Include unrelated changes (lockfile churn, drive-by refactors).
+9. Reviewer risks: concrete, ranked high / medium / low, each with `path:line` or
+   `path:start-end` (relative to the repository root) and the reason. Include
+   unrelated changes (lockfile churn, drive-by refactors) and files a merge commit
+   changed by hand (`git show --remerge-diff <merge>` lists them). List intended
+   behaviour changes users will notice separately, not as risks.
 10. Per-file notes: for files a reviewer could misread, one sentence each in the
     report language, formatted `path: note`. These become the graph's detail-panel
     notes, so state facts the diff alone does not make obvious.

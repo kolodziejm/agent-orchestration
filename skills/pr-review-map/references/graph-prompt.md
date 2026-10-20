@@ -54,7 +54,17 @@ Steps:
    flow: overlay `clusters` ({"auth": {"label": "...", "order": 1}}, labels in the
    report language, order as the flow reads) and `nodes.<ref>.cluster` on each core
    file. Shared dependencies, tests, and docs/config/i18n need none. For parts use the
-   parent key, so an area spans the parts.
+   parent key, so an area spans the parts. A smaller PR may have areas too, when its
+   files split into parts a reviewer takes differently. Give every area a `depth` for
+   the viewer's review plan: `"read"` for logic to follow line by line, `"skim"` for
+   mechanical changes (renames, wiring, styles), `"tool"` when a check covers it; and a
+   `why` of a few words (report language) for skim and tool, for tool naming the check
+   ("i18n key parity test", "regenerated from openapi.yaml, CI diff check").
+   Mark generated files the defaults miss (lockfiles, snapshots, and minified files are
+   caught) with `nodes.<ref>.generated: true`, so the plan counts them apart.
+   The summary's hint names the files a merge commit changed by hand (node `conflict`):
+   look at each resolution (`git show --remerge-diff <sha> -- <path>`) against both
+   sides and say in its `note` what it kept.
    Author one tour per distinct flow in the change maps' "Flows" section (at most 8, each
    of 3 to 15 steps): overlay `tours` ([{"id": "apple-web", "name": "...", "steps":
    [{"ref": "M:path", "side": "new", "lines": "12-30", "note": "..."}]}], name and notes
@@ -77,6 +87,7 @@ Steps:
    whole file); move it onto changed lines unless the unchanged code is the point.
 
 Return only: node and edge counts per PR, cross-PR edge count, the areas per PR with
-their file counts, the tours with their step counts, the overlay path, and anything you
-could not resolve (unmatched files, edges you were unsure about).
+their file counts and depth, the tours with their step counts, the files resolved by
+hand in merges with what each kept, the overlay path, and anything you could not
+resolve (unmatched files, edges you were unsure about).
 ```

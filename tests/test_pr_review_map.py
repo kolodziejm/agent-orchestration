@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "pr-review-map"
@@ -2864,6 +2865,209 @@ class MovedFileTests(unittest.TestCase):
             self.assertNotIn("outside every hunk", result.stdout)
         finally:
             shutil.rmtree(root)
+
+
+def merge_repo(repo: Path) -> tuple[str, str]:
+    """A PR that merges its base twice: first with conflicts resolved by hand (src/app.ts, old/name.ts, which a later
+    commit moves to new/name.ts, and src/taken.ts, resolved to the base's version so the PR does not change it), then
+    cleanly. Returns the two merges' SHAs."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    name = "".join(f"export const n{i} = {i};\n" for i in range(10))
+    commit_files(repo, {"README.md": "# x\n", "src/app.ts": "export const a = 1;\n", "src/taken.ts": "export const t = 1;\n",
+                        "old/name.ts": name}, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    commit_files(repo, {
+        "src/app.ts": "export const a = 'feat';\n", "src/taken.ts": "export const t = 'feat';\n", "old/name.ts": name.replace("= 4;", "= 'feat';"),
+        "src/feature.ts": "import { a } from './app';\nexport const f = a;\n", "src/ui/View.tsx": "export const View = () => null;\n",
+        "src/app.test.ts": "import { a } from './app';\ntest('a', () => a);\n",
+        "src/__snapshots__/app.test.ts.snap": "exports[`a 1`] = `1`;\n", "public/vendor.min.js": "var v=1;\n",
+        "src/gen/client.ts": "export const generatedClient = 1;\n", "pnpm-lock.yaml": "lockfileVersion: 9\n",
+        "locales/en.json": '{"x": "x"}\n', "docs/guide.md": "# guide\n", "package.json": '{"name": "x"}\n',
+    }, "feat")
+    git(repo, "checkout", "-q", "main")
+    commit_files(repo, {"src/app.ts": "export const a = 'main';\n", "src/taken.ts": "export const t = 'main';\n",
+                        "old/name.ts": name.replace("= 4;", "= 'main';"), "src/other.ts": "export const o = 1;\n"}, "main moves")
+    git(repo, "checkout", "-q", "feat")
+    merged = subprocess.run(["git", "-C", str(repo), "merge", "-q", "main"], capture_output=True, text=True, env=ENV)
+    assert merged.returncode != 0, "the first merge must conflict"
+    commit_files(repo, {"src/app.ts": "export const a = 'both';\n", "src/taken.ts": "export const t = 'main';\n",
+                        "old/name.ts": name.replace("= 4;", "= 'both';")}, "merge main")
+    first = git(repo, "rev-parse", "HEAD").strip()
+    (repo / "new").mkdir()
+    git(repo, "mv", "old/name.ts", "new/name.ts")
+    git(repo, "commit", "-q", "-m", "move name")
+    git(repo, "checkout", "-q", "main")
+    commit_files(repo, {"src/clean.ts": "export const c = 1;\n"}, "main again")
+    git(repo, "checkout", "-q", "feat")
+    git(repo, "merge", "-q", "--no-edit", "main")
+    return first, git(repo, "rev-parse", "HEAD").strip()
+
+
+class BucketConflictTests(unittest.TestCase):
+    """Each node's `bucket` and `conflict` from build_graph.py, an area's `depth` and `why`, and validate.py's checks of all three."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = cls.root / "repo"
+        cls.first, cls.second = merge_repo(cls.repo)
+        cls.overlay = cls.root / "overlay.json"
+        cls.overlay.write_text(json.dumps({
+            "clusters": {"core": {"label": "Core", "depth": "read"}, "ui": {"label": "UI", "depth": "skim", "why": "layout only"},
+                         "copy": {"depth": "tool", "why": "i18n key parity test"}},
+            "nodes": {"P:src/app.ts": {"cluster": "core"}, "P:src/ui/View.tsx": {"cluster": "ui"}, "P:src/feature.ts": {"cluster": "copy"},
+                      "P:src/gen/client.ts": {"generated": True}, "P:public/vendor.min.js": {"generated": False}},
+        }), encoding="utf-8")
+        cls.graph_path = cls.root / "graphs.json"
+        cls.out = run_script("build_graph.py", "--out", str(cls.graph_path), "--pr", "P", str(cls.repo), "main...feat",
+                             "--overlay", str(cls.overlay), "--no-manifest").stdout
+        cls.graph = json.loads(cls.graph_path.read_text(encoding="utf-8"))
+        cls.nodes = {path: node for node in cls.graph["prs"][0]["nodes"] for path in node.get("files") or [node["path"]]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def build(self, overlay: dict, env: dict | None = None) -> subprocess.CompletedProcess:
+        path = self.root / "case-overlay.json"
+        path.write_text(json.dumps(overlay), encoding="utf-8")
+        return subprocess.run([sys.executable, str(SCRIPTS / "build_graph.py"), "--out", str(self.root / "case.json"), "--pr", "P", str(self.repo),
+                               "main...feat", "--overlay", str(path), "--no-manifest"], capture_output=True, text=True, env=env or ENV)
+
+    def test_every_node_gets_the_bucket_of_its_files_layer_or_overlay(self):
+        """This test will fail when a node lacks a bucket, a lockfile, a test snapshot, a minified file, or a file the overlay marks generated is not "generated", the overlay's `generated: false` does not keep a file in its layer's bucket, a test, i18n, docs, or config node is not in its layer's bucket, any other layer (ui included) is not "logic", or a non-boolean `generated` is accepted."""
+        self.assertTrue(all("bucket" in node for node in self.graph["prs"][0]["nodes"]))
+        expected = {"src/app.ts": "logic", "src/feature.ts": "logic", "src/ui/View.tsx": "logic", "src/app.test.ts": "test",
+                    "src/__snapshots__/app.test.ts.snap": "generated", "pnpm-lock.yaml": "generated", "src/gen/client.ts": "generated",
+                    "public/vendor.min.js": "logic", "locales/en.json": "i18n", "docs/guide.md": "docs", "package.json": "config"}
+        self.assertEqual({path: self.nodes[path]["bucket"] for path in expected}, expected)
+        self.assertEqual(self.nodes["src/__snapshots__/app.test.ts.snap"]["layer"], "test")
+        self.assertEqual(self.nodes["pnpm-lock.yaml"]["layer"], "config")
+        bucket = skill_module("build_graph").bucket
+        for path, want in (("yarn.lock", "generated"), ("apps/web/package-lock.json", "generated"), ("go.sum", "generated"),
+                           ("Cargo.lock", "generated"), ("composer.lock", "generated"), ("poetry.lock", "generated"),
+                           ("Gemfile.lock", "generated"), ("ui/__snapshots__/View.tsx.snap", "generated"),
+                           ("ui/__snapshots__/data.json", "generated"), ("assets/app.min.css", "generated"), ("lib/x.min.mjs", "generated"),
+                           ("src/admin.js", "logic"), ("src/snapshot.ts", "logic"), ("src/min.js", "logic"), ("go.sum.ts", "logic")):
+            with self.subTest(path=path):
+                self.assertEqual(bucket({"files": [path], "path": path, "layer": "logic"}), want)
+        self.assertEqual(bucket({"files": ["yarn.lock", "notes.txt"], "path": "*", "layer": "config"}), "config")
+        self.assertEqual(bucket({"files": [], "path": "src/Base.php", "layer": "rest"}), "logic")
+        result = self.build({"nodes": {"P:src/app.ts": {"generated": "yes"}}})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("generated must be true or false", result.stderr)
+
+    def test_files_resolved_by_hand_in_a_merge_carry_its_sha(self):
+        """This test will fail when a file whose merge result differs from git's automatic re-merge does not list that merge's 7-character SHA in `conflict` (also under the path it had before the PR moved it), a clean merge or a file without a hand resolution is flagged, a file the PR does not change becomes a node through its conflict, or the summary stops naming the hand-resolved files."""
+        flagged = {node["path"]: node["conflict"] for node in self.graph["prs"][0]["nodes"] if "conflict" in node}
+        self.assertEqual(flagged, {"src/app.ts": [self.first[:7]], "new/name.ts": [self.first[:7]]})
+        self.assertNotIn("src/taken.ts", self.nodes)
+        self.assertEqual(self.graph["prs"][0]["tip"], self.second[:7])  # the clean merge is in the range, and flags nothing
+        self.assertIn("hint: PR P: 2 files changed by hand in merge commits", self.out)
+        self.assertIn(f"src/app.ts ({self.first[:7]})", self.out)
+        self.assertNotIn("remerge", self.out)
+
+    def test_an_old_git_or_a_failing_call_skips_conflicts_with_one_warning(self):
+        """This test will fail when a git without --remerge-diff (before 2.36), a shallow clone, or a failing git call stops the build, marks a file, or warns more than once per run, or when a PR above 50 merges is checked past its newest 50 without a warning."""
+        bindir = self.root / "old-git"
+        bindir.mkdir(exist_ok=True)
+        fake = bindir / "git"
+        fake.write_text(f'#!/bin/sh\nfor a in "$@"; do [ "$a" = version ] && {{ echo "git version 2.35.8"; exit 0; }}; done\n'
+                        f'exec "{shutil.which("git")}" "$@"\n', encoding="utf-8")
+        fake.chmod(0o755)
+        old = self.build({}, env={**ENV, "PATH": f"{bindir}{os.pathsep}{ENV['PATH']}"})
+        self.assertEqual(old.returncode, 0, old.stderr)
+        self.assertEqual(old.stdout.count("warning: git 2.35 has no --remerge-diff (2.36+); files with hand-resolved merge conflicts are not marked"), 1)
+        graph = json.loads((self.root / "case.json").read_text(encoding="utf-8"))
+        self.assertFalse([node for node in graph["prs"][0]["nodes"] if "conflict" in node])
+        self.assertTrue(all("bucket" in node for node in graph["prs"][0]["nodes"]))
+
+        bg = skill_module("build_graph")
+        calls: list[tuple[str, ...]] = []
+        merges = "".join(f"{i:07x}{'f' * 33}\n" for i in range(52, 0, -1))  # newest first, as rev-list lists them
+
+        def fake_git(repo, *args, check=True):
+            calls.append(args)
+            if args[0] == "version":
+                return "git version 2.45.1 (Apple Git-150)\n"
+            if args[:2] == ("rev-parse", "--is-shallow-repository"):
+                return "true\n" if repo == "shallow" else "false\n"
+            if args[0] == "rev-list":
+                return merges
+            return None if repo == "broken" else ""
+
+        with mock.patch.object(bg, "git", fake_git):
+            warnings: list[str] = []
+            check = bg.Conflicts(warnings)
+            self.assertEqual(check.of("A", "repo", "main...feat"), {})
+            self.assertEqual(len([c for c in calls if c[0] == "show"]), 50)
+            self.assertIn("main..feat", next(c for c in calls if c[0] == "rev-list"))
+            self.assertEqual(warnings, ["PR A: 52 merge commits; only the newest 50 are checked for hand-resolved conflicts"])
+            self.assertEqual(check.of("S", "shallow", "main...feat"), {})
+            self.assertEqual(check.of("T", "shallow", "main...feat"), {})
+            self.assertEqual(len(warnings), 2)
+            self.assertIn("shallow is a shallow clone", warnings[1])
+            warnings.clear()
+            self.assertEqual(check.of("B", "broken", "main...feat"), {})
+            self.assertEqual(check.of("C", "repo", "main...feat"), {})
+            self.assertEqual(warnings[1:], ["PR B: git show --remerge-diff 0000003 failed; files with hand-resolved merge conflicts are not marked"])
+            calls.clear()
+            warnings.clear()
+            unsupported = bg.Conflicts(warnings)
+            with mock.patch.object(bg, "git", lambda repo, *args, check=True: "git version 2.30.2\n" if args[0] == "version" else self.fail(args)):
+                self.assertEqual(unsupported.of("A", "repo", "main..feat"), {})
+                self.assertEqual(unsupported.of("B", "repo", "main..feat"), {})
+            self.assertEqual(warnings, ["git 2.30 has no --remerge-diff (2.36+); files with hand-resolved merge conflicts are not marked"])
+
+    def test_area_depth_and_why_pass_through_and_are_checked(self):
+        """This test will fail when an area's `depth` or `why` from the overlay does not reach its PR's `clusters` as given, build_graph.py accepts a depth other than read, skim, or tool or a why that is not text, or validate.py passes an unknown depth, an empty why, an unknown bucket, or a conflict that is not a list of SHAs, or stays silent about a "tool" area without a why or a long why."""
+        self.assertEqual(self.graph["prs"][0]["clusters"], [
+            {"id": "core", "label": "Core", "order": 1, "depth": "read"},
+            {"id": "ui", "label": "UI", "order": 2, "depth": "skim", "why": "layout only"},
+            {"id": "copy", "label": "copy", "order": 3, "depth": "tool", "why": "i18n key parity test"},
+        ])
+        for name, fields, message in (("depth", {"depth": "deep"}, "depth must be one of read, skim, tool"),
+                                      ("why", {"why": ""}, "why must be non-empty text"), ("why type", {"why": 3}, "why must be non-empty text")):
+            with self.subTest(case=name):
+                result = self.build({"clusters": {"a": fields}})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"overlay cluster 'a': {message}", result.stderr)
+
+        diffs, narrative = self.root / "diffs.json", self.root / "narrative.html"
+        run_script("gen_diffs.py", "--graph", str(self.graph_path), "--out", str(diffs), "--pr", "P", str(self.repo), "main...feat", "--no-manifest")
+        narrative.write_text('<section id="s"><h2>S</h2></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+
+        def validate(change) -> subprocess.CompletedProcess:
+            graph = json.loads(json.dumps(self.graph))
+            change(graph["prs"][0])
+            path, page = self.root / "check-graph.json", self.root / "check.html"
+            path.write_text(json.dumps(graph), encoding="utf-8")
+            run_script("assemble.py", "--graph", str(path), "--diffs", str(diffs), "--narrative", str(narrative), "--title", "Plan",
+                       "--out", str(page), "--no-manifest")
+            return run_script("validate.py", str(page), *([] if NODE else ["--skip-node"]), check=False)
+
+        good = validate(lambda pr: None)
+        self.assertEqual(good.returncode, 0, good.stdout)
+        self.assertFalse([line for line in good.stdout.splitlines() if line.startswith(("warning", "error")) and ("depth" in line or "why" in line)])
+        cluster = lambda pr, cid: next(c for c in pr["clusters"] if c["id"] == cid)  # noqa: E731
+        node = lambda pr, path: next(n for n in pr["nodes"] if n["path"] == path)  # noqa: E731
+        for name, change, message in (
+            ("depth", lambda pr: cluster(pr, "core").update(depth="deep"), "cluster 'core' depth 'deep' is not one of read, skim, tool"),
+            ("why", lambda pr: cluster(pr, "ui").update(why=" "), "cluster 'ui' why must be non-empty text"),
+            ("bucket", lambda pr: node(pr, "src/app.ts").update(bucket="vendor"), "has bucket 'vendor', not one of"),
+            ("conflict", lambda pr: node(pr, "src/app.ts").update(conflict=["nope"]), "conflict must be a non-empty list of commit SHAs"),
+            ("empty conflict", lambda pr: node(pr, "src/app.ts").update(conflict=[]), "conflict must be a non-empty list of commit SHAs"),
+        ):
+            with self.subTest(case=name):
+                result = validate(change)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(message, result.stdout)
+        warned = validate(lambda pr: (cluster(pr, "copy").pop("why"), cluster(pr, "ui").update(why="x" * 121)))
+        self.assertEqual(warned.returncode, 0, warned.stdout)
+        self.assertIn("warning: PR P: cluster 'copy' is covered by a tool but has no why naming the check", warned.stdout)
+        self.assertIn("warning: PR P: cluster 'ui' why has 121 characters; keep it to 120 at most", warned.stdout)
 
 
 if __name__ == "__main__":

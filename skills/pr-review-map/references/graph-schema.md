@@ -21,13 +21,14 @@ from `review-map.json` (below).
       "color": "var(--pal-2)",
       "nodes": [
         {"id": "S1", "label": "services.schema.ts", "path": "libs/x/contract/services.schema.ts",
-         "layer": "contract", "role": "Zod schema of the response", "added": 79, "removed": 0,
-         "order": 1, "note": "Optional <code>doctorName</code>, so older callers keep working."},
-        {"id": "S26", "label": "docs (4)", "path": "libs/x/docs/**", "layer": "docs", "role": "",
-         "added": 601, "removed": 0, "order": 26, "files": ["libs/x/docs/a.md", "…"]},
+         "layer": "contract", "bucket": "logic", "role": "Zod schema of the response", "added": 79,
+         "removed": 0, "order": 1, "note": "Optional <code>doctorName</code>, so older callers keep working.",
+         "conflict": ["4d5e6f7"]},
+        {"id": "S26", "label": "docs (4)", "path": "libs/x/docs/**", "layer": "docs", "bucket": "docs",
+         "role": "", "added": 601, "removed": 0, "order": 26, "files": ["libs/x/docs/a.md", "…"]},
         {"id": "S27", "label": "ApiController.php (unchanged)", "path": "src/ApiController.php",
-         "layer": "rest", "role": "Base controller", "added": 0, "removed": 0, "order": 27,
-         "unchanged": true}
+         "layer": "rest", "bucket": "logic", "role": "Base controller", "added": 0, "removed": 0,
+         "order": 27, "unchanged": true}
       ],
       "edges": [
         {"from": "S3", "to": "S1", "kind": "import", "external": false},
@@ -60,7 +61,9 @@ PR fields:
   `reason` is `"few"` below 3 entry points, else `"light"` or `"heavy"`). The viewer
   opens the PR in that mode until the reader picks one for it, and its note says why.
 - `clusters` — the areas the PR's nodes use, from the overlay (see Areas below):
-  `[{"id": "auth", "label": "Sign-in", "order": 1}]`, by order; absent without them.
+  `[{"id": "auth", "label": "Sign-in", "order": 1, "depth": "read"}, {"id": "copy",
+  "label": "Copy", "order": 2, "depth": "tool", "why": "i18n key parity test"}]`, by
+  order; absent without them. `depth` and `why` appear only where the overlay sets them.
 - `chunk` — only on a part of a PR split by its commits (`--chunks`,
   `references/chunks.md`): `{"of": "M", "index": 2, "count": 5, "from": "<sha>",
   "to": "<sha>", "commits": 4, "subjects": ["first five", "…"], "label": "web"}`, with
@@ -99,6 +102,8 @@ Node fields:
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
 | `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines and 1 MB, both versions with their imports and white space removed; `import.meta` and `import(` are code, and a PHP `use` counts only before the first class, interface, trait, enum, or function), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
+| `bucket` | The kind of change the review plan counts the node's lines under, on every node build_graph.py writes: `generated` when every file is a lockfile (the `#lockfiles` names), a test snapshot (`*.snap`, anything under `__snapshots__/`), or a minified file (`*.min.js`, `*.min.css`), or the overlay sets `generated: true`; else `test`, `i18n`, `docs`, or `config` for a node of that layer; else `logic` (every other layer). Overlay `generated: false` keeps a node in its layer's bucket. validate.py rejects any other value. |
+| `conflict` | Short (7-character) SHAs of the PR's merge commits whose recorded result for one of the node's files differs from what git merges on its own (`git show --remerge-diff --name-only`): a conflict resolved by hand, or an edit made in the merge. Oldest first; absent when there is none (see Merge resolutions below). |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
 `kind`, `external` (`true` when `to` is in another PR; listed in that PR's
@@ -292,6 +297,19 @@ exactly one file wins (`mobile-auth-bootstrap-test` → `auth/bootstrap.ts`,
 `task-detail-mutations-test` → `details/task-detail.tsx`;
 `routine-agenda-detail-mutations-test` with two such files gets none).
 
+### Merge resolutions
+
+A conflict resolved by hand in a merge commit is code no commit of its own shows, so it
+is easy to miss. build_graph.py lists the PR's merge commits (`git rev-list --merges` over the range
+`A..B`, for `A...B` too; the newest 50, with a warning above that), runs `git show
+--remerge-diff --format= --name-only -z` on each, and puts the merge's SHA in `conflict`
+on the node of every listed file the PR changes, found by its path at the tip or, for a
+file the PR moves, its path before the move. A clean merge lists nothing. A file the
+merge touched but the PR's diff does not is no node and is not reported. The summary
+prints a hint naming the files. It needs git 2.36 or later; an older git, a shallow
+clone, or a failing call skips the check with one warning and never stops the build.
+The viewer marks such files.
+
 ### Areas (clusters)
 
 A PR above 40 core files (not tests, not docs/config/i18n) opens its Map on an overview
@@ -299,7 +317,8 @@ of areas instead of every file; at 40 or fewer the Map is the flat map as before
 8–12 areas by feature or flow in the overlay:
 
 ```json
-{"clusters": {"auth": {"label": "Sign-in", "order": 1}, "billing": {"label": "Billing", "order": 2}},
+{"clusters": {"auth": {"label": "Sign-in", "order": 1, "depth": "read"},
+              "billing": {"label": "Billing", "order": 2, "depth": "skim", "why": "renames only"}},
  "nodes": {"M:src/auth/service.ts": {"cluster": "auth"}, "M:src/auth/routes.ts": {"cluster": "auth"}}}
 ```
 
@@ -313,6 +332,14 @@ a malformed id, or a non-integer order stops it. Its summary counts the core fil
 area and names those without one. validate.py rejects a node whose area its PR does not
 list and warns about fewer than 4 or more than 15 areas, an area with no core node, and
 a PR above 40 core nodes without areas.
+
+An area may also say how to review it, for the viewer's review plan: `depth` is
+`"read"` (follow it line by line), `"skim"` (look it over), or `"tool"` (a check covers
+it), and `why` a short phrase in the report language (for `"tool"` the check: `{"depth":
+"tool", "why": "i18n key parity test"}`). Both reach the PR's `clusters` as given
+(`prs[].clusters[].depth`, `.why`). build_graph.py stops on another depth or a `why`
+that is not text; validate.py rejects them too and warns about a `"tool"` area without
+a `why` and a `why` over 120 characters.
 
 The viewer completes the areas, so a graph without them still has some: the shared
 dependencies form one area, docs/config/i18n another, each test joins the file it
@@ -412,7 +439,9 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 ```
 
 `nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
-Shared dependencies), and `cluster` (an id from the overlay's `clusters`, see Areas).
+Shared dependencies), `cluster` (an id from the overlay's `clusters`, see Areas), and
+`generated` (`true` for generated code the patterns miss, such as an API client built
+from a schema; `false` for a hand-kept file they catch; see `bucket`).
 `tours` are described under Tours.
 An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,
