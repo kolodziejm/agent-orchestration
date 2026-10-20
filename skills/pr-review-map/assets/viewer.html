@@ -450,11 +450,16 @@ table.g-pt{font-size:13.5px}
 .g-dp.d-read{color:var(--accent-ink)} .g-dp.d-skim{color:var(--warn-fg)} .g-dp.d-tool{color:var(--muted)}
 .g-dp.auto{border-style:dashed;font-weight:600}
 .g-pwhy{display:block;margin-top:2px;font-size:12.5px;color:var(--muted);max-width:52ch}
+.g-ptm{white-space:nowrap}
+.g-ptm i{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--bc);margin-right:6px;vertical-align:1px}
 /* Files resolved by hand in a merge: a chip on the row, a line in the detail panel, a mark on the map */
 .g-cfb{font-size:11px;font-weight:700;line-height:1.45;padding:0 5px;border-radius:999px;border:1px solid var(--warn-fg);color:var(--warn-fg);background:var(--warn-bg);white-space:nowrap}
 .g-cf{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg);font-size:13px}
 .g-cf code{color:var(--fg)}
 .g-cf .nt-b.lnk{color:inherit;text-decoration:underline;padding:0 2px;font-size:13px}
+.g-cf .cl{font-size:12.5px;opacity:.85;font-variant-numeric:tabular-nums}
+.g-cf.pk{background:var(--soft);color:var(--muted)}
+.g-cf.pk code{color:var(--muted)}
 @container (max-width:560px){.g-cf>span{flex:1 1 auto}.g-cf>button{order:1}.g-cf>code{order:2;flex-basis:100%}}
 svg .cfm rect{fill:var(--warn-bg);stroke:var(--warn-fg);stroke-width:1.2}
 svg .cfm text{fill:var(--warn-fg);font-family:var(--f-body);font-size:11px;font-weight:700}
@@ -712,9 +717,22 @@ html.g-wsroot{overflow:hidden}
      BUCKETS, else from its layer (test, i18n, docs, config; everything else is logic), so an older report still has one. */
   var BUCKETS=['logic','test','i18n','docs','config','generated'];
   function bucketOf(n){var b=n&&n.bucket,l=n&&n.layer;return typeof b==='string'&&BUCKETS.indexOf(b)>=0?b:l==='test'||l==='i18n'||l==='docs'||l==='config'?l:'logic';}
-  /* The merges (short SHAs, oldest first) in which a node's file was resolved by hand (`conflict`); anything but a hex
-     SHA is dropped. */
-  function conflictsOf(n){var c=n&&n.conflict,out=[];if(Array.isArray(c))c.forEach(function(x){var s=typeof x==='string'&&/^[0-9a-f]{4,40}$/i.test(x)?x.toLowerCase():null;if(s&&out.indexOf(s)<0)out.push(s);});return out;}
+  /* The merges (oldest first) in which a node's files were resolved by hand (`conflict`), each {sha, kind, lines}: kind
+     "merged" (the result differs from both parents: combined by hand) or "picked" (one side's version taken), lines the
+     re-merge diff changes (null when unknown). A bare SHA (an older build) counts as merged; an entry whose SHA is not
+     hex is dropped, a kind other than "picked" reads as merged, one SHA listed twice is merged once (merged wins). */
+  function conflictsOf(n){
+    var c=n&&n.conflict,out=[],at=Object.create(null);
+    if(Array.isArray(c))c.forEach(function(x){
+      var o=x&&typeof x==='object'?x:{sha:x},s=typeof o.sha==='string'&&/^[0-9a-f]{4,40}$/i.test(o.sha)?o.sha.toLowerCase():null;if(!s)return;
+      var k=o.kind==='picked'?'picked':'merged',l=typeof o.lines==='number'&&isFinite(o.lines)&&o.lines>=0?Math.round(o.lines):null;
+      if(at[s]){if(k==='merged')at[s].kind='merged';return;}
+      out.push(at[s]={sha:s,kind:k,lines:l});
+    });
+    return out;
+  }
+  /* The SHAs of the merges that combined a node's files by hand: what the row chip, the map mark, and the plan count. */
+  function mergedOf(n){return conflictsOf(n).filter(function(c){return c.kind==='merged';}).map(function(c){return c.sha;});}
   /* A line count from data: a non-negative integer, else 0. */
   function cnt(x){return typeof x==='number'&&isFinite(x)&&x>0?Math.round(x):0;}
   /* A path as one shell word: as it is when it is plain (no glob character, none a shell would expand), else single-quoted. */
@@ -1893,16 +1911,19 @@ html.g-wsroot{overflow:hidden}
     });
   }
   /* Areas ("clusters") of one PR, for "Group by area" and the map's overview. An area the overlay authored (the PR's
-     `clusters`, each node's `cluster`) holds its core files; the shared dependencies (`hub`) form the area ":shared",
-     docs/config/i18n the area ":late", and each test goes with the file it tests (SUBJ; a test of no core file stands
-     on its own like a core file). Core files without an authored area are grouped by folder (folderGroups over the
+     `clusters`, each node's `cluster`) holds its files, docs/config/i18n ones too (they still read last); the shared
+     dependencies (`hub`) form the area ":shared", docs/config/i18n without an authored area the area ":late", and each
+     test goes with the file it tests (SUBJ; a test of no core file stands on its own like a core file). An authored area
+     of nothing but docs/config/i18n files (`late`) is listed with the late ones, before ":late", and the overview puts
+     it on their shelf. Core files without an authored area are grouped by folder (folderGroups over the
      whole PR with the stored order: at most 10 areas less the authored ones, about 25 files each, id "d:" + folder),
      so a graph without clusters still has areas. Each earlier PR whose files this PR uses is an area "x:" + its key.
      Returns {list, by, of, edges}: list holds the areas in reading order (earlier PRs, shared, the authored ones by
-     their order and first step, the folder ones by first step, late), each {id, label, kind (auth, dir, shared, late,
-     ext), order, first (its first step), ids (its files in reading order), box (those drawn as boxes: not the tests of
-     another file), tests ({subject: [its tests]}), inner (the links between its boxes); an authored one also depth
-     (read, skim, tool, or null) and why, from the overlay, for the review plan}; by maps an id to its area and
+     their order and first step, the folder ones by first step, the late authored ones by their order, late), each {id,
+     label, kind (auth, dir, shared, late, ext), order, first (its first step), ids (its files in reading order), box
+     (those drawn as boxes: not the tests of another file), tests ({subject: [its tests]}), inner (the links between its
+     boxes); an authored one also depth (read, skim, tool, or null) and why, from the overlay, for the review plan, and
+     late (true when all its files are docs/config/i18n)}; by maps an id to its area and
      of a node id to its area's id; edges are the links between areas, {from, to, n, pairs: [[file, file]]}, without
      the tests' links. With vis ({id: 1}, the shown nodes) members and links are limited to those; which area a file
      belongs to always comes from the whole PR. */
@@ -1919,8 +1940,8 @@ html.g-wsroot{overflow:hidden}
     nodes.forEach(function(n){
       if(folded(n))return;
       if(HUB[n.id])of[n.id]=':shared';
-      else if(LATE[n.layer])of[n.id]=':late';
       else if(typeof n.cluster==='string'&&defs[n.cluster]){of[n.id]=n.cluster;used[n.cluster]=1;}
+      else if(LATE[n.layer])of[n.id]=':late';
       else rest.push(n);
     });
     var maxg=Math.max(1,10-Object.keys(used).length);
@@ -1934,13 +1955,13 @@ html.g-wsroot{overflow:hidden}
       else if(id===':late'){c.kind='late';c.label=S.clusterLate;}
       else if(k==='x:'){c.kind='ext';c.label=prName(id.slice(2));c.order=prIdx(id.slice(2));c.first=-1;}
       else if(k==='d:'){c.kind='dir';c.label=id.length>2?id.slice(2)+'/':S.folderRoot;}
-      else{c.kind='auth';c.label=d.label;c.order=d.order;c.depth=d.depth;c.why=d.why;}
+      else{c.kind='auth';c.label=d.label;c.order=d.order;c.depth=d.depth;c.why=d.why;c.late=true;}
       return (by[id]=c);
     }
     var inBox=Object.create(null);
     nodes.slice().sort(function(a,b){return ON[a.id]-ON[b.id];}).forEach(function(n){
       var id=of[n.id];if(!id||!shown(n.id))return;
-      var c=area(id);c.ids.push(n.id);c.first=Math.min(c.first,ON[n.id]);
+      var c=area(id);c.ids.push(n.id);c.first=Math.min(c.first,ON[n.id]);if(!LATE[n.layer])c.late=false;
       if(folded(n))(c.tests[SUBJ[n.id]]=c.tests[SUBJ[n.id]]||[]).push(n.id);else{c.box.push(n.id);inBox[n.id]=1;}
     });
     var agg=Object.create(null),edges=[];
@@ -1953,7 +1974,7 @@ html.g-wsroot{overflow:hidden}
       var g=agg[a+'>'+b];if(!g){g=agg[a+'>'+b]={from:a,to:b,n:0,pairs:[]};edges.push(g);}
       g.n++;g.pairs.push([e.from,e.to]);
     });
-    function rank(c){return c.kind==='ext'?[0,c.order,0]:c.kind==='shared'?[1,0,0]:c.kind==='auth'?[2,c.order,c.first]:c.kind==='dir'?[3,c.first,0]:[4,0,0];}
+    function rank(c){return c.kind==='ext'?[0,c.order,0]:c.kind==='shared'?[1,0,0]:c.kind==='auth'?[c.late?4:2,c.order,c.first]:c.kind==='dir'?[3,c.first,0]:[5,0,0];}
     var list=Object.keys(by).map(function(k){return by[k];}).filter(function(c){return c.ids.length;}),at=Object.create(null);
     list.sort(function(a,b){var x=rank(a),y=rank(b);return x[0]-y[0]||x[1]-y[1]||x[2]-y[2]||(a.id<b.id?-1:a.id>b.id?1:0);});
     list.forEach(function(c,i){at[c.id]=i;});
@@ -2047,7 +2068,7 @@ html.g-wsroot{overflow:hidden}
       rowEl[id].li.classList.toggle('was',w);rowEl[id].cb.title=w?S.chgWasReadTitle:'';
       if(CHG[id]){var cb=document.createElement('span');cb.className='g-cb '+CHG[id];cb.textContent=CHG[id]==='new'?S.chgNew:S.chgChanged;cb.title=CHG[id]==='new'?S.chgNewTitle:S.chgChangedTitle;cb.setAttribute('role','img');cb.setAttribute('aria-label',cb.title);ix.appendChild(cb);}
       if(w){var wr=document.createElement('span');wr.className='g-was';wr.textContent='↻';wr.title=S.chgWasReadTitle;wr.setAttribute('role','img');wr.setAttribute('aria-label',S.chgWasReadTitle);ix.appendChild(wr);}
-      var cf=conflictsOf(all[id]);
+      var cf=mergedOf(all[id]);
       if(cf.length){var cc=document.createElement('span');cc.className='g-cfb';cc.textContent='↯';cc.title=fmt(S.conflictTitle,{list:cf.join(', ')});cc.setAttribute('role','img');cc.setAttribute('aria-label',cc.title);ix.appendChild(cc);}
       KINDS.forEach(function(k){
         var ks=list.filter(function(x){return x.kind===k;});if(!ks.length)return;
@@ -2254,14 +2275,16 @@ html.g-wsroot{overflow:hidden}
     var n=byId[id],L=layerOf(n.layer),o=ordered(),i=o.findIndex(function(x){return x.id===id;}),pv=o[i-1],nx=o[i+1];
     function pn(m,which){if(!m)return '<span></span>';var t=which==='prev'?S.prev+' '+ON[m.id]+' · '+m.label:ON[m.id]+' · '+m.label+' '+S.next;return '<button type="button" class="nt-b" data-go="'+esc(m.id)+'" data-pn="'+which+'" title="'+esc(m.path)+'">'+esc(t)+'</button>';}
     var al=alsoIn(id),also=al.length?'<p class="g-also">'+esc(S.chunkAlsoLine)+' '+al.map(function(x){var c=PARTOF[x.k],t=partRef(x.k)+(c.label?' · '+c.label:'');return '<button type="button" class="nt-b lnk" data-go="'+esc(x.id)+'" title="'+esc(t)+'" aria-label="'+esc(t)+'">'+esc(c.index+'/'+c.count+(c.label?' '+c.label:''))+'</button>';}).join(', ')+'</p>':'';
-    /* Each merge that resolved this file by hand, with the command that shows how (the node's path is a pathspec: a
-       group's glob covers its files). */
-    var conf=conflictsOf(n).map(function(s){var cmd='git show --remerge-diff '+s+pathspec(n);
-      return '<div class="g-cf"><span><span aria-hidden="true">↯ </span>'+esc(fmt(S.conflictLine,{sha:s}))+'</span><code>'+esc(cmd)+'</code><button type="button" class="nt-b lnk" data-cmd="'+esc(cmd)+'" aria-label="'+esc(fmt(S.conflictCopyAria,{cmd:cmd}))+'">'+esc(S.conflictCopy)+'</button></div>';}).join('');
+    /* Each merge that resolved this file by hand, with the lines of its resolution and the command that shows how (the
+       node's path is a pathspec: a group's glob covers its files); one that took one side's version is dimmed. */
+    var conf=conflictsOf(n).map(function(c){var s=c.sha,pk=c.kind==='picked',cmd='git show --remerge-diff '+s+pathspec(n);
+      return '<div class="g-cf'+(pk?' pk':'')+'" title="'+esc(pk?S.conflictPickedTitle:S.conflictMergedTitle)+'"><span><span aria-hidden="true">'+(pk?'⇢ ':'↯ ')+'</span>'+esc(fmt(pk?S.conflictPicked:S.conflictLine,{sha:s}))+'</span>'
+        +(c.lines!=null?'<span class="cl">'+esc(fmt(S.conflictLines,{n:c.lines}))+'</span>':'')
+        +'<code>'+esc(cmd)+'</code><button type="button" class="nt-b lnk" data-cmd="'+esc(cmd)+'" aria-label="'+esc(fmt(S.conflictCopyAria,{cmd:cmd}))+'">'+esc(S.conflictCopy)+'</button></div>';}).join('');
     detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+safeHtml(n.note)+'</p>':'')+also+conf+
       '<p class="muted">'+esc(L[0])+' · +'+esc(n.added||0)+' / −'+esc(n.removed||0)+'</p>'+hood(id)+'<div class="g-pn">'+pn(pv,'prev')+pn(nx,'next')+'</div>';
     [].forEach.call(detEl.querySelectorAll('[data-cmd]'),function(b){b.addEventListener('click',function(){
-      var cmd=b.dataset.cmd,code=b.previousElementSibling;
+      var cmd=b.dataset.cmd,code=b.parentNode.querySelector('code');
       copyText(cmd,function(ok){
         if(ok){status(S.conflictCopied);say(S.conflictCopied);return;}
         try{var r=document.createRange();r.selectNodeContents(code);var sl=window.getSelection();sl.removeAllRanges();sl.addRange(r);}catch(e){}
@@ -2438,7 +2461,7 @@ html.g-wsroot{overflow:hidden}
       edge(e,link(a,z),' xtra');
     });
     function node(n,p){
-      var ext=!!n.ext,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),cf=conflictsOf(n),cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
+      var ext=!!n.ext,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),cf=mergedOf(n),cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
       var g=el('g',{class:'nd'+(isDone(n.id)?' done':''),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(cft?', '+cft:'')},ng);
       el('rect',{class:'box',width:p.w,height:p.h,rx:8,fill:css('--surface'),stroke:ext?prc:css('--line'),'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
       el('rect',{width:5,height:p.h-12,x:6,y:6,rx:2,fill:L[1]},g);
@@ -2548,13 +2571,15 @@ html.g-wsroot{overflow:hidden}
       b.w=Math.max(CW,iw+2*CPD);b.h=CHD+ih+CPD;
     });
     var reg=[],ext=[],isReg=Object.create(null);
-    CG.list.forEach(function(c){if(c.kind==='auth'||c.kind==='dir'){reg.push(c.id);isReg[c.id]=1;}else if(c.kind==='ext')ext.push(c.id);});
+    CG.list.forEach(function(c){if(c.kind==='auth'&&!c.late||c.kind==='dir'){reg.push(c.id);isReg[c.id]=1;}else if(c.kind==='ext')ext.push(c.id);});
     var drawn=CG.edges.filter(function(g){return isReg[g.from]&&(isReg[g.to]||CG.by[g.to].kind==='ext');});
     var lv=levels(reg,drawn.filter(function(g){return isReg[g.to];})),X0=ext.length?1:0;
     var L=lorder((reg.length?lv.n:0)+X0,ext.map(function(k,i){return {k:k,c:0,h:boxes[k].h,ext:1,eg:i,b:i};}).concat(reg.map(function(k){return {k:k,c:lv.col[k]+X0,h:boxes[k].h,b:CG.by[k].first};})),
       drawn.map(function(g){return {f:g.from,t:g.to,key:g.from+'>'+g.to,b:CG.by[g.from].first+.5,e:g};}));
     lplace(L,hb,function(p,q){return p.d&&q.d?4:p.d||q.d?12:OGY;},OGY,X0);
-    var wd=[],xs=[],x=MP,minY=Infinity,maxY=0,sh=boxes[':shared'],lt=boxes[':late'],top=MP;
+    var wd=[],xs=[],x=MP,minY=Infinity,maxY=0,sh=boxes[':shared'],top=MP;
+    /* The shelf below: the late authored areas, then docs/config/i18n, left to right. */
+    var shelf=CG.list.filter(function(c){return c.kind==='late'||c.kind==='auth'&&c.late;}).map(function(c){return boxes[c.id];});
     L.cols.forEach(function(col,c){wd[c]=Math.max(40,Math.max.apply(null,col.map(function(it){return it.d?0:boxes[it.k].w;}).concat([0])));xs[c]=x;x+=wd[c]+OGX;});
     if(sh){sh.x=MP;sh.y=MP;top=MP+sh.h+OGY*1.6;}
     Object.keys(L.items).forEach(function(k){minY=Math.min(minY,L.items[k].y);});
@@ -2563,8 +2588,9 @@ html.g-wsroot{overflow:hidden}
       var it=L.items[k];it.y+=top-minY;it.X=xs[it.c];it.W=wd[it.c];maxY=Math.max(maxY,it.y+it.h);
       if(!it.d){var b=boxes[k];b.x=it.X+(it.W-b.w)/2;b.y=it.y;}
     });
-    if(lt){lt.x=MP;lt.y=Math.max(maxY,sh?sh.y+sh.h:0)+OGY*1.6;}
-    var W=Math.max(x-OGX,sh?sh.x+sh.w:0,lt?lt.x+lt.w:0)+MP,H=(lt?lt.y+lt.h:Math.max(maxY,sh?sh.y+sh.h:0))+MP;
+    var sy=Math.max(maxY,sh?sh.y+sh.h:0)+OGY*1.6,sx=MP,sb=0;
+    shelf.forEach(function(b){b.x=sx;b.y=sy;sx+=b.w+OGY;sb=Math.max(sb,sy+b.h);});
+    var W=Math.max(x-OGX,sh?sh.x+sh.w:0,shelf.length?sx-OGY:0)+MP,H=(shelf.length?sb:Math.max(maxY,sh?sh.y+sh.h:0))+MP;
     CG.list.forEach(function(c){
       var b=boxes[c.id];if(!b.open)return;
       Object.keys(b.at).forEach(function(id){var r=b.at[id];nodes[id]={x:b.x+CPD+r.x,y:b.y+CHD+r.y,w:MW,h:MH,a:c.id};});
@@ -2659,7 +2685,7 @@ html.g-wsroot{overflow:hidden}
   }
   function ovNode(n,p,c,ng){
     var M=MAP,ext=n.pr!==cur,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),ts=(own(c.tests,n.id)||[]).filter(function(t){return byId[t];});
-    var cf=conflictsOf(n),cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
+    var cf=mergedOf(n),cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
     var aria=(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(ts.length?', '+fmt(S.testsAria,{n:ts.length}):'')+(cft?', '+cft:'');
     var g=el('g',{class:'nd'+(isDone(n.id)?' done':''),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':aria},ng);
     el('title',{},g).textContent=n.path+'\n'+(n.role||'')+(cft?'\n↯ '+cft:'');
@@ -2985,26 +3011,52 @@ html.g-wsroot{overflow:hidden}
   var gEl=document.getElementById('graph');
   /* Review plan, per PR tab above the toolbar (open or folded per report under "plan"): one row per area of the PR
      (clusterGraph over the whole PR; the areas of earlier PRs it uses are left out) in the order of the sections of "Group
-     by area" (shared dependencies, the authored areas, the folders, the late ones), with its files, changed lines, depth, an estimate in minutes, and its files resolved by hand in a merge.
+     by area" (shared dependencies, the authored areas, the folders, the late ones), with its files, changed lines, depth, an estimate of the time, and its files combined by hand in a merge (a "merged" resolution; one that took one side does not count).
      Depth is the overlay's (`depth` on the area: read, skim, or tool, with its `why` under it), else "skim" when every
-     file of the area is a test, i18n, docs, config, or generated (bucketOf), else "read". Minutes: changed lines (added
-     plus removed) at 400 an hour to read and 2000 to skim, none for tools; at least 1, above 5 rounded up to the next 5.
+     file of the area is a test, i18n, docs, config, or generated (bucketOf), else "read". Time: each file's changed lines
+     at its bucket's rate (PLAN_RATE, changed lines an hour when read closely: logic additions 400 and deletions 1500,
+     tests 1500, docs 2000, i18n 3000, config 1000, generated not counted), PLAN_SKIM times faster to skim, none for
+     tools; at least 1 minute, above 5 rounded up to the next 5, from PLAN_HOURS minutes on shown in hours (halves below
+     10). The cell's mark has the colour of the bucket that takes most of the time; its title splits the time by bucket.
      A row's click selects the area's first step and scrolls its section (shared dependencies, or the area's own with
      "Group by area") to the top of the list. Above the table one bar splits the PR's changed lines by kind, with a
      legend that gives the numbers. */
-  var PLAN_RATE={read:400,skim:2000},LIGHTB={test:1,i18n:1,docs:1,config:1,generated:1};
+  /* The review plan's reading rates, the one place they are set: changed lines an hour per bucket for an area read
+     closely ("logic" is its added lines, "logicDel" its removed ones; 0: not counted), PLAN_SKIM times faster to skim,
+     and from PLAN_HOURS minutes on the time shows in hours. The minutes column's title is built from them. */
+  var PLAN_RATE={logic:400,logicDel:1500,test:1500,docs:2000,i18n:3000,config:1000,generated:0},PLAN_SKIM=4,PLAN_HOURS=90;
+  var LIGHTB={test:1,i18n:1,docs:1,config:1,generated:1};
   var planEl=document.getElementById('g-plan'),planB=document.getElementById('g-planb'),planSum=document.getElementById('g-plsum'),planRows=[];
   planEl.open=load('plan','1')!=='0';
   planEl.addEventListener('toggle',function(){save('plan',planEl.open?'1':'0');});
-  function planMin(depth,lines){if(depth==='tool'||!(lines>0))return 0;var m=Math.ceil(lines*60/PLAN_RATE[depth]);if(m<1)m=1;return m>5?Math.ceil(m/5)*5:m;}
+  /* Minutes per bucket of one area's files ({bucket: minutes, unrounded}) at its depth. */
+  function planBy(depth,ids){
+    var by=Object.create(null);if(depth==='tool')return by;
+    ids.forEach(function(id){
+      var n=all[id],b=bucketOf(n),a=cnt(n.added),d=cnt(n.removed),h=0;
+      if(b==='logic')h=(PLAN_RATE.logic?a/PLAN_RATE.logic:0)+(PLAN_RATE.logicDel?d/PLAN_RATE.logicDel:0);else if(PLAN_RATE[b])h=(a+d)/PLAN_RATE[b];
+      if(h>0)by[b]=(by[b]||0)+h*60/(depth==='skim'?PLAN_SKIM:1);
+    });
+    return by;
+  }
+  /* An area's minutes from planBy(): none when nothing is timed, else at least 1, above 5 rounded up to the next 5. */
+  function planMin(by){var m=0;Object.keys(by).forEach(function(b){m+=by[b];});if(!(m>0))return 0;m=Math.ceil(m-1e-9);if(m<1)m=1;return m>5?Math.ceil(m/5)*5:m;}
+  /* A time for the plan: "35 min", or from PLAN_HOURS minutes on "1.5 h" (halves below 10 hours, whole hours above). */
+  var numFmt=null;try{numFmt=new Intl.NumberFormat(CFG.lang||'en');}catch(e){}
+  function planTime(m){
+    if(m<PLAN_HOURS)return fmt(S.timeMin,{n:m});
+    var h=m/60;h=h<10?Math.round(h*2)/2:Math.round(h);
+    return fmt(S.timeHours,{n:numFmt?numFmt.format(h):String(h)});
+  }
   function planOf(p){
     var rows=[];
     clusterGraph(p).list.forEach(function(c){
       if(c.kind==='ext')return;
       var ids=c.ids.filter(function(id){return all[id]&&all[id].pr===p.key&&!all[id].unchanged;}),a=0,d=0,cf=0,light=true;if(!ids.length)return;
-      ids.forEach(function(id){var n=all[id];a+=cnt(n.added);d+=cnt(n.removed);if(conflictsOf(n).length)cf++;if(!LIGHTB[bucketOf(n)])light=false;});
-      var dep=c.depth||(light?'skim':'read');
-      rows.push({c:c,ids:ids,a:a,d:d,cf:cf,depth:dep,auto:!c.depth,why:c.why||'',min:planMin(dep,a+d)});
+      ids.forEach(function(id){var n=all[id];a+=cnt(n.added);d+=cnt(n.removed);if(mergedOf(n).length)cf++;if(!LIGHTB[bucketOf(n)])light=false;});
+      var dep=c.depth||(light?'skim':'read'),by=planBy(dep,ids),top=null;
+      Object.keys(by).forEach(function(b){if(top===null||by[b]>by[top])top=b;});
+      rows.push({c:c,ids:ids,a:a,d:d,cf:cf,depth:dep,auto:!c.depth,why:c.why||'',by:by,top:top,min:planMin(by)});
     });
     return rows;
   }
@@ -3014,7 +3066,7 @@ html.g-wsroot{overflow:hidden}
     p.nodes.forEach(function(x){var n=all[x.id];by[bucketOf(n)]+=cnt(n.added)+cnt(n.removed);});
     BUCKETS.forEach(function(b){total+=by[b];});
     rows.forEach(function(r){T.n+=r.ids.length;T.a+=r.a;T.d+=r.d;T.cf+=r.cf;T.min+=r.min;});
-    planSum.textContent=fmt(S.planSum,{min:T.min,n:T.n,files:filesWord(T.n),a:T.a,d:T.d});
+    planSum.textContent=fmt(S.planSum,{time:planTime(T.min),n:T.n,files:filesWord(T.n),a:T.a,d:T.d});
     function bn(b){return own(S.buckets,b)||b;}
     function tip(b){return fmt(S.kindsItem,{kind:bn(b),n:by[b],pct:total?Math.round(by[b]*100/total):0});}
     var kinds='<div class="g-kinds" role="group" aria-label="'+esc(S.kindsTitle)+'"><div class="g-kbar" aria-hidden="true">'
@@ -3025,13 +3077,21 @@ html.g-wsroot{overflow:hidden}
       return '<span class="g-dp d-'+r.depth+(r.auto?' auto':'')+'" title="'+esc(t+(r.auto?' · '+S.depthAutoTitle:''))+'">'+esc(w)+'</span>'+(r.why?'<span class="g-pwhy">'+esc(r.why)+'</span>':'');
     }
     function lines(a,d){return '<span class="st"><span class="a">+'+a+'</span> <span class="r">−'+d+'</span></span>';}
+    /* The time cell: the time, after a mark in the colour of the bucket that takes most of it; the title splits it. */
+    function timeCell(r){
+      if(!r.min)return '<td class="num">'+esc(planTime(0))+'</td>';
+      var parts=BUCKETS.filter(function(b){return r.by[b]>0;}).sort(function(x,y){return r.by[y]-r.by[x];}).map(function(b){return fmt(S.planTimeItem,{kind:bn(b),time:planTime(Math.max(1,Math.round(r.by[b])))});});
+      var t=fmt(S.planTimeTitle,{time:planTime(r.min),list:parts.join(', ')});
+      return '<td class="num g-ptm" title="'+esc(t)+'"><i class="b-'+r.top+'" aria-hidden="true"></i>'+esc(planTime(r.min))+'</td>';
+    }
+    var rateTitle=fmt(S.planMinTitle,{logic:PLAN_RATE.logic,logicDel:PLAN_RATE.logicDel,test:PLAN_RATE.test,docs:PLAN_RATE.docs,i18n:PLAN_RATE.i18n,config:PLAN_RATE.config,skim:PLAN_SKIM,hours:PLAN_HOURS});
     var head='<thead><tr><th scope="col">'+esc(S.planArea)+'</th><th scope="col" class="num">'+esc(S.planFiles)+'</th><th scope="col" class="num">'+esc(S.planLines)+'</th><th scope="col">'+esc(S.planDepth)
-      +'</th><th scope="col" class="num" title="'+esc(S.planMinTitle)+'">'+esc(S.planMin)+'</th><th scope="col" class="num" title="'+esc(S.planConfTitle)+'">'+esc(S.planConf)+'</th></tr></thead>';
+      +'</th><th scope="col" class="num" title="'+esc(rateTitle)+'">'+esc(S.planMin)+'</th><th scope="col" class="num" title="'+esc(S.planConfTitle)+'">'+esc(S.planConf)+'</th></tr></thead>';
     var body=rows.map(function(r,i){
       return '<tr data-i="'+i+'"><th scope="row"><button type="button" class="g-pa" title="'+esc(fmt(S.planGo,{name:r.c.label}))+'">'+esc((r.c.kind==='shared'?'◆ ':'')+r.c.label)+'</button></th><td class="num">'+r.ids.length
-        +'</td><td class="num">'+lines(r.a,r.d)+'</td><td>'+depthCell(r)+'</td><td class="num">'+r.min+'</td><td class="num">'+r.cf+'</td></tr>';
+        +'</td><td class="num">'+lines(r.a,r.d)+'</td><td>'+depthCell(r)+'</td>'+timeCell(r)+'<td class="num">'+r.cf+'</td></tr>';
     }).join('');
-    var foot='<tfoot><tr><th scope="row">'+esc(S.planTotal)+'</th><td class="num">'+T.n+'</td><td class="num">'+lines(T.a,T.d)+'</td><td></td><td class="num">'+T.min+'</td><td class="num">'+T.cf+'</td></tr></tfoot>';
+    var foot='<tfoot><tr><th scope="row">'+esc(S.planTotal)+'</th><td class="num">'+T.n+'</td><td class="num">'+lines(T.a,T.d)+'</td><td></td><td class="num">'+esc(planTime(T.min))+'</td><td class="num">'+T.cf+'</td></tr></tfoot>';
     planB.innerHTML=kinds+(rows.length?'<div class="tbl"><table class="g-pt">'+head+'<tbody>'+body+'</tbody>'+foot+'</table></div>':'');
   }
   function planGo(r){

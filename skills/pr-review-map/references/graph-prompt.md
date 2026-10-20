@@ -22,8 +22,8 @@ Steps:
      [--groups <scratch dir>/groups.json] --overlay <scratch dir>/overlay.json \
      [--chunks <scratch dir>/chunks.json for a PR split into parts, in place of its --pr]
    Start with an empty overlay ({}). The script reads tsconfig/jsconfig "paths" and
-   "baseUrl" nearest to each importer and follows re-exports through unchanged barrels
-   itself; give --alias only for what those miss (workspace packages, resolved from
+   "baseUrl" nearest to each importer and follows re-exports through barrels (changed
+   or not) to the files that define what an import takes itself; give --alias only for what those miss (workspace packages, resolved from
    package.json "exports"/"name" at the tip with `git show`, not by guessing), scoped
    with @DIR when two parts of the repo use the same prefix differently.
 2. Read the printed summary and the generated graphs.json. For each PR check:
@@ -53,7 +53,10 @@ Steps:
    files into 8-12 areas by feature or flow, taken from the change maps' layers and
    flow: overlay `clusters` ({"auth": {"label": "...", "order": 1}}, labels in the
    report language, order as the flow reads) and `nodes.<ref>.cluster` on each core
-   file. Shared dependencies, tests, and docs/config/i18n need none. For parts use the
+   file. Shared dependencies and tests need none; docs/config/i18n need none either, but
+   a large set of them a check covers (translation catalogs with a key-parity test) can
+   get an area of its own with `"depth": "tool"`, so the plan does not time them (they
+   still read last). For parts use the
    parent key, so an area spans the parts. A smaller PR may have areas too, when its
    files split into parts a reviewer takes differently. Give every area a `depth` for
    the viewer's review plan: `"read"` for logic to follow line by line, `"skim"` for
@@ -62,9 +65,10 @@ Steps:
    ("i18n key parity test", "regenerated from openapi.yaml, CI diff check").
    Mark generated files the defaults miss (lockfiles, snapshots, and minified files are
    caught) with `nodes.<ref>.generated: true`, so the plan counts them apart.
-   The summary's hint names the files a merge commit changed by hand (node `conflict`):
-   look at each resolution (`git show --remerge-diff <sha> -- <path>`) against both
-   sides and say in its `note` what it kept.
+   The summary's hint names the files a merge commit combined by hand (node `conflict`
+   entries of kind `merged`, with the lines of each resolution) and counts those where a
+   merge took one side's version (`picked`): look at each merged resolution (`git show
+   --remerge-diff <sha> -- <path>`) against both sides and say in its `note` what it kept.
    Author one tour per distinct flow in the change maps' "Flows" section (at most 8, each
    of 3 to 15 steps): overlay `tours` ([{"id": "apple-web", "name": "...", "steps":
    [{"ref": "M:path", "side": "new", "lines": "12-30", "note": "..."}]}], name and notes

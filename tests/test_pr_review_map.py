@@ -1539,8 +1539,8 @@ def area_repo(repo: Path) -> None:
 
 
 def area_overlay(path: Path, key: str = "P") -> None:
-    """Areas for six of the fixture's nine folders (the rest fall back to folders), plus a hub and the docs given an
-    area they cannot keep."""
+    """Areas for six of the fixture's nine folders (the rest fall back to folders), plus a hub given an area it cannot keep
+    and the docs given one they keep (they still read last)."""
     authored = ["auth", "billing", "catalog", "checkout", "profile", "search"]
     nodes = {f"{key}:{f}": {"cluster": name} for name in authored for f in area_files(name, AREAS[name]) if ".test." not in f}
     nodes[f"{key}:src/shared/i18n.ts"] = {"cluster": "auth"}
@@ -1589,21 +1589,24 @@ class AreaTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_overlay_areas_reach_their_nodes_and_each_pr_lists_the_ones_it_uses(self):
-        """This test will fail when build_graph.py stops copying an overlay area onto its nodes and listing, per PR, the areas its nodes use in their order with their labels, keeps an area on a shared dependency or a docs/config/i18n node instead of warning, gives a test an area it was not given, stops naming the core files without an area or the large PR without areas, or accepts an unknown area, a malformed id, or a non-integer order."""
+        """This test will fail when build_graph.py stops copying an overlay area onto its nodes and listing, per PR, the areas its nodes use in their order with their labels, keeps an area on a shared dependency instead of warning, drops the area of a docs/config/i18n node or reads such a node before the core files because of it, gives a test an area it was not given, stops naming the core files without an area or the large PR without areas, or accepts an unknown area, a malformed id, or a non-integer order."""
         pr = self.graph["prs"][0]
         self.assertEqual(pr["clusters"], [{"id": name, "label": name.capitalize(), "order": i}
                                           for i, name in enumerate(["auth", "billing", "catalog", "checkout", "profile", "search"], 1)])
         by_path = {node["path"]: node for node in pr["nodes"]}
         self.assertEqual(by_path["src/checkout/service.ts"]["cluster"], "checkout")
         self.assertEqual(by_path["src/auth/components/AuthView.tsx"]["cluster"], "auth")
-        for path in ("src/checkout/service.test.ts", "src/admin/service.ts", "src/shared/format.ts", "src/shared/i18n.ts", "docs/areas.md"):
+        for path in ("src/checkout/service.test.ts", "src/admin/service.ts", "src/shared/format.ts", "src/shared/i18n.ts"):
             with self.subTest(path=path):
                 self.assertNotIn("cluster", by_path.get(path) or next(n for n in pr["nodes"] if path in n.get("files", [])))
         self.assertTrue(by_path["src/shared/i18n.ts"]["hub"])
+        self.assertEqual(by_path["docs/areas.md"]["cluster"], "auth")
+        self.assertEqual(by_path["docs/areas.md"]["order"], len(pr["nodes"]))  # its area does not move it out of the late files
+        self.assertEqual(self.plain["prs"][0]["nodes"][-1]["path"], "docs/areas.md")
         out = self.out["areas"]
         self.assertIn("overlay cluster 'auth' ignored for src/shared/i18n.ts: it is a shared dependency", out)
-        self.assertIn("overlay cluster 'auth' ignored for docs/areas.md: it is docs", out)
-        self.assertIn("areas: auth 15, billing 15, catalog 15, checkout 15, profile 15, search 15", out)
+        self.assertNotIn("ignored for docs/areas.md", out)
+        self.assertIn("areas: auth 16, billing 15, catalog 15, checkout 15, profile 15, search 15", out)
         self.assertIn("hint: PR P: 46 core files have no area, so the map groups them by folder", out)
         self.assertNotIn("clusters", self.plain["prs"][0])
         self.assertFalse([n for n in self.plain["prs"][0]["nodes"] if "cluster" in n])
@@ -1624,7 +1627,7 @@ class AreaTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to validate the assembled page")
     def test_validate_rejects_unknown_areas_and_warns_about_too_few_or_empty_ones(self):
-        """This test will fail when validate.py passes a node whose area its PR does not list or a malformed area list, or stays silent about fewer than 4 areas, an area with no core node (only tests, hubs, or docs/config/i18n), or a PR above 40 core nodes without areas; or when it flags a well-formed page."""
+        """This test will fail when validate.py passes a node whose area its PR does not list or a malformed area list, or stays silent about fewer than 4 areas, an area with no file of its own (only tests or hubs), or a PR above 40 core nodes without areas; or when it flags a well-formed page, or an area of nothing but docs/config/i18n files."""
         good = run_script("validate.py", str(self.page(self.graph, "good")), check=False)
         self.assertEqual(good.returncode, 0, good.stdout)
         self.assertNotIn("cluster", good.stdout)
@@ -1655,7 +1658,15 @@ class AreaTests(unittest.TestCase):
         warned = broken(few)
         self.assertEqual(warned.returncode, 0, warned.stdout)
         self.assertNotIn("4 clusters;", warned.stdout)
-        self.assertIn("clusters with no core node (only tests, hubs, or docs/config/i18n): ['tests']", warned.stdout)
+        self.assertIn("clusters with no file of their own (only tests or hubs): ['tests']", warned.stdout)
+
+        def catalogs(pr):
+            pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 9, "depth": "tool", "why": "key parity test"})
+            next(n for n in pr["nodes"] if n["layer"] == "i18n")["cluster"] = "copy"
+
+        late = broken(catalogs)
+        self.assertEqual(late.returncode, 0, late.stdout)
+        self.assertNotIn("cluster", late.stdout)
 
         def three(pr):
             pr["clusters"] = pr["clusters"][:3]
@@ -1667,7 +1678,7 @@ class AreaTests(unittest.TestCase):
 
     @unittest.skipUnless(NODE, "node is required to run the viewer's area code")
     def test_viewer_areas_fold_tests_pin_hubs_and_fall_back_to_folders(self):
-        """This test will fail when the viewer's clusterGraph() stops putting authored areas first in their order, the shared dependencies in their own area (also one the data gives an area), docs/config/i18n last, each test with the file it tests (as a badge, not a box), core files without a known area into folder areas, or stops counting the links between areas without the tests' links; or when a graph without clusters does not fall back to one area per folder."""
+        """This test will fail when the viewer's clusterGraph() stops putting authored areas first in their order, the shared dependencies in their own area (also one the data gives an area), docs/config/i18n without an area last, a docs/config/i18n file in the area the data gives it (an area of only such files after the folder areas, before the late one, and on the overview's shelf beside it), each test with the file it tests (as a badge, not a box), core files without a known area into folder areas, or stops counting the links between areas without the tests' links; or when a graph without clusters does not fall back to one area per folder."""
         graph = json.loads(json.dumps(self.graph))
         nodes = {node["path"]: node for node in graph["prs"][0]["nodes"]}
         nodes["src/shared/i18n.ts"]["cluster"] = "auth"
@@ -1685,12 +1696,29 @@ class AreaTests(unittest.TestCase):
         self.assertEqual(areas["of"]["src/checkout/components/CheckoutView.test.tsx"], "checkout")
         self.assertEqual(areas["of"]["src/admin/types.ts"], "d:src/admin")
         self.assertEqual(areas["of"]["src/shared/format.ts"], "d:src/shared")
-        self.assertEqual(sorted(by[":late"]["box"]), ["docs/areas.md", "locales/*.json", "package.json"])
+        self.assertEqual(sorted(by[":late"]["box"]), ["locales/*.json", "package.json"])
+        self.assertIn("docs/areas.md", by["auth"]["box"])  # its authored area holds a docs file too
         links = {(a, b): n for a, b, n, _pairs in areas["edges"]}
         self.assertEqual({k: v for k, v in links.items() if k[0] == "checkout"},
                          {("checkout", ":shared"): 9, ("checkout", "auth"): 2, ("checkout", "billing"): 2, ("checkout", "catalog"): 2,
                           ("checkout", "d:src/shared"): 1})
         self.assertFalse([pair for *_rest, pairs in areas["edges"] for pair in pairs if ".test." in pair[0]])
+        # An area of nothing but late files (the catalogs, covered by a tool) is listed and shelved with the late ones.
+        pr = graph["prs"][0]
+        pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 0, "depth": "tool", "why": "key parity test"})
+        next(n for n in pr["nodes"] if n["path"] == "locales/*.json")["cluster"] = "copy"
+        shelf = self.viewer(graph, "shelf")
+        ids = [area["id"] for area in shelf["list"]]
+        self.assertEqual(ids[-2:], ["copy", ":late"])
+        self.assertTrue(all(i.startswith("d:") for i in ids[7:-2]))
+        self.assertEqual(shelf["of"]["locales/*.json"], "copy")
+        boxes = shelf["closed"]["boxes"]
+        middle = [b for k, b in boxes.items() if k not in ("copy", ":late", ":shared")]
+        self.assertEqual(boxes["copy"]["y"], boxes[":late"]["y"])
+        self.assertLess(boxes["copy"]["x"] + boxes["copy"]["w"], boxes[":late"]["x"])
+        self.assertGreater(boxes["copy"]["y"], max(b["y"] + b["h"] for b in middle))
+        self.assertGreaterEqual(shelf["closed"]["W"], boxes[":late"]["x"] + boxes[":late"]["w"])
+        self.assertGreaterEqual(shelf["closed"]["H"], boxes[":late"]["y"] + boxes[":late"]["h"])
         plain = self.viewer(self.plain, "plain")
         self.assertEqual([area["id"] for area in plain["list"]][0], ":shared")
         self.assertEqual(sorted(area["id"] for area in plain["list"][1:-1]), sorted([f"d:src/{name}" for name in AREAS] + ["d:src/shared"]))
@@ -2661,6 +2689,96 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(layers["apps/mobile/src/ui/fixtures/index.ts"], "test")
 
 
+def barrel_repo(repo: Path) -> None:
+    """A PR that changes a barrel (packages/kit/src/index.ts: a name of its own, `export *`, a renamed `export { }`, a
+    changed nested barrel) and the files behind it, with importers that take a name from a file behind it, its own name,
+    a name it does not have, every name, a type, and a name from an unchanged file behind it."""
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    kit = "packages/kit/src/"
+    commit_files(repo, {
+        kit + "index.ts": "export * from './alpha';\nexport { beta as bee } from './beta';\nexport * from './gamma';\nexport const local = 0;\n",
+        kit + "alpha.ts": "export const alpha = 0;\n", kit + "beta.ts": "export const beta = 0;\n", kit + "gamma.ts": "export const gamma = 0;\n",
+        "README.md": "# x\n",
+    }, "base")
+    git(repo, "checkout", "-q", "-b", "feat")
+    files = {
+        kit + "index.ts": "export * from './alpha';\nexport { beta as bee } from './beta';\nexport * from './gamma';\nexport * from './delta';\n"
+                          "export * from './nested';\nexport const local = 1;\n",
+        kit + "alpha.ts": "export const alpha = 1;\nexport const alphaToo = 1;\n", kit + "beta.ts": "export const beta = 1;\n",
+        kit + "delta.ts": "export type Delta = number;\n", kit + "nested/index.ts": "export * from './deep';\n",
+        kit + "nested/deep.ts": "export const deep = 1;\n",
+        "app/src/bee-user.ts": "import { bee } from '@kit';\nexport const b = bee;\n",
+        "app/src/local-user.ts": "import { local } from '@kit';\nexport const l = local;\n",
+        "app/src/ghost-user.ts": "import { ghost } from '@kit';\nexport const g = ghost;\n",
+        "app/src/gamma-user.ts": "import { gamma } from '@kit';\nexport const g = gamma;\n",
+        "app/src/all-user.ts": "import * as kit from '@kit';\nexport const k = kit;\n",
+        "app/src/delta-user.ts": "import type { Delta } from '@kit';\nexport const d = (x: Delta) => x;\n",
+        "app/src/deep-user.ts": "import { deep } from '@kit';\nexport const d = deep;\n",
+        "app/src/mixed-user.ts": "import { alpha, local } from '@kit';\nexport const m = alpha + local;\n",
+    }
+    for i in range(1, 7):  # six files that use alpha through the barrel: alpha is the shared dependency, not the barrel
+        files[f"app/src/screen{i}.ts"] = f"import {{ alpha }} from '@kit';\nexport const s{i} = alpha + {i};\n"
+    commit_files(repo, files, "feat")
+
+
+class ChangedBarrelTests(unittest.TestCase):
+    """Imports through a barrel the PR changes reach the files that define what they take; the barrel keeps its own
+    re-export edges and the edges for its own names and names found nowhere."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        barrel_repo(cls.root / "repo")
+        cls.path = cls.root / "graphs.json"
+        cls.result = run_script("build_graph.py", "--out", str(cls.path), "--pr", "B", str(cls.root / "repo"), "main...feat", "--no-manifest",
+                                "--alias", "@kit=packages/kit/src/index.ts")
+        cls.graph = json.loads(cls.path.read_text(encoding="utf-8"))
+        cls.edges = graph_edges(cls.graph, "B")
+        cls.nodes = {node["path"]: node for node in cls.graph["prs"][0]["nodes"]}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def test_imports_through_a_changed_barrel_reach_the_defining_files(self):
+        """This test will fail when an import through a barrel the PR changes links only to the barrel instead of the changed file that defines the name (also renamed by `export { a as b }`, behind a changed nested barrel, or type-only), loses its `via`, keeps the importer -> barrel edge for a name defined behind it, drops it for a name the barrel defines itself or that resolves nowhere, links a name defined in an unchanged file behind the barrel to anything, or when the barrel loses its own edges to the changed files it re-exports."""
+        kit, e = "packages/kit/src/", self.edges
+        targets = {frm.split("/")[-1]: sorted(to.removeprefix(kit) for (f, to) in e if f == frm)
+                   for frm in {f for f, _t in e if f.startswith("app/src/")}}
+        self.assertEqual({k: v for k, v in targets.items() if not k.startswith("screen")}, {
+            "bee-user.ts": ["beta.ts"], "local-user.ts": ["index.ts"], "ghost-user.ts": ["index.ts"],
+            "all-user.ts": ["alpha.ts", "beta.ts", "delta.ts", "index.ts", "nested/deep.ts"],
+            "delta-user.ts": ["delta.ts"], "deep-user.ts": ["nested/deep.ts"], "mixed-user.ts": ["alpha.ts", "index.ts"],
+        })
+        self.assertNotIn("gamma-user.ts", targets)  # gamma.ts is unchanged: the barrel is not its stand-in
+        self.assertTrue(all(targets[f"screen{i}.ts"] == ["alpha.ts"] for i in range(1, 7)), targets)
+        self.assertEqual(e[("app/src/bee-user.ts", kit + "beta.ts")]["via"], kit + "index.ts")
+        self.assertEqual(e[("app/src/deep-user.ts", kit + "nested/deep.ts")]["via"], f"{kit}index.ts > {kit}nested/index.ts")
+        self.assertEqual(e[("app/src/delta-user.ts", kit + "delta.ts")]["kind"], "type")
+        self.assertNotIn("via", e[("app/src/local-user.ts", kit + "index.ts")])
+        self.assertNotIn("via", e[("app/src/mixed-user.ts", kit + "index.ts")])
+        own = sorted(to.removeprefix(kit) for (f, to), edge in e.items() if f == kit + "index.ts" and "via" not in edge)
+        self.assertEqual(own, ["alpha.ts", "beta.ts", "delta.ts", "nested/index.ts"])
+        self.assertEqual(sorted(to.removeprefix(kit) for (f, to) in e if f == kit + "nested/index.ts"), ["nested/deep.ts"])
+        self.assertIn("through barrels", self.result.stdout)
+
+    def test_the_defining_file_not_the_changed_barrel_is_the_shared_dependency(self):
+        """This test will fail when a changed barrel becomes a shared dependency because its importers link to it instead of the files behind it, or the file most of them use through it (alpha.ts) is not one."""
+        hubs = sorted(path for path, node in self.nodes.items() if node.get("hub"))
+        self.assertEqual(hubs, ["packages/kit/src/alpha.ts"])
+        self.assertIn("shared dependencies: alpha.ts", self.result.stdout)
+
+    @unittest.skipUnless(NODE, "node is required to run the viewer's ordering code")
+    def test_the_viewer_orders_the_barrel_fixture_as_build_graph_does(self):
+        """This test will fail when the viewer's computeOrder() drifts from build_graph.py's stored order on edges that go through a changed barrel."""
+        orders = viewer_orders(self.root, self.path)
+        stored = {node["id"]: node["order"] for node in self.graph["prs"][0]["nodes"]}
+        self.assertEqual(orders["bottom"]["B"], stored)
+        self.assertEqual(sorted(orders["top"]["B"].values()), list(range(1, len(stored) + 1)))
+
+
 def ordering_repo(repo: Path) -> None:
     """A PR with a substantive hub, a trivially changed hub, a type-only cycle, a real import cycle, and import-only edits."""
     repo.mkdir()
@@ -2868,17 +2986,18 @@ class MovedFileTests(unittest.TestCase):
 
 
 def merge_repo(repo: Path) -> tuple[str, str]:
-    """A PR that merges its base twice: first with conflicts resolved by hand (src/app.ts, old/name.ts, which a later
-    commit moves to new/name.ts, and src/taken.ts, resolved to the base's version so the PR does not change it), then
-    cleanly. Returns the two merges' SHAs."""
+    """A PR that merges its base twice: first with conflicts resolved by hand (src/app.ts and old/name.ts, which a later
+    commit moves to new/name.ts, combined from both sides; src/kept.ts, resolved to the PR's version; src/taken.ts,
+    resolved to the base's version so the PR does not change it), then cleanly. Returns the two merges' SHAs."""
     repo.mkdir()
     git(repo, "init", "-q", "-b", "main")
     name = "".join(f"export const n{i} = {i};\n" for i in range(10))
     commit_files(repo, {"README.md": "# x\n", "src/app.ts": "export const a = 1;\n", "src/taken.ts": "export const t = 1;\n",
-                        "old/name.ts": name}, "base")
+                        "src/kept.ts": "export const k = 1;\n", "old/name.ts": name}, "base")
     git(repo, "checkout", "-q", "-b", "feat")
     commit_files(repo, {
         "src/app.ts": "export const a = 'feat';\n", "src/taken.ts": "export const t = 'feat';\n", "old/name.ts": name.replace("= 4;", "= 'feat';"),
+        "src/kept.ts": "export const k = 'feat';\n",
         "src/feature.ts": "import { a } from './app';\nexport const f = a;\n", "src/ui/View.tsx": "export const View = () => null;\n",
         "src/app.test.ts": "import { a } from './app';\ntest('a', () => a);\n",
         "src/__snapshots__/app.test.ts.snap": "exports[`a 1`] = `1`;\n", "public/vendor.min.js": "var v=1;\n",
@@ -2887,12 +3006,13 @@ def merge_repo(repo: Path) -> tuple[str, str]:
     }, "feat")
     git(repo, "checkout", "-q", "main")
     commit_files(repo, {"src/app.ts": "export const a = 'main';\n", "src/taken.ts": "export const t = 'main';\n",
-                        "old/name.ts": name.replace("= 4;", "= 'main';"), "src/other.ts": "export const o = 1;\n"}, "main moves")
+                        "src/kept.ts": "export const k = 'main';\n", "old/name.ts": name.replace("= 4;", "= 'main';"),
+                        "src/other.ts": "export const o = 1;\n"}, "main moves")
     git(repo, "checkout", "-q", "feat")
     merged = subprocess.run(["git", "-C", str(repo), "merge", "-q", "main"], capture_output=True, text=True, env=ENV)
     assert merged.returncode != 0, "the first merge must conflict"
     commit_files(repo, {"src/app.ts": "export const a = 'both';\n", "src/taken.ts": "export const t = 'main';\n",
-                        "old/name.ts": name.replace("= 4;", "= 'both';")}, "merge main")
+                        "src/kept.ts": "export const k = 'feat';\n", "old/name.ts": name.replace("= 4;", "= 'both';")}, "merge main")
     first = git(repo, "rev-parse", "HEAD").strip()
     (repo / "new").mkdir()
     git(repo, "mv", "old/name.ts", "new/name.ts")
@@ -2959,14 +3079,23 @@ class BucketConflictTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("generated must be true or false", result.stderr)
 
-    def test_files_resolved_by_hand_in_a_merge_carry_its_sha(self):
-        """This test will fail when a file whose merge result differs from git's automatic re-merge does not list that merge's 7-character SHA in `conflict` (also under the path it had before the PR moved it), a clean merge or a file without a hand resolution is flagged, a file the PR does not change becomes a node through its conflict, or the summary stops naming the hand-resolved files."""
+    def test_files_resolved_by_hand_in_a_merge_carry_its_sha_kind_and_lines(self):
+        """This test will fail when a file whose merge result differs from git's automatic re-merge does not get an entry {sha, kind, lines} in `conflict` with that merge's 7-character SHA (also under the path it had before the PR moved it), a file combined from both sides is not "merged", a file resolved to one parent's version is not "picked", `lines` is not the re-merge diff's added plus removed lines for the file, a clean merge or a file without a hand resolution is flagged, a file the PR does not change becomes a node through its conflict, or the summary stops naming the merged files with their lines and counting the picked ones."""
+        sha = self.first[:7]
+        stat = git(self.repo, "show", "--remerge-diff", "--format=", "--numstat", "-M", self.first)
+        lines = {path: int(a) + int(r) for a, r, path in (line.split("\t") for line in stat.splitlines() if line)}
+        self.assertEqual(set(lines), {"src/app.ts", "old/name.ts", "src/kept.ts", "src/taken.ts"})
         flagged = {node["path"]: node["conflict"] for node in self.graph["prs"][0]["nodes"] if "conflict" in node}
-        self.assertEqual(flagged, {"src/app.ts": [self.first[:7]], "new/name.ts": [self.first[:7]]})
+        self.assertEqual(flagged, {"src/app.ts": [{"sha": sha, "kind": "merged", "lines": lines["src/app.ts"]}],
+                                   "new/name.ts": [{"sha": sha, "kind": "merged", "lines": lines["old/name.ts"]}],
+                                   "src/kept.ts": [{"sha": sha, "kind": "picked", "lines": lines["src/kept.ts"]}]})
+        self.assertTrue(all(n > 0 for n in lines.values()))
         self.assertNotIn("src/taken.ts", self.nodes)
         self.assertEqual(self.graph["prs"][0]["tip"], self.second[:7])  # the clean merge is in the range, and flags nothing
-        self.assertIn("hint: PR P: 2 files changed by hand in merge commits", self.out)
-        self.assertIn(f"src/app.ts ({self.first[:7]})", self.out)
+        self.assertIn("hint: PR P: 2 files merged by hand in merge commits", self.out)
+        self.assertIn(f"src/app.ts ({sha} {lines['src/app.ts']} lines)", self.out)
+        self.assertIn("; 1 more took one side's version in a merge", self.out)
+        self.assertNotIn("src/kept.ts (", self.out)
         self.assertNotIn("remerge", self.out)
 
     def test_an_old_git_or_a_failing_call_skips_conflicts_with_one_warning(self):
@@ -3032,7 +3161,7 @@ class BucketConflictTests(unittest.TestCase):
             self.assertEqual(warnings, ["git 2.30 has no --remerge-diff (2.36+); files with hand-resolved merge conflicts are not marked"])
 
     def test_area_depth_and_why_pass_through_and_are_checked(self):
-        """This test will fail when an area's `depth` or `why` from the overlay does not reach its PR's `clusters` as given, build_graph.py accepts a depth other than read, skim, or tool or a why that is not text, or validate.py passes an unknown depth, an empty why, an unknown bucket, or a conflict that is not a list of SHAs, or stays silent about a "tool" area without a why or a long why."""
+        """This test will fail when an area's `depth` or `why` from the overlay does not reach its PR's `clusters` as given, build_graph.py accepts a depth other than read, skim, or tool or a why that is not text, or validate.py passes an unknown depth, an empty why, an unknown bucket, or a conflict that is not a list of {sha, kind merged|picked, lines >= 0} entries or bare SHAs, refuses the bare SHAs older builds wrote, or stays silent about a "tool" area without a why or a long why."""
         self.assertEqual(self.graph["prs"][0]["clusters"], [
             {"id": "core", "label": "Core", "order": 1, "depth": "read"},
             {"id": "ui", "label": "UI", "order": 2, "depth": "skim", "why": "layout only"},
@@ -3069,11 +3198,17 @@ class BucketConflictTests(unittest.TestCase):
             ("bucket", lambda pr: node(pr, "src/app.ts").update(bucket="vendor"), "has bucket 'vendor', not one of"),
             ("conflict", lambda pr: node(pr, "src/app.ts").update(conflict=["nope"]), "conflict must be a non-empty list of commit SHAs"),
             ("empty conflict", lambda pr: node(pr, "src/app.ts").update(conflict=[]), "conflict must be a non-empty list of commit SHAs"),
+            ("conflict kind", lambda pr: node(pr, "src/app.ts").update(conflict=[{"sha": "abc1234", "kind": "both", "lines": 1}]), "conflict must be"),
+            ("conflict lines", lambda pr: node(pr, "src/app.ts").update(conflict=[{"sha": "abc1234", "kind": "merged", "lines": -1}]), "conflict must be"),
+            ("conflict sha", lambda pr: node(pr, "src/app.ts").update(conflict=[{"sha": "<b>", "kind": "picked", "lines": 0}]), "conflict must be"),
+            ("conflict key", lambda pr: node(pr, "src/app.ts").update(conflict=[{"sha": "abc1234", "kind": "picked", "lines": 0, "x": 1}]), "conflict must be"),
         ):
             with self.subTest(case=name):
                 result = validate(change)
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn(message, result.stdout)
+        older = validate(lambda pr: node(pr, "src/app.ts").update(conflict=["abc1234", {"sha": "def5678", "kind": "picked", "lines": 0}]))
+        self.assertEqual(older.returncode, 0, older.stdout)  # bare SHAs (older builds) still pass, beside entries
         warned = validate(lambda pr: (cluster(pr, "copy").pop("why"), cluster(pr, "ui").update(why="x" * 121)))
         self.assertEqual(warned.returncode, 0, warned.stdout)
         self.assertIn("warning: PR P: cluster 'copy' is covered by a tool but has no why naming the check", warned.stdout)

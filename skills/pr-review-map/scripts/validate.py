@@ -15,15 +15,16 @@ Checks, each an error unless noted:
   * external <script src>/<link href> hosts are on the allowlist (default cdnjs)
   * no unfilled `{{…}}` template placeholder
   * graph/diff consistency: unique node ids, edges to known nodes, integer order,
-    a known `bucket` (logic, test, i18n, docs, config, generated) and a `conflict` list
-    of commit SHAs where given, diff entries only for known nodes, string fingerprints,
+    a known `bucket` (logic, test, i18n, docs, config, generated) and a non-empty
+    `conflict` list where given, of {"sha", "kind": merged|picked, "lines": n >= 0}
+    entries (or bare SHAs, as older builds wrote), diff entries only for known nodes, string fingerprints,
     a whole-PR diff (`whole`) with a string diff; a node without a diff is a warning
   * parts of a PR split by its commits (`parents`, `chunk`): contiguous, numbered
     1..n, each starting where the one before ends, keys ending in a letter
   * areas (`clusters` per PR, node `cluster`): well-formed, unique ids, a `depth` of
     read, skim, or tool and a non-empty `why` where given, and every node's cluster
-    listed by its PR; fewer than 4 or more than 15 areas, an area with no core node
-    (not a test, hub, or docs/config/i18n), a PR above 40 core nodes without areas, a
+    listed by its PR; fewer than 4 or more than 15 areas, an area with no node of its
+    own (only tests or hubs), a PR above 40 core nodes without areas, a
     "tool" area without a `why`, or a `why` over 120 characters is a warning
   * tours (graph "tours", scripts/tours.py): at most 8 of 3 to 15 steps with unique
     ids, each step's node known, its path a file of that node in the diff data, its
@@ -80,6 +81,16 @@ BUCKETS = {"logic", "test", "i18n", "docs", "config", "generated"}  # build_grap
 DEPTHS = ("read", "skim", "tool")  # build_graph.py: an area's `depth`
 WHY_MAX = 120  # an area's `why` is a short phrase in the review plan
 SHORT_SHA = re.compile(r"[0-9a-f]{7,40}")
+RESOLUTIONS = ("merged", "picked")  # build_graph.py: how a merge resolved a node's files
+
+
+def resolution_ok(item) -> bool:
+    """A `conflict` entry: {"sha", "kind": merged|picked, "lines": n >= 0}, or a bare SHA (builds before kinds)."""
+    if isinstance(item, str):
+        return bool(SHORT_SHA.fullmatch(item))
+    return (isinstance(item, dict) and set(item) == {"sha", "kind", "lines"} and isinstance(item["sha"], str)
+            and bool(SHORT_SHA.fullmatch(item["sha"])) and item["kind"] in RESOLUTIONS
+            and isinstance(item["lines"], int) and not isinstance(item["lines"], bool) and item["lines"] >= 0)
 
 
 def cluster_problems(pr: dict) -> tuple[list[str], list[str]]:
@@ -115,13 +126,13 @@ def cluster_problems(pr: dict) -> tuple[list[str], list[str]]:
             continue
         if not isinstance(node["cluster"], str) or node["cluster"] not in ids:
             errors.append(f"node {node.get('id')} in PR {key}: unknown cluster {node['cluster']!r}")
-        elif node.get("layer") != "test" and node.get("layer") not in LATE and not node.get("hub"):
-            ids[node["cluster"]] += 1
+        elif node.get("layer") != "test" and not node.get("hub"):
+            ids[node["cluster"]] += 1  # a docs/config/i18n node with an area is in it (it still reads last)
     if ids and not 4 <= len(ids) <= 15:
         warnings.append(f"PR {key}: {len(ids)} clusters; 4 to 15 (8 to 12 reads best) keep the map overview readable")
     empty = [cid for cid, n in ids.items() if not n]
     if empty:
-        warnings.append(f"PR {key}: clusters with no core node (only tests, hubs, or docs/config/i18n): {empty}")
+        warnings.append(f"PR {key}: clusters with no file of their own (only tests or hubs): {empty}")
     if not ids and len(core) > OVERVIEW_CORE:
         warnings.append(f"PR {key}: {len(core)} core nodes and no clusters; the map overview groups them by folder")
     return errors, warnings
@@ -219,9 +230,9 @@ def main() -> int:
                 if "bucket" in node and not (isinstance(node["bucket"], str) and node["bucket"] in BUCKETS):
                     errors.append(f"node {node.get('id')} has bucket {node['bucket']!r}, not one of {', '.join(sorted(BUCKETS))}")
                 shas = node.get("conflict")
-                if "conflict" in node and not (isinstance(shas, list) and shas
-                                               and all(isinstance(sha, str) and SHORT_SHA.fullmatch(sha) for sha in shas)):
-                    errors.append(f"node {node.get('id')}: conflict must be a non-empty list of commit SHAs")
+                if "conflict" in node and not (isinstance(shas, list) and shas and all(resolution_ok(item) for item in shas)):
+                    errors.append(f"node {node.get('id')}: conflict must be a non-empty list of commit SHAs or of "
+                                  '{"sha", "kind": "merged" or "picked", "lines": n >= 0} entries')
         for pr in graph["prs"]:
             for edge in pr.get("edges", []):
                 if edge.get("from") not in nodes or edge.get("to") not in nodes:

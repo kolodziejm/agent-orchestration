@@ -31,8 +31,8 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    order. Add a callout when the branches carry merge commits.
 2. **Interactive reading graph** (the core). Per-PR tabs. Nodes are changed
    files; translations, catalogs, deploy config, docs, and lockfiles collapse into
-   one node each. Edges are real dependencies: resolved imports (also through
-   unchanged barrels; type-only ones drawn dotted and lighter), PHP `use`, DI and
+   one node each. Edges are real dependencies: resolved imports (through barrels,
+   changed or not, to the file that defines the name; type-only ones drawn dotted and lighter), PHP `use`, DI and
    routing bindings, test → subject, code → config it reads, HTTP calls across
    services, and links to files of earlier PRs. The default view is a step list
    pinned beside the detail panel and diff: one row per file in reading order
@@ -86,7 +86,7 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    tabs grouped under it; a file other parts change too carries an "also in parts"
    chip and a whole-PR diff toggle. **Tours** ("Trasy", step 3): a picker beside the
    view toggle walks one flow ("Step 3 of 8 · note", Prev/Next, `[` `]`, Esc), opening
-   each step's lines on its tab and drawing the path on the map. **Review plan** (per tab, under the tabs, foldable): one row per area in reading order with files, +/−, depth (the area's `depth`/`why` from the overlay, else skim when every file is test/i18n/docs/config/generated, else read), ≈ minutes (400 changed lines an hour to read, 2000 to skim, 0 for tools), and files resolved by hand in a merge (node `conflict`; ↯ also on the row, the map box, and the detail panel with a copyable `git show --remerge-diff`); a bar splits the changed lines by node `bucket`. The list and map toggles sit in a **View** menu; ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider).
+   each step's lines on its tab and drawing the path on the map. **Review plan** (per tab, under the tabs, foldable): one row per area in reading order with files, +/−, depth (the area's `depth`/`why` from the overlay, else skim when every file is test/i18n/docs/config/generated, else read), ≈ time by bucket (changed lines an hour read closely: logic 400 added and 1500 removed, tests 1500, docs 2000, i18n 3000, config 1000, generated not counted; skimming 4× faster, tools 0; from 90 minutes in hours; a mark in the colour of the bucket that takes most of it), and files combined by hand in a merge (node `conflict` entries of kind `merged`; ↯ also on the row and the map box; the detail panel lists every resolution with its lines and a copyable `git show --remerge-diff`, one that took a side's version dimmed); a bar splits the changed lines by node `bucket`. A docs/config/i18n node with an overlay `cluster` joins that area (a catalog area marked `tool`) and still reads last. The list and map toggles sit in a **View** menu; ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider).
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -149,7 +149,7 @@ writing.
 Hand `references/graph-prompt.md` to one subagent. It runs
 `scripts/build_graph.py`, which scaffolds `graphs.json` from git without a
 checkout (numstat, grouping, a first-guess layer, JS/TS imports with tsconfig
-paths and aliases, re-exports through unchanged barrels, type-only imports, Python
+paths and aliases, re-exports through barrels to the defining files, type-only imports, Python
 imports, PHP `use`, test → subject, dependency order, a recommended reading mode),
 then records what
 git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,

@@ -25,11 +25,12 @@ What the script resolves on its own:
     import a scoped alias goes first, then the importer's tsconfig, then the unscoped aliases; the first
     that names a file in the tree wins. `import type`, `import { type A }` (every specifier a type), and
     `export type ... from` become `type` edges.
-  * re-exports through unchanged barrels: an import that resolves to a file the PR does not change but
-    that re-exports (`export * from`, `export { X } from`, `export * as ns from`) is followed, read at the
-    tip, at most 4 files deep and never twice, to the changed files it re-exports; with named imports
-    only the re-exports of those names (for `export *`, a changed file that declares one of them). Such
-    an edge carries `via`, the unchanged files it went through.
+  * re-exports through barrels: an import of a file that re-exports (`export * from`, `export { X } from`,
+    `export * as ns from`), changed or not, is followed, read at the tip, at most 4 files deep and never
+    twice, to the files that define what it takes; with named imports only the re-exports of those names
+    (for `export *`, a file that declares one of them). The edge goes to each defining file the PR changes
+    with `via`, the files it went through; the importer -> barrel edge stays only for names the barrel
+    defines itself or that resolve nowhere. A barrel's own `export ... from` of a changed file is its edge.
   * Python imports, PHP `use`
   * test -> subject edges by file name with the test marker removed (`panel-test.tsx`, `panel.spec.ts`,
     `test_panel.py`, `panel_spec.rb` -> `panel`); a test without such a match falls back to its name
@@ -52,9 +53,10 @@ What the script resolves on its own:
     (the merge base for `A...B`), so copied review notes can name them
   * each node's `bucket` for the viewer's review plan: "generated" (lockfiles, test snapshots, minified files, or the
     overlay's `generated: true`), else test, i18n, docs, or config from its layer, else "logic"
-  * each node's `conflict`: short SHAs of the PR's merge commits (the newest 50) whose recorded result for its files
-    differs from git's automatic re-merge (`git show --remerge-diff`, git 2.36+); an older git, a shallow clone, or a
-    failing call skips this with one warning
+  * each node's `conflict`: per merge commit of the PR (the newest 50) whose recorded result for its files differs from
+    git's automatic re-merge (`git show --remerge-diff --numstat`, git 2.36+), {"sha", "kind", "lines"}: kind "picked"
+    when the merge kept one parent's version byte for byte, else "merged" (combined by hand), and the lines the
+    re-merge diff changes; an older git, a shallow or partial clone, or a failing call skips this with one warning
 
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files, areas) goes in the overlay,
@@ -63,10 +65,12 @@ so re-running after the branches move keeps it. See references/graph-schema.md.
 Areas ("clusters"): the overlay's `clusters` ({id: {label, order, depth?, why?}}, depth one of
 read, skim, tool, passed on as given) and each node's
 `cluster` (a parent-key reference reaches every part) become each PR's `clusters`
-list (the areas its nodes use, by order) and the node's `cluster`. A hub or a
-docs/config/i18n node keeps none, with a warning (the viewer puts them in its
-shared and late areas); the viewer groups core files without one by folder. A PR
-above 40 core files without areas gets a hint: its map opens on an overview of areas.
+list (the areas its nodes use, by order) and the node's `cluster`. A hub keeps none,
+with a warning (the viewer puts it in its shared area). A docs/config/i18n node keeps
+its area (a catalog area the plan can mark "tool") and still reads last; without one
+the viewer puts it in its late area. The viewer groups core files without one by
+folder. A PR above 40 core files without areas gets a hint: its map opens on an
+overview of areas. The summary counts the files (tests aside) per area.
 
 --chunks FILE (chunks.py, references/chunks.md) splits one PR into parts cut from
 its commits: each part becomes a PR of its own (key, range from..to, `chunk`
@@ -171,7 +175,7 @@ LATE = {"docs", "config", "i18n"}
 HUB_MIN, HUB_SCALE = 4, 1.25
 TRIVIAL_LINES = 2       # a change of at most this many lines is trivial
 IMPORT_ONLY_MAX = 60    # a larger change is never checked for being import lines only
-BARREL_DEPTH = 4        # re-export hops followed from an unchanged barrel
+BARREL_DEPTH = 4        # re-export hops followed from a barrel to the file that defines a name
 BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-only changes above 1 MB is not read
 # readFrom (see read_from()): "dependencies" when a PR has at least MODE_ENTRIES entry points and most of them are light:
 # trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
@@ -299,7 +303,11 @@ def range_commits(repo: str, rng: str) -> dict[str, str]:
 
 def numstat(repo: str, rng: str) -> dict[str, tuple[int, int, bool, str | None]]:
     """path -> (added, removed, binary, path before a rename or None)."""
-    out = git(repo, "diff", "--numstat", "-M", "-z", "--end-of-options", rng, "--") or ""
+    return parse_numstat(git(repo, "diff", "--numstat", "-M", "-z", "--end-of-options", rng, "--") or "")
+
+
+def parse_numstat(out: str) -> dict[str, tuple[int, int, bool, str | None]]:
+    """`--numstat -z` output: path -> (added, removed, binary, path before a rename or None)."""
     tokens = out.split("\0")
     files: dict[str, tuple[int, int, bool, str | None]] = {}
     i = 0
@@ -364,7 +372,8 @@ class Blobs:
         self.repo = repo
         self.procs: dict[str, subprocess.Popen] = {}
 
-    def _ask(self, mode: str, name: str) -> tuple[str, int] | None:
+    def _ask(self, mode: str, name: str) -> tuple[str, str, int] | None:
+        """(object id, type, size) of `name` (`rev:path`), or None when it is not there."""
         proc = self.procs.get(mode)
         if proc is None:
             proc = self.procs[mode] = subprocess.Popen(["git", "-C", self.repo, "cat-file", f"--{mode}"],
@@ -375,7 +384,7 @@ class Blobs:
         parts = head.rsplit(" ", 2)
         if len(parts) != 3 or not parts[2].isdigit():
             return None  # "<name> missing" or "ambiguous"
-        return parts[1], int(parts[2])
+        return parts[0], parts[1], int(parts[2])
 
     def size(self, rev: str, path: str) -> int | None:
         """The size of a file at a revision, or None when it is not there."""
@@ -383,7 +392,15 @@ class Blobs:
             text = self.read(rev, path)
             return None if text is None else len(text.encode("utf-8"))
         found = self._ask("batch-check", f"{rev}:{path}")
-        return found[1] if found and found[0] == "blob" else None
+        return found[2] if found and found[1] == "blob" else None
+
+    def oid(self, rev: str, path: str) -> str | None:
+        """The blob id of a file at a revision, or None when it is not there."""
+        if "\n" in path:
+            out = git(self.repo, "rev-parse", "--verify", "--quiet", "--end-of-options", f"{rev}:{path}", check=False)
+            return (out or "").strip() or None
+        found = self._ask("batch-check", f"{rev}:{path}")
+        return found[0] if found and found[1] == "blob" else None
 
     def read(self, rev: str, path: str) -> str | None:
         """A file at a revision as text, or None when it is not there."""
@@ -393,9 +410,9 @@ class Blobs:
         if found is None:
             return None
         proc = self.procs["batch"]
-        data = proc.stdout.read(found[1])
+        data = proc.stdout.read(found[2])
         proc.stdout.read(1)  # the newline after the content
-        return data.decode("utf-8", errors="replace") if found[0] == "blob" else None
+        return data.decode("utf-8", errors="replace") if found[1] == "blob" else None
 
     def close(self) -> None:
         for proc in self.procs.values():
@@ -497,6 +514,7 @@ class Resolver:
         self.nearest: dict[str, str | None] = {}
         self.ts_info: dict[str, tuple[list[tuple[str, list[str]]], str, str | None]] = {}
         self.exports: dict[str, list[tuple[str, str, bool, object]]] = {}
+        self.declared: dict[str, set[str] | None] = {}  # local_exports() per file
         self.ts_hits: dict[str, int] = {}
         self.scoped: list[tuple[str, str, str]] = []
         self.unscoped: list[tuple[str, str]] = []
@@ -542,7 +560,7 @@ class Resolver:
                 size = self.blobs.size(self.tip, path)
                 if size is not None and size > BLOB_CAP:
                     self.skipped[path] = size
-                    return ""
+                    return ""  # not kept: a changed file's own imports are still read in full
             self.sources[path] = self.blobs.read(self.tip, path) or ""
         return self.sources[path]
 
@@ -667,61 +685,91 @@ class Resolver:
             self.exports[path] = out
         return self.exports[path]
 
-    def declares(self, path: str) -> set[str] | None:
-        """The names a module exports, or None when this cannot tell (an `export *`, CommonJS, destructuring, a file
-        too large to read)."""
-        src = self.source(path, capped=True)
-        if (re.search(r"(?:^|[;\s])export\s+(?:type\s+)?\*\s*from", src) or "module.exports" in src
-                or re.search(r"\bexports\.\w", src) or re.search(r"(?:^|[;\s])export\s+(?:const|let|var)\s*[{\[]", src)):
-            return None
-        names = set(EXPORT_DECL.findall(src))
-        if re.search(r"(?:^|[;\s])export\s+default\b", src):
-            names.add("default")
-        for m in EXPORT_LIST.finditer(src):
-            names.update(local for _s, local, _t in specifiers(m.group(1)))
-        for _spec, form, _t, detail in self.reexports(path):
-            if form == "named":
-                names.update(local for _s, local, _t2 in detail)
-            elif form == "ns":
-                names.add(detail)
-        return names or None
+    def local_exports(self, path: str) -> set[str] | None:
+        """The names a module declares and exports itself (not through an `export ... from`), or None when this cannot
+        tell: CommonJS, destructuring, a file too large to read."""
+        if path not in self.declared:
+            src = self.source(path, capped=True)
+            if ((not src and path in self.skipped) or "module.exports" in src or re.search(r"\bexports\.\w", src)
+                    or re.search(r"(?:^|[;\s])export\s+(?:const|let|var)\s*[{\[]", src)):
+                self.declared[path] = None
+            else:
+                names = set(EXPORT_DECL.findall(src))
+                if re.search(r"(?:^|[;\s])export\s+default\b", src):
+                    names.add("default")
+                for m in EXPORT_LIST.finditer(src):
+                    names.update(local for _s, local, _t in specifiers(m.group(1)))
+                self.declared[path] = names
+        return self.declared[path]
 
-    def through(self, path: str, names: set[str] | None, changed, depth: int = 0, seen: set[str] | None = None):
-        """[(changed file, type-only, chain)]: the changed files `path`, an unchanged module, re-exports `names` from
-        (None: any), directly or through other unchanged modules, at most BARREL_DEPTH hops, each file once."""
+    def exporters(self, path: str, names: set[str] | None, depth: int = 0, seen: set[str] | None = None):
+        """Where the names an import takes from `path` (None: all of them) are defined: ([(file, type-only, chain)], the
+        names found nowhere). Re-exports (`export * from`, `export { X as Y } from`, `export * as ns from`, `export type`)
+        are followed whether or not their files change, at most BARREL_DEPTH files deep and through each file once;
+        `chain` lists the files passed through before `file`, `path` first. `path` itself is listed (chain ()) for the
+        names it declares; for all of them when it re-exports nothing, cannot be read for its exports (CommonJS,
+        destructuring), or is BARREL_DEPTH deep; and, for None, when it declares anything of its own. A named re-export
+        whose target does not declare the name lists that target."""
         seen = set() if seen is None else seen
-        if depth >= BARREL_DEPTH or path in seen or not path.endswith(JS_EXT):
-            return []
+        here = (path, False, ())
+        if not path.endswith(JS_EXT) or depth >= BARREL_DEPTH:
+            return [here], set()
+        if path in seen:
+            return [], set(names or ())
         seen.add(path)
-        out = []
-        for spec, form, type_only, detail in self.reexports(path):
+        own, rex = self.local_exports(path), self.reexports(path)
+        if not rex:
+            if names is None or own is None:
+                return [here], set()
+            return ([here] if names & own else []), names - own
+        out: list[tuple[str, bool, tuple[str, ...]]] = []
+        left = None if names is None else set(names)
+        if left is None:
+            if own is None or own:
+                out.append(here)
+        elif own and left & own:
+            out.append(here)
+            left -= own
+        found: set[str] = set()
+        stars = []
+        for spec, form, type_only, detail in rex:
+            if form == "star":
+                stars.append((spec, type_only))
+                continue
             if form == "named":
-                picked = [(s, local, t) for s, local, t in detail if names is None or local in names]
+                picked = [(s, local, t) for s, local, t in detail if left is None or local in left]
                 if not picked:
                     continue
-                child = {s for s, _local, _t in picked}
+                child, taken = {s for s, _local, _t in picked}, {local for _s, local, _t in picked}
                 type_only = type_only or all(t for _s, _l, t in picked)
-            elif form == "ns":
-                if names is not None and detail not in names:
-                    continue
-                child = None
             else:
-                child = None if names is None else names - {"default"}
-                if child is not None and not child:
+                if left is not None and detail not in left:
                     continue
+                child, taken = None, {detail}
             target = self.js(path, spec)
-            if target is None:
+            if target is None or target in seen:
                 continue
-            if changed(target):
-                if form == "star" and child is not None:
-                    declared = self.declares(target)
-                    if declared is not None and not declared & child:
-                        continue
+            hits, missing = self.exporters(target, child, depth + 1, seen)
+            out += [(hit, type_only or deeper, (path,) + chain) for hit, deeper, chain in hits]
+            if missing and not any(hit == target for hit, _t, _c in hits):
                 out.append((target, type_only, (path,)))
-            else:
-                for hit, deeper_type, chain in self.through(target, child, changed, depth + 1, seen):
-                    out.append((hit, type_only or deeper_type, (path,) + chain))
-        return out
+            found |= taken
+        rest = None if left is None else left - found - {"default"}
+        for spec, type_only in stars if rest is None or rest else []:
+            target = self.js(path, spec)
+            if target is None or target in seen:
+                continue
+            hits, missing = self.exporters(target, rest, depth + 1, seen)
+            out += [(hit, type_only or deeper, (path,) + chain) for hit, deeper, chain in hits]
+            if rest is not None:
+                found |= rest - missing
+        if left is None:
+            return out, set()
+        left -= found
+        if left and own is None:
+            out.append(here)
+            left = set()
+        return out, left
 
     def python(self, frm: str, module: str) -> list[str]:
         if module.startswith("."):
@@ -783,11 +831,13 @@ def bucket(node: dict) -> str:
 
 class Conflicts:
     """Files whose recorded merge result differs from git's automatic re-merge: per merge commit of a PR (`git rev-list
-    --merges`, the newest MERGE_CAP), the paths `git show --remerge-diff --name-only` lists (git 2.36+). Hand-resolved
-    conflicts show up there, and so does anything else the merge commit changed by hand. An older git, a shallow
-    repository (its re-merges may lack their merge base), a partial clone (the re-merges would fetch missing objects
-    one by one), or a failing call turns the check off with one warning; it
-    never stops the build."""
+    --merges --parents`, the newest MERGE_CAP), the paths `git show --remerge-diff --numstat` lists (git 2.36+, one
+    process per merge), each with the lines that diff changes for it and how it was resolved: "picked" when the merge's
+    version of the file is byte-identical to one parent's (one side taken, also under its path before a rename), else
+    "merged" (combined by hand). Blob ids come from the repository's `git cat-file --batch-check` process (Blobs).
+    Hand-resolved conflicts show up there, and so does anything else the merge commit changed by hand. An older git, a
+    shallow repository (its re-merges may lack their merge base), a partial clone (the re-merges would fetch missing
+    objects one by one), or a failing call turns the check off with one warning; it never stops the build."""
 
     def __init__(self, warnings: list[str]) -> None:
         self.warnings = warnings
@@ -823,26 +873,37 @@ class Conflicts:
                 self.warnings.append(f"{repo} is a partial clone; files with hand-resolved merge conflicts are not marked in it")
         return not self.shallow[repo] and not self.partial[repo]
 
-    def of(self, key: str, repo: str, rng: str) -> dict[str, list[str]]:
-        """path at the merge -> short SHAs of the merges that changed it by hand, oldest first."""
+    def of(self, key: str, repo: str, rng: str, blobs: Blobs | None = None) -> dict[str, list[tuple[str, str, int]]]:
+        """path at the merge -> [(short SHA, "merged" or "picked", changed lines)] per merge that changed it by hand,
+        oldest first. `blobs` reads the repository's blob ids (one is opened when a merge lists a path and none is given)."""
         if not self.supported(repo):
             return {}
-        listed = git(repo, "rev-list", "--merges", "--end-of-options", rng.replace("...", "..", 1), check=False)
+        listed = git(repo, "rev-list", "--merges", "--parents", "--end-of-options", rng.replace("...", "..", 1), check=False)
         if listed is None:
             self.stop(f"PR {key}: git rev-list --merges failed")
             return {}
-        merges = listed.split()
+        merges = [line.split() for line in listed.splitlines() if line.strip()]
         if len(merges) > MERGE_CAP:
             self.warnings.append(f"PR {key}: {len(merges)} merge commits; only the newest {MERGE_CAP} are checked for hand-resolved conflicts")
-        found: dict[str, list[str]] = {}
-        for sha in reversed(merges[:MERGE_CAP]):
+        found: dict[str, list[tuple[str, str, int]]] = {}
+        own = None
+        for sha, *parents in reversed(merges[:MERGE_CAP]):
             self.rank.setdefault(sha[:7], len(self.rank))
-            out = git(repo, "show", "--remerge-diff", "--format=", "--name-only", "-z", "--end-of-options", sha, check=False)
+            out = git(repo, "show", "--remerge-diff", "--format=", "--numstat", "-M", "-z", "--end-of-options", sha, check=False)
             if out is None:
                 self.stop(f"PR {key}: git show --remerge-diff {sha[:7]} failed")
+                if own is not None:
+                    own.close()
                 return {}
-            for path in filter(None, out.split("\0")):
-                found.setdefault(path, []).append(sha[:7])
+            for path, (added, removed, _binary, old) in parse_numstat(out).items():
+                if blobs is None and own is None:
+                    own = Blobs(repo)
+                reader = blobs or own
+                result = reader.oid(sha, path)
+                sides = {reader.oid(parent, name) for parent in parents for name in (path, old) if name}
+                found.setdefault(path, []).append((sha[:7], "picked" if result in sides else "merged", added + removed))
+        if own is not None:
+            own.close()
         return found
 
 
@@ -1297,8 +1358,8 @@ def main() -> int:
     for entry in entries:
         key, repo, rng = entry["key"], entry["repo"], entry["range"]
         files = numstat(repo, rng)
-        resolved = merges.of(key, repo, rng)
         reader = blobs.setdefault(repo, Blobs(repo))
+        resolved = merges.of(key, repo, rng, reader)
         resolver = Resolver(repo, tip_of(rng), args.alias, reader)
         base = base_of(repo, rng)
         nodes: dict[str, dict] = {}
@@ -1328,10 +1389,13 @@ def main() -> int:
             node["added"] += added
             node["removed"] += removed
             owner[path] = nk
-            # A merge names the file as it was then: its path at the tip, or before a rename the PR makes.
-            shas = set(resolved.get(path, [])) | set(resolved.get(old, []) if old else [])
-            if shas:
-                node["conflict"] = sorted(shas | set(node.get("conflict", [])), key=merges.rank.__getitem__)
+            # A merge names the file as it was then: its path at the tip, or before a rename the PR makes. A node's
+            # files resolved in one merge make one entry: "merged" when any was combined by hand, their lines added up.
+            for sha, kind, lines in resolved.get(path, []) + (resolved.get(old, []) if old else []):
+                entry = node.setdefault("conflicts", {}).setdefault(sha, {"sha": sha, "kind": "picked", "lines": 0})
+                entry["lines"] += lines
+                if kind == "merged":
+                    entry["kind"] = "merged"
         for nk, node in nodes.items():
             if nk.startswith("#"):
                 node["path"] = group_path(node["files"])
@@ -1374,7 +1438,7 @@ def main() -> int:
         return None
 
     def add_edge(index: int, frm: str, target: tuple[int, str], kind: str, via: str | None = None) -> None:
-        """Record frm -> target; a stronger kind replaces a weaker one. `via` names the unchanged barrels an edge went
+        """Record frm -> target; a stronger kind replaces a weaker one. `via` names the barrels an edge went
         through; an edge found any other way too (a direct import, the overlay) carries none."""
         if (index, frm) == target:
             return
@@ -1392,10 +1456,6 @@ def main() -> int:
     for index, pr in enumerate(prs):
         resolver = pr["resolver"]
         changed_so_far = set().union(*(set(p["owner"]) for p in prs[: index + 1]))
-
-        def changed(path: str, index: int = index) -> bool:
-            return locate(path, index) is not None
-
         for path, nk in pr["owner"].items():
             if nk.startswith("#") or pr["nodes"][nk].get("unchanged"):
                 continue
@@ -1408,12 +1468,19 @@ def main() -> int:
                     if not target:
                         continue
                     found = locate(target, index)
-                    if found is not None:
-                        add_edge(index, nk, found, "type" if type_only else "import")
+                    if found is not None and match.group("kw") == "export":
+                        add_edge(index, nk, found, "type" if type_only else "import")  # a barrel keeps its own re-exports
                         continue
-                    for hit, through_type, chain in resolver.through(target, wanted, changed):
-                        add_edge(index, nk, locate(hit, index), "type" if type_only or through_type else "import",
-                                 via=" > ".join(chain))
+                    # An import reaches the files that define what it takes, through re-exports whether or not they
+                    # change; the importer -> barrel edge stays for names the barrel defines or that resolve nowhere.
+                    hits, missing = resolver.exporters(target, wanted)
+                    if missing and not any(hit == target for hit, _t, _c in hits):
+                        hits.append((target, False, ()))
+                    for hit, through_type, chain in hits:
+                        found = locate(hit, index)
+                        if found is not None:
+                            add_edge(index, nk, found, "type" if type_only or through_type else "import",
+                                     via=" > ".join(chain) if chain else None)
             elif path.endswith(".py"):
                 src = resolver.source(path)
                 for match in PY_IMPORT.finditer(src):
@@ -1524,11 +1591,10 @@ def main() -> int:
                 warnings.append(f"{pr['key']}: overlay hub ignored for {nodes[nk]['path']} ({nodes[nk]['layer']} is not a core layer)")
         for nk in find_hubs(nodes, same_pr, forced):
             nodes[nk]["hub"] = True
-        for nk in sorted(nk for nk, node in nodes.items() if "cluster" in node and (node.get("hub") or node["layer"] in LATE)):
+        for nk in sorted(nk for nk, node in nodes.items() if "cluster" in node and node.get("hub")):
             node = nodes[nk]
-            where = "a shared dependency (the viewer's shared area; set hub false to keep it in an area)" if node.get("hub") \
-                else f"{node['layer']} (the viewer's docs, config, and i18n area)"
-            warnings.append(f"{pr['key']}: overlay cluster {node.pop('cluster')!r} ignored for {node['path']}: it is {where}")
+            warnings.append(f"{pr['key']}: overlay cluster {node.pop('cluster')!r} ignored for {node['path']}: it is a shared dependency "
+                            "(the viewer's shared area; set hub false to keep it in an area)")
 
         def on_cycle(paths: list[str], key: str = pr["key"]) -> None:
             shown = ", ".join(paths[:6]) + (f" and {len(paths) - 6} more" if len(paths) > 6 else "")
@@ -1593,8 +1659,8 @@ def main() -> int:
                 item["hub"] = True
             if "cluster" in node:
                 item["cluster"] = node["cluster"]
-            if node.get("conflict"):
-                item["conflict"] = node["conflict"]
+            if node.get("conflicts"):
+                item["conflict"] = sorted(node["conflicts"].values(), key=lambda c: merges.rank[c["sha"]])
             if not item["role"]:
                 missing_roles += 1
             entry["nodes"].append(item)
@@ -1641,7 +1707,8 @@ def main() -> int:
     for index, entry in enumerate(out["prs"]):
         hubs = [node["label"] for node in entry["nodes"] if node.get("hub")]
         core = [node for node in entry["nodes"] if node["layer"] != "test" and node["layer"] not in LATE]
-        areas = {c["id"]: sum(1 for node in core if node.get("cluster") == c["id"]) for c in entry.get("clusters", [])}
+        areas = {c["id"]: sum(1 for node in entry["nodes"] if node.get("cluster") == c["id"] and node["layer"] != "test")
+                 for c in entry.get("clusters", [])}
         pr = prs[index]
         found = [f"{pr['counts']['barrel']} through barrels" if pr["counts"]["barrel"] else "",
                  f"{pr['counts']['tests']} tests matched by nearby names" if pr["counts"]["tests"] else ""]
@@ -1657,10 +1724,14 @@ def main() -> int:
               + (f" (too few entry points, {why['entries']}, to recommend another order)" if why["reason"] == "few" else
                  f" ({why['light']} of {why['entries']} entry points light: median {why['entryLines']} changed lines"
                  f" over {why['baseLines']} underneath)"))
-        resolved = [f"{node['path']} ({', '.join(node['conflict'])})" for node in entry["nodes"] if node.get("conflict")]
-        if resolved:
-            print(f"hint: PR {entry['key']}: {len(resolved)} files changed by hand in merge commits (conflict resolutions; "
-                  "check each and say in its note what it kept): " + ", ".join(resolved[:5]) + (", …" if len(resolved) > 5 else ""))
+        merged = [node for node in entry["nodes"] if any(c["kind"] == "merged" for c in node.get("conflict", []))]
+        picked = [node for node in entry["nodes"] if node.get("conflict") and node not in merged]
+        if merged or picked:
+            shown = [f"{node['path']} (" + ", ".join(f"{c['sha']} {c['lines']} lines" for c in node["conflict"] if c["kind"] == "merged") + ")"
+                     for node in merged[:5]]
+            print(f"hint: PR {entry['key']}: {len(merged)} files merged by hand in merge commits (they differ from both parents; check "
+                  "each and say in its note what it kept)" + (": " + ", ".join(shown) + (", …" if len(merged) > 5 else "") if merged else "")
+                  + (f"; {len(picked)} more took one side's version in a merge" if picked else ""))
         loose = [node["path"] for node in core if not node.get("hub") and "cluster" not in node]
         if areas and loose:
             print(f"hint: PR {entry['key']}: {len(loose)} core files have no area, so the map groups them by folder: "

@@ -7,31 +7,51 @@ const fs = require('fs');
 const path = require('path');
 const { sleep } = require('./lib');
 
-// What the plan should say for one PR, from the graph alone: areas by path (the sample's), lines and conflicts from the
-// nodes (unchanged reference files do not count), depth from the area or the default rule, minutes from the documented
-// rate (none for no changed lines), order as the sections of "Group by area": authored areas (g 2) by their order, folder
-// areas (g 3) by first step, late ones (g 4).
+// The documented reading rates (changed lines an hour read closely, per bucket; logic's added and removed lines apart),
+// skimming 4 times faster, tools 0; hours from 90 minutes on.
+const RATE = { logic: 400, logicDel: 1500, test: 1500, docs: 2000, i18n: 3000, config: 1000, generated: 0 };
+const bucketOf = (n) => (['logic', 'test', 'i18n', 'docs', 'config', 'generated'].includes(n.bucket) ? n.bucket : ['test', 'i18n', 'docs', 'config'].includes(n.layer) ? n.layer : 'logic');
+function minutesBy(depth, nodes) {
+  const by = {};
+  if (depth === 'tool') return by;
+  for (const n of nodes) {
+    const b = bucketOf(n), a = n.added || 0, d = n.removed || 0;
+    const h = b === 'logic' ? a / RATE.logic + d / RATE.logicDel : RATE[b] ? (a + d) / RATE[b] : 0;
+    if (h > 0) by[b] = (by[b] || 0) + h * 60 / (depth === 'skim' ? 4 : 1);
+  }
+  return by;
+}
+function minutesOf(by) { let m = Object.values(by).reduce((s, x) => s + x, 0); if (!(m > 0)) return 0; m = Math.ceil(m - 1e-9); if (m < 1) m = 1; return m > 5 ? Math.ceil(m / 5) * 5 : m; }
+function timeText(m, sep = '.') { if (m < 90) return `${m} min`; let h = m / 60; h = h < 10 ? Math.round(h * 2) / 2 : Math.round(h); return `${String(h).replace('.', sep)} h`; }
+const merged = (n) => (n.conflict || []).some((c) => typeof c === 'string' || c.kind !== 'picked');
+
+// What the plan should say for one PR, from the graph alone: areas by path (the sample's), lines and conflicts (files
+// with a merged resolution) from the nodes (unchanged reference files do not count), depth from the area or the default
+// rule, time from the documented rates per bucket (none for no changed lines), order as the sections of "Group by
+// area": authored areas (g 2) by their order, folder areas (g 3) by first step, late ones (g 4).
 function expectPlan(pr, areaOf, steps) {
   const LIGHT = { test: 1, i18n: 1, docs: 1, config: 1, generated: 1 };
-  const bucket = (n) => (['logic', 'test', 'i18n', 'docs', 'config', 'generated'].includes(n.bucket) ? n.bucket : ['test', 'i18n', 'docs', 'config'].includes(n.layer) ? n.layer : 'logic');
-  const minutes = (depth, lines) => { if (depth === 'tool' || !(lines > 0)) return 0; let m = Math.ceil(lines * 60 / (depth === 'read' ? 400 : 2000)); if (m < 1) m = 1; return m > 5 ? Math.ceil(m / 5) * 5 : m; };
   const by = {}, firstAny = {}; // an unchanged file still sets where its area's section starts
   for (const n of pr.nodes) {
     const a = areaOf(n);
     if (n.unchanged) { firstAny[a.name] = Math.min(firstAny[a.name] ?? Infinity, steps[n.id]); continue; }
-    const r = by[a.name] || (by[a.name] = { name: a.name, g: a.g, order: a.order || 0, files: 0, a: 0, d: 0, cf: 0, light: true, depth: a.depth || null, why: a.why || '', first: Infinity });
-    r.files++; r.a += n.added || 0; r.d += n.removed || 0; if ((n.conflict || []).length) r.cf++; if (!LIGHT[bucket(n)]) r.light = false;
-    r.first = Math.min(r.first, steps[n.id]);
+    const r = by[a.name] || (by[a.name] = { name: a.name, g: a.g, order: a.order || 0, files: 0, a: 0, d: 0, cf: 0, light: true, depth: a.depth || null, why: a.why || '', first: Infinity, nodes: [] });
+    r.files++; r.a += n.added || 0; r.d += n.removed || 0; if (merged(n)) r.cf++; if (!LIGHT[bucketOf(n)]) r.light = false;
+    r.first = Math.min(r.first, steps[n.id]); r.nodes.push(n);
   }
-  const rows = Object.values(by).map((r) => { r.first = Math.min(r.first, firstAny[r.name] ?? Infinity); const depth = r.depth || (r.light ? 'skim' : 'read'); return { ...r, auto: !r.depth, depthOut: depth, min: minutes(depth, r.a + r.d) }; });
+  const rows = Object.values(by).map((r) => {
+    r.first = Math.min(r.first, firstAny[r.name] ?? Infinity);
+    const depth = r.depth || (r.light ? 'skim' : 'read'), mb = minutesBy(depth, r.nodes), top = Object.keys(mb).sort((x, y) => mb[y] - mb[x])[0] || null;
+    return { ...r, auto: !r.depth, depthOut: depth, min: minutesOf(mb), top };
+  });
   rows.sort((x, y) => x.g - y.g || (x.g === 2 ? x.order - y.order : 0) || x.first - y.first);
   const kinds = {};
-  for (const n of pr.nodes) kinds[bucket(n)] = (kinds[bucket(n)] || 0) + (n.added || 0) + (n.removed || 0);
+  for (const n of pr.nodes) kinds[bucketOf(n)] = (kinds[bucketOf(n)] || 0) + (n.added || 0) + (n.removed || 0);
   return { rows, kinds };
 }
 const READ_PLAN = `({sum:document.getElementById('g-plsum').textContent,open:document.getElementById('g-plan').open,
   rows:[].map.call(document.querySelectorAll('#g-planb tbody tr'),function(tr){var c=tr.children,dp=c[3].querySelector('.g-dp');return {name:c[0].textContent,files:+c[1].textContent,lines:c[2].textContent,
-    depth:dp.textContent,cls:dp.className,why:(c[3].querySelector('.g-pwhy')||{}).textContent||'',min:+c[4].textContent,cf:+c[5].textContent};}),
+    depth:dp.textContent,cls:dp.className,why:(c[3].querySelector('.g-pwhy')||{}).textContent||'',min:c[4].textContent,top:(c[4].querySelector('i')||{className:null}).className,tip:c[4].title,cf:+c[5].textContent};}),
   foot:[].map.call(document.querySelectorAll('#g-planb tfoot td'),function(td){return td.textContent;}),
   bar:[].map.call(document.querySelectorAll('#g-planb .g-kbar span'),function(s){return [s.dataset.b,+s.style.flexGrow,getComputedStyle(s).backgroundColor];}),
   legend:[].map.call(document.querySelectorAll('#g-planb .g-kleg li'),function(li){return [li.dataset.b,+li.querySelector('b').textContent,li.textContent];}),
@@ -66,12 +86,13 @@ module.exports = {
         await B.ev(`T.tabTo('${k}')`);
         const pr = data.prs.find((p) => p.key === k), steps = Object.fromEntries((await B.ev('T.rows()')).map((r) => [r.id, r.no]));
         const exp = expectPlan(pr, (n) => AREA[n.path], steps), got = await B.ev(READ_PLAN);
-        const want = exp.rows.map((r) => ({ name: r.name, files: r.files, lines: `+${r.a} −${r.d}`, depth: DEPTH[r.depthOut], auto: r.auto, why: r.why, min: r.min, cf: r.cf }));
-        const have = got.rows.map((r) => ({ name: r.name, files: r.files, lines: r.lines, depth: r.depth, auto: / auto/.test(r.cls), why: r.why, min: r.min, cf: r.cf }));
-        t.check(`plan ${th} ${k}: one row per area in the order of the "Group by area" sections, with files, lines, depth, why, minutes, and conflicts`, JSON.stringify(have) === JSON.stringify(want), { have, want });
+        const want = exp.rows.map((r) => ({ name: r.name, files: r.files, lines: `+${r.a} −${r.d}`, depth: DEPTH[r.depthOut], auto: r.auto, why: r.why, min: timeText(r.min), top: r.min ? `b-${r.top}` : null, cf: r.cf }));
+        const have = got.rows.map((r) => ({ name: r.name, files: r.files, lines: r.lines, depth: r.depth, auto: / auto/.test(r.cls), why: r.why, min: r.min, top: r.top, cf: r.cf }));
+        t.check(`plan ${th} ${k}: one row per area in the order of the "Group by area" sections, with files, lines, depth, why, time by bucket (marked with the bucket that takes most of it), and merged conflicts`, JSON.stringify(have) === JSON.stringify(want), { have, want });
+        t.check(`plan ${th} ${k}: a timed row's title gives the time and its split by bucket`, got.rows.every((r, i) => !exp.rows[i].min ? !r.tip : r.tip.startsWith(`≈ ${timeText(exp.rows[i].min)}: ${strings.buckets[exp.rows[i].top]} `)), got.rows.map((r) => r.tip));
         const tot = exp.rows.reduce((s, r) => ({ n: s.n + r.files, a: s.a + r.a, d: s.d + r.d, min: s.min + r.min, cf: s.cf + r.cf }), { n: 0, a: 0, d: 0, min: 0, cf: 0 });
-        t.check(`plan ${th} ${k}: the total row and the summary add the rows up`, JSON.stringify(got.foot) === JSON.stringify([String(tot.n), `+${tot.a} −${tot.d}`, '', String(tot.min), String(tot.cf)])
-          && got.sum === `≈ ${tot.min} min · ${tot.n} ${tot.n === 1 ? 'file' : 'files'} · +${tot.a} −${tot.d}`, { foot: got.foot, sum: got.sum, tot });
+        t.check(`plan ${th} ${k}: the total row and the summary add the rows up`, JSON.stringify(got.foot) === JSON.stringify([String(tot.n), `+${tot.a} −${tot.d}`, '', timeText(tot.min), String(tot.cf)])
+          && got.sum === `≈ ${timeText(tot.min)} · ${tot.n} ${tot.n === 1 ? 'file' : 'files'} · +${tot.a} −${tot.d}`, { foot: got.foot, sum: got.sum, tot });
         const kinds = ['logic', 'test', 'i18n', 'docs', 'config', 'generated'];
         t.check(`plan ${th} ${k}: the bar has one segment per kind with lines, sized by them, and the legend gives every kind's number`,
           JSON.stringify(got.bar.map((b) => [b[0], b[1]])) === JSON.stringify(kinds.filter((b) => exp.kinds[b]).map((b) => [b, exp.kinds[b]]))
@@ -83,13 +104,14 @@ module.exports = {
           const refs = pr.nodes.filter((n) => n.unchanged).map((n) => n.path).sort();
           t.check(`plan ${th} Q: (setup) Q has two unchanged reference files, one beside a changed file and one alone in its area`, JSON.stringify(refs) === '["lib/consts.ts","web/theme.ts"]', refs);
           t.check(`plan ${th} Q: unchanged files are not counted (web/ has its two changed files), an area of nothing but them has no row, and a changed file with no changed lines takes no time`,
-            have.every((r) => r.name !== 'Reference') && have.find((r) => r.name === 'web/').files === 2 && JSON.stringify(have.find((r) => r.name === 'styles/')) === JSON.stringify({ name: 'styles/', files: 1, lines: '+0 −0', depth: 'read', auto: true, why: '', min: 0, cf: 0 })
+            have.every((r) => r.name !== 'Reference') && have.find((r) => r.name === 'web/').files === 2 && JSON.stringify(have.find((r) => r.name === 'styles/')) === JSON.stringify({ name: 'styles/', files: 1, lines: '+0 −0', depth: 'read', auto: true, why: '', min: '0 min', top: null, cf: 0 })
             && got.sum.startsWith('≈ 1 min · 3 files'), { have, sum: got.sum });
         }
         if (k === 'P') {
           if (!dark) lightColors = got.bar.map((b) => b[2]);
           else t.check('plan: the bar\'s colours follow the theme', got.bar.length > 2 && got.bar.every((b, i) => b[2] !== lightColors[i]) && new Set(got.bar.map((b) => b[2])).size === got.bar.length, { dark: got.bar, light: lightColors });
-          t.check(`plan ${th}: the minutes column's title explains the estimate`, await B.ev(`document.querySelectorAll('#g-planb thead th')[4].title`) === strings.planMinTitle);
+          const rates = strings.planMinTitle.replace(/\{(\w+)\}/g, (m, x) => String({ ...RATE, skim: 4, hours: 90 }[x] ?? m));
+          t.check(`plan ${th}: the time column's title gives the rates it uses`, await B.ev(`document.querySelectorAll('#g-planb thead th')[4].title`) === rates && /400.*1500.*1500.*2000.*3000.*1000.*4/.test(rates), rates);
           await B.ev(`document.querySelector('.g-tabs-row').scrollIntoView()`); await sleep(150);
           await t.shot(`plan-1440-${th}`);
         }
@@ -134,14 +156,20 @@ module.exports = {
 
     /* ---------- Conflicts: row chip, detail line and command, map mark ---------- */
     const chips = await B.ev(`[].map.call(document.querySelectorAll('#g-order .g-cfb'),function(c){return [c.closest('li').dataset.id,c.title,c.getAttribute('aria-label')];})`);
-    t.check('conflict: a chip on exactly the rows of files resolved by hand, its title naming the merges', JSON.stringify(chips) === JSON.stringify([
+    t.check('conflict: a chip on exactly the rows of files combined by hand (not one where a merge took one side), its title naming those merges', JSON.stringify(chips) === JSON.stringify([
       [pid('src/billing/invoice.ts'), 'Resolved by hand in merge 0badc0d1', 'Resolved by hand in merge 0badc0d1'],
-      [pid('src/auth/session.ts'), 'Resolved by hand in merge abc1234, def5678', 'Resolved by hand in merge abc1234, def5678']].sort((a, b) => steps[a[0]] - steps[b[0]])), chips);
+      [pid('src/auth/session.ts'), 'Resolved by hand in merge abc1234', 'Resolved by hand in merge abc1234']].sort((a, b) => steps[a[0]] - steps[b[0]])), chips);
     await B.ev(`T.pick('${pid('src/auth/session.ts')}')`); await sleep(100);
-    const det = await B.ev(`[].map.call(document.querySelectorAll('#g-detail .g-cf'),function(d){return [d.firstChild.textContent,d.querySelector('code').textContent,d.querySelector('button').getAttribute('aria-label')];})`);
-    t.check('conflict: the detail panel names each merge with its remerge-diff command', JSON.stringify(det.map((d) => d.slice(0, 2))) === JSON.stringify([
-      ['↯ Resolved by hand in merge abc1234', 'git show --remerge-diff abc1234 -- src/auth/session.ts'], ['↯ Resolved by hand in merge def5678', 'git show --remerge-diff def5678 -- src/auth/session.ts']])
-      && det[0][2] === 'Copy the command git show --remerge-diff abc1234 -- src/auth/session.ts', det);
+    const det = await B.ev(`[].map.call(document.querySelectorAll('#g-detail .g-cf'),function(d){return [d.firstChild.textContent,d.querySelector('code').textContent,d.querySelector('button').getAttribute('aria-label'),(d.querySelector('.cl')||{}).textContent,d.classList.contains('pk'),getComputedStyle(d).backgroundColor,d.title];})`);
+    t.check('conflict: the detail panel lists every resolution with its lines and remerge-diff command, the one that took a side dimmed', JSON.stringify(det.map((d) => d.slice(0, 2).concat(d.slice(3, 5)))) === JSON.stringify([
+      ['↯ Resolved by hand in merge abc1234', 'git show --remerge-diff abc1234 -- src/auth/session.ts', '12 lines in the resolution', false],
+      ['⇢ Took one side in merge def5678', 'git show --remerge-diff def5678 -- src/auth/session.ts', '4 lines in the resolution', true]])
+      && det[0][2] === 'Copy the command git show --remerge-diff abc1234 -- src/auth/session.ts' && det[0][5] !== det[1][5]
+      && det[0][6] === strings.conflictMergedTitle && det[1][6] === strings.conflictPickedTitle, det);
+    await B.ev(`T.pick('${pid('src/auth/token.ts')}')`); await sleep(60);
+    const tok = await B.ev(`({cf:[].map.call(document.querySelectorAll('#g-detail .g-cf'),function(d){return d.firstChild.textContent+'|'+d.classList.contains('pk');}),chip:!!T.row('${pid('src/auth/token.ts')}').querySelector('.g-cfb')})`);
+    t.check('conflict: a file a merge only took one side of has no chip but its panel lists the merge, dimmed', JSON.stringify(tok) === JSON.stringify({ cf: ['⇢ Took one side in merge abc1234|true'], chip: false }), tok);
+    await B.ev(`T.pick('${pid('src/auth/session.ts')}')`); await sleep(60);
     const copied = await B.ev(`new Promise(function(r){window.__c=null;navigator.clipboard.writeText=function(x){window.__c=x;return Promise.resolve();};document.querySelector('#g-detail .g-cf button').click();setTimeout(function(){r({c:window.__c,st:document.getElementById('nt-status').textContent});},100);})`);
     t.check('conflict: "Copy" puts the command on the clipboard and says so', copied.c === 'git show --remerge-diff abc1234 -- src/auth/session.ts' && copied.st === strings.conflictCopied, copied);
     // The command quotes a glob (a shell would expand it) and names no pathspec for a list of files: the same page with two nodes' paths replaced.
@@ -157,8 +185,25 @@ module.exports = {
     t.check('conflict: a glob path is single-quoted in the command, a list of files gets no pathspec, odd characters are quoted', JSON.stringify(cmds) === JSON.stringify([
       "git show --remerge-diff abc1234 -- 'locales/*.json'", 'git show --remerge-diff abc1234', "git show --remerge-diff abc1234 -- 'docs/it'\\''s [a] $x.md'"]), cmds);
     t.noErrors('conflict commands: no page errors');
+
+    /* ---------- From 90 minutes on the time reads in hours, in the page's number format ---------- */
+    for (const [src, lang, sep] of [[PLAN, 'en', '.'], [PL, 'pl', ',']]) {
+      const page = fs.readFileSync(src.replace(/^file:\/\//, ''), 'utf8'), a0 = page.indexOf('id="graph-data">'), e0 = page.indexOf('</script>', a0);
+      const big = JSON.parse(page.slice(page.indexOf('>', a0) + 1, e0)), BP = big.prs[0];
+      BP.nodes.find((n) => n.path === 'src/auth/session.ts').added = 1000; // a read area: about 2.5 h
+      BP.nodes.find((n) => n.path === 'src/billing/invoice.ts').added = 24000; // a skimmed one: about 15 h
+      const HOURS = path.join(t.work, `hours-${lang}.html`);
+      fs.writeFileSync(HOURS, page.slice(0, page.indexOf('>', a0) + 1) + JSON.stringify(big).replace(/</g, '\\u003c') + page.slice(e0));
+      await t.fresh(t.url(HOURS));
+      const st = Object.fromEntries((await B.ev('T.rows()')).map((r) => [r.id, r.no])), exp = expectPlan(BP, (n) => AREA[n.path], st), got = await B.ev(READ_PLAN);
+      const tot = exp.rows.reduce((x, r) => x + r.min, 0), want = exp.rows.map((r) => timeText(r.min, sep));
+      t.check(`plan hours ${lang}: rows and total from 90 minutes on read in hours (halves below 10), with the page's decimal mark`,
+        JSON.stringify(got.rows.map((r) => r.min)) === JSON.stringify(want) && want[0] === `2${sep}5 h` && want[1] === '15 h' && got.foot[3] === timeText(tot, sep)
+        && got.sum.startsWith(`≈ ${timeText(tot, sep)} · `) && got.rows[1].top === 'b-logic', { got: got.rows.map((r) => r.min), want, foot: got.foot, sum: got.sum });
+      t.noErrors(`plan hours ${lang}: no page errors`);
+    }
     await t.fresh(PLAN);
-    await B.ev(`T.pick('${pid('src/auth/token.ts')}')`);
+    await B.ev(`T.pick('${pid('src/util/fmt.ts')}')`);
     t.check('conflict: a file without conflicts has no conflict line', await B.ev(`document.querySelectorAll('#g-detail .g-cf').length`) === 0);
     await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(200);
     const mk = await B.ev(`[].map.call(document.querySelectorAll('#g-canvas .nd'),function(g){return {p:g.querySelector('title').textContent.split('\\n')[0],m:!!g.querySelector('.cfm'),a:g.getAttribute('aria-label')};}).filter(function(x){return x.m;})`);

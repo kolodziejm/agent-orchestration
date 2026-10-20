@@ -522,13 +522,13 @@ def sec(d: Path) -> dict:
     data = json.loads(graph.read_text(encoding="utf-8"))
     data["prs"][0]["nodes"][0]["added"] = IMG.format("'added'")  # counts are data too
     # An area, a bucket, and merges carry text too: the area's label and why, a bucket that is no bucket, a "SHA" that
-    # is markup (dropped) beside a real one (kept).
+    # is markup (dropped, bare or in an entry) beside a real one (kept, in the older bare form).
     data["prs"][0]["clusters"] = [{"id": "c1", "label": "area " + IMG.format("'alabel'"), "order": 1, "depth": IMG.format("'depth'"),
                                    "why": "why " + IMG.format("'why'")}]
     for node in data["prs"][0]["nodes"]:
         node["cluster"] = "c1"
         node["bucket"] = IMG.format("'bucket'")
-        node["conflict"] = ["abc1234", IMG.format("'conflict'")]
+        node["conflict"] = ["abc1234", IMG.format("'conflict'"), {"sha": IMG.format("'csha'"), "kind": "picked", "lines": 3}]
     graph.write_text(json.dumps(data), encoding="utf-8")
     entries = json.loads(diffs.read_text(encoding="utf-8"))
     files = {e["path"]: e["fp"] for es in entries.values() for e in es}
@@ -554,7 +554,7 @@ def sec(d: Path) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------
 # plan: two stacked PRs for the review plan, conflicts, narrative references, and the workspace. P has three authored
 # areas (read, skim, tool, each with a why), a generated file alone in its folder, docs and i18n, and two files resolved
-# by hand in merges; Q (on P) has no areas, buckets, or conflicts, like a report from before them, two unchanged
+# by hand in merges (and one resolved to one side); Q (on P) has no areas, buckets, or conflicts, like a report from before them, two unchanged
 # reference files (one beside its changed file, one alone in an authored area), and a pure rename (no changed lines). The narrative's risks
 # name lines inside and outside the diff, a bare file name, a continuation, and references that must stay plain.
 
@@ -572,7 +572,11 @@ PLAN_NARRATIVE = """<header><h1>Plan sample</h1><p class="sub">Areas, conflicts,
 </section>
 """
 PLAN_AREAS = {"auth": ("read", "Token lifetime and storage"), "billing": ("skim", "Mechanical rounding change"), "util": ("tool", "Formatting only")}
-PLAN_CONFLICTS = {"src/auth/session.ts": ["abc1234", "def5678"], "src/billing/invoice.ts": ["0badc0d1"]}
+# Merge resolutions as build_graph.py writes them: session.ts combined by hand in one merge and resolved to one side in
+# another, invoice.ts combined by hand, token.ts only resolved to one side (no mark, no count; listed in its panel).
+PLAN_CONFLICTS = {"src/auth/session.ts": [{"sha": "abc1234", "kind": "merged", "lines": 12}, {"sha": "def5678", "kind": "picked", "lines": 4}],
+                  "src/billing/invoice.ts": [{"sha": "0badc0d1", "kind": "merged", "lines": 3}],
+                  "src/auth/token.ts": [{"sha": "abc1234", "kind": "picked", "lines": 2}]}
 
 
 def plan(d: Path) -> dict:

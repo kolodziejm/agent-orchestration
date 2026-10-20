@@ -76,7 +76,7 @@ module.exports = {
       const nodes = await B.ev(`document.querySelectorAll('#g-canvas .nd').length`);
       t.check(`ws ${th}: "Map" shows the map in the right pane instead of the neighbourhood`, s.cv.shown && !s.det.shown && s.cv.l >= s.dv.r && nodes === (await B.ev('T.rows()')).length
         && await B.ev(`document.querySelector('[data-p=map]').getAttribute('aria-pressed')`) === 'true', { s, nodes });
-      t.check(`ws ${th}: the map's selection follows the list`, await B.ev(`(document.querySelector('#g-canvas .nd.on title')||{}).textContent`) === 'src/auth/session.ts\n\n↯ Resolved by hand in merge abc1234, def5678');
+      t.check(`ws ${th}: the map's selection follows the list`, await B.ev(`(document.querySelector('#g-canvas .nd.on title')||{}).textContent`) === 'src/auth/session.ts\n\n↯ Resolved by hand in merge abc1234');  // def5678 took one side: no mark
       await B.ev(`T.pick(T.id('src/auth/token.ts'))`);
       t.check(`ws ${th}: picking another file moves the map's selection`, /^src\/auth\/token\.ts/.test(await B.ev(`(document.querySelector('#g-canvas .nd.on title')||{}).textContent`)));
       if (!dark) await t.shot('ws-1440-light-map');

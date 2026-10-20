@@ -23,7 +23,7 @@ from `review-map.json` (below).
         {"id": "S1", "label": "services.schema.ts", "path": "libs/x/contract/services.schema.ts",
          "layer": "contract", "bucket": "logic", "role": "Zod schema of the response", "added": 79,
          "removed": 0, "order": 1, "note": "Optional <code>doctorName</code>, so older callers keep working.",
-         "conflict": ["4d5e6f7"]},
+         "conflict": [{"sha": "4d5e6f7", "kind": "merged", "lines": 12}]},
         {"id": "S26", "label": "docs (4)", "path": "libs/x/docs/**", "layer": "docs", "bucket": "docs",
          "role": "", "added": 601, "removed": 0, "order": 26, "files": ["libs/x/docs/a.md", "…"]},
         {"id": "S27", "label": "ApiController.php (unchanged)", "path": "src/ApiController.php",
@@ -103,12 +103,12 @@ Node fields:
 | `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines and 1 MB, both versions with their imports and white space removed; `import.meta` and `import(` are code, and a PHP `use` counts only before the first class, interface, trait, enum, or function), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
 | `bucket` | The kind of change the review plan counts the node's lines under, on every node build_graph.py writes: `generated` when every file is a lockfile (the `#lockfiles` names), a test snapshot (`*.snap`, anything under `__snapshots__/`), or a minified file (`*.min.js`, `*.min.css`), or the overlay sets `generated: true`; else `test`, `i18n`, `docs`, or `config` for a node of that layer; else `logic` (every other layer). Overlay `generated: false` keeps a node in its layer's bucket. validate.py rejects any other value. |
-| `conflict` | Short (7-character) SHAs of the PR's merge commits whose recorded result for one of the node's files differs from what git merges on its own (`git show --remerge-diff --name-only`): a conflict resolved by hand, or an edit made in the merge. Oldest first; absent when there is none (see Merge resolutions below). |
+| `conflict` | One entry per merge commit of the PR whose recorded result for one of the node's files differs from what git merges on its own (`git show --remerge-diff`): a conflict resolved by hand, or an edit made in the merge. `{"sha": "4d5e6f7", "kind": "merged", "lines": 12}`: the merge's short (7-character) SHA; `kind` `"picked"` when the merge's version of every such file is byte-identical to one parent's (one side taken), else `"merged"` (combined by hand); `lines` the lines the re-merge diff changes for the node's files. Oldest first; absent when there is none (see Merge resolutions below). An older build wrote bare SHAs; validate.py and the viewer still take them (as merged). |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
 `kind`, `external` (`true` when `to` is in another PR; listed in that PR's
 colour in the header group of the step list and in the map's left band), and `via`
-on an edge found only through unchanged barrels (below): the files it went through,
+on an edge found only through barrels (below): the files it went through,
 `"packages/core/src/index.ts > packages/core/src/nested/index.ts"`, shown in the
 neighbourhood's tooltip. An edge
 reads "`from` depends on `to`". The viewer derives the reverse direction ("used by
@@ -144,7 +144,7 @@ map. `docs`, `config`, and `i18n` always read last.
 
 | Kind | When |
 | --- | --- |
-| `import` | Real import, `use`, `require`, or `from … import`, resolved to a changed file (also through an unchanged barrel, with `via`). |
+| `import` | Real import, `use`, `require`, or `from … import`, resolved to a changed file (through a barrel, changed or not, to the file that defines the name, with `via`). |
 | `type` | A type-only import: `import type`, `import { type A, type B }` (every specifier a type), `export type … from`, or a barrel path with an `export type` on it. Orders like `import` unless it closes a cycle; drawn dotted and lighter. |
 | `test` | Test → the file it tests. Decides where the test sits in the reading order. |
 | `di` | DI binding or service definition (Symfony `services.yml`, Nest module, container registration). |
@@ -167,16 +167,20 @@ tree keeps an `@` in it (`src/@core/`); a trailing `@` also marks an alias unsco
 alias whose path or directory is in no PR's tree is reported. The summary line counts
 the imports each tsconfig resolved.
 
-An import that resolves to a file the PR does not change is followed when that file
-re-exports (`export * from`, `export { X as Y } from`, `export * as ns from`, `export
-type … from`): its re-export targets are resolved from it, at most 4 files deep and
-never one file twice (re-export cycles end), until a changed file (or a file of an
-earlier PR, or an `extraNodes` reference) is reached; the edge goes to that file with
-`via`. With named imports only the re-exports of those names are followed: an `export
-{ … }` that lists one, an `export * as` with that name, and an `export *` whose changed
-target declares one of them (or whose exports cannot be read: an `export *` of its own,
-CommonJS, destructuring). `import * as`, side-effect imports, `require`, and dynamic
-imports follow everything. An edge found directly too carries no `via`.
+An import of a file that re-exports (`export * from`, `export { X as Y } from`, `export
+* as ns from`, `export type … from`) is followed whether or not the PR changes that
+barrel: its re-export targets are resolved from it, at most 4 files deep and never one
+file twice (re-export cycles end), to the files that define what the import takes; the
+edge goes to each of them the PR changes (or an earlier PR, or an `extraNodes`
+reference) with `via`, the barrels it went through. With named imports only the
+re-exports of those names are followed: an `export { … }` that lists one, an `export *
+as` with that name, and an `export *` whose target declares one of them (or whose
+exports cannot be read: CommonJS, destructuring). `import * as`, side-effect imports,
+`require`, and dynamic imports follow everything. The importer → barrel edge stays only
+for names the barrel declares itself (or, for `import * as`, when it declares anything)
+and names found nowhere, so a changed barrel no longer stands in for the files behind
+it (and no longer becomes a shared dependency through them). A barrel's own `export … from`
+of a changed file is its edge to that file. An edge found directly too carries no `via`.
 
 ### Shared dependencies
 
@@ -300,15 +304,23 @@ exactly one file wins (`mobile-auth-bootstrap-test` → `auth/bootstrap.ts`,
 ### Merge resolutions
 
 A conflict resolved by hand in a merge commit is code no commit of its own shows, so it
-is easy to miss. build_graph.py lists the PR's merge commits (`git rev-list --merges` over the range
-`A..B`, for `A...B` too; the newest 50, with a warning above that), runs `git show
---remerge-diff --format= --name-only -z` on each, and puts the merge's SHA in `conflict`
-on the node of every listed file the PR changes, found by its path at the tip or, for a
-file the PR moves, its path before the move. A clean merge lists nothing. A file the
-merge touched but the PR's diff does not is no node and is not reported. The summary
-prints a hint naming the files. It needs git 2.36 or later; an older git, a shallow or
-partial (blobless) clone, or a failing call skips the check with one warning and never stops the build.
-The viewer marks such files.
+is easy to miss. build_graph.py lists the PR's merge commits (`git rev-list --merges
+--parents` over the range `A..B`, for `A...B` too; the newest 50, with a warning above
+that), runs `git show --remerge-diff --format= --numstat -M -z` on each (one process per
+merge), and adds an entry to `conflict` on the node of every listed file the PR changes,
+found by its path at the tip or, for a file the PR moves, its path before the move. The
+entry classifies the resolution: `"picked"` when the merge's blob of the file equals a
+parent's (at the same path, or the path before a rename the re-merge shows), so the merge
+took one side; else `"merged"`, a file combined by hand. Blob ids come from the
+repository's long-running `git cat-file --batch-check`. `lines` is the file's added plus
+removed lines in that re-merge diff (several files of one node in one merge add up; any
+merged one makes the entry merged). A clean merge lists nothing. A file the merge touched
+but the PR's diff does not is no node and is not reported. The summary prints a hint
+naming the merged files with each merge's lines and counting the picked ones. It needs
+git 2.36 or later; an older git, a shallow or partial (blobless) clone, or a failing call
+skips the check with one warning and never stops the build. The viewer marks only merged
+files (↯ on the row and the map box; the plan's conflicts column counts them); the detail
+panel lists every resolution with its lines, picked ones dimmed.
 
 ### Areas (clusters)
 
@@ -327,11 +339,14 @@ An id is up to 40 letters, digits, `_`, `.`, or `-`, starting with a letter or d
 overlay. A parent-key reference (`M:path`) puts the file in the area in every part, so
 an area spans the parts and each part tab shows its own. build_graph.py writes the
 node's `cluster` and each PR's `clusters` (the areas its nodes use); a shared
-dependency or a docs/config/i18n node keeps none, with a warning, and an unknown area,
-a malformed id, or a non-integer order stops it. Its summary counts the core files per
-area and names those without one. validate.py rejects a node whose area its PR does not
-list and warns about fewer than 4 or more than 15 areas, an area with no core node, and
-a PR above 40 core nodes without areas.
+dependency keeps none, with a warning; a docs/config/i18n node keeps its area (for the
+plan rows, "Group by area", and the overview) and still reads last; an unknown area,
+a malformed id, or a non-integer order stops it. Its summary counts the files per area
+(tests aside) and names the core files without one. validate.py rejects a node whose
+area its PR does not list and warns about fewer than 4 or more than 15 areas, an area with
+no file of its own (only tests or hubs), and a PR above 40 core nodes without areas.
+An area of translation catalogs with `"depth": "tool"` and a `why` naming the parity
+check keeps them out of the plan's time.
 
 An area may also say how to review it, for the viewer's review plan: `depth` is
 `"read"` (follow it line by line), `"skim"` (look it over), or `"tool"` (a check covers
@@ -341,8 +356,15 @@ it), and `why` a short phrase in the report language (for `"tool"` the check: `{
 that is not text; validate.py rejects them too and warns about a `"tool"` area without
 a `why` and a `why` over 120 characters.
 
+The review plan times each area from its files' changed lines per `bucket`, in changed
+lines an hour when read closely: logic 400 added and 1500 removed, tests 1500, docs
+2000, i18n 3000, config 1000, generated not counted; a `"skim"` area 4× faster, a
+`"tool"` area 0; at least 1 minute, above 5 rounded up to the next 5, from 90 minutes
+shown in hours (the viewer's `PLAN_RATE`, the minutes column's tooltip says the same).
+
 The viewer completes the areas, so a graph without them still has some: the shared
-dependencies form one area, docs/config/i18n another, each test joins the file it
+dependencies form one area, docs/config/i18n without an area another (an authored area
+of nothing but such files is listed and shelved with it), each test joins the file it
 tests, core files without a known area are grouped by folder (at most 10 areas less the
 authored ones, about 25 files each), and each earlier PR or part whose files the PR uses
 is one area. The overview draws a box per area (name, files, read count, note-kind and

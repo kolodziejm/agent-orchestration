@@ -15,7 +15,8 @@ rules, PR sections, and risks alike. The viewer turns them into links that open 
 diff at those lines; it cannot place a bare file name or a path from another root.
 
 What to read and how long it takes is not prose: the viewer generates a "Plan review"
-table (a row per area: files, lines, depth, estimated time, merge conflicts) and a bar
+table (a row per area: files, lines, depth, estimated time from each kind's reading
+rate, files combined by hand in a merge) and a bar
 of changed lines by kind (logic, tests, i18n, docs, config, generated) from the graph.
 Do not write a "what to read first" list, time estimates, or line counts by kind; steer
 the plan through the areas' `depth` and `why` in the overlay (`references/graph-schema.md`,
@@ -191,9 +192,10 @@ Every rule gets a concrete example row, and its source as `path:line` (or `path:
   status code or message) is a fact of the PR, not a risk: state it in the lead or a
   `<div class="callout warn"><strong>Behaviour change:</strong> …</div>`, never only as
   a risk bullet.
-- A file the graph marks as finished by hand in a merge (`conflict`, a badge in the
-  viewer) deserves a look: when its resolution matters, name it with the merge's SHA in
-  a "To check" callout.
+- A file the graph marks as combined by hand in a merge (a `conflict` entry of kind
+  `merged`, a ↯ badge in the viewer) deserves a look: when its resolution matters, name
+  it with the merge's SHA in a "To check" callout. A `picked` entry (the merge took one
+  side's version) needs no callout.
 - Collapse long file lists; group siblings on one line
   (`infra/providers/{client,url,mapper}.ts`, `+37 · +5 · +46`).
 - Extra blocks that help: a component tree in `<pre class="code">`, an a11y list,
