@@ -717,8 +717,11 @@ html.g-wsroot{overflow:hidden}
   function conflictsOf(n){var c=n&&n.conflict,out=[];if(Array.isArray(c))c.forEach(function(x){var s=typeof x==='string'&&/^[0-9a-f]{4,40}$/i.test(x)?x.toLowerCase():null;if(s&&out.indexOf(s)<0)out.push(s);});return out;}
   /* A line count from data: a non-negative integer, else 0. */
   function cnt(x){return typeof x==='number'&&isFinite(x)&&x>0?Math.round(x):0;}
-  /* A path as one shell word: as it is when it is plain, else single-quoted. */
-  function shq(s){s=String(s);return /^[A-Za-z0-9_.\/@%+=:,*-]+$/.test(s)?s:"'"+s.replace(/'/g,"'\\''")+"'";}
+  /* A path as one shell word: as it is when it is plain (no glob character, none a shell would expand), else single-quoted. */
+  function shq(s){s=String(s);return /^[A-Za-z0-9_.\/@%+:,-][A-Za-z0-9_.\/@%+=:,-]*$/.test(s)?s:"'"+s.replace(/'/g,"'\\''")+"'";}
+  /* The pathspec part of a node's `git show --remerge-diff` command: its path quoted, none for a group whose path is only a
+     list of some of its files ("a.json, b.json, …"), which no pathspec names. */
+  function pathspec(n){var p=String(n.path);return /,\s|…/.test(p)?'':' -- '+shq(p);}
 
   /* Diff viewer */
   var mode=(window.innerWidth<760)?'uni':'sbs',last=null;
@@ -2253,7 +2256,7 @@ html.g-wsroot{overflow:hidden}
     var al=alsoIn(id),also=al.length?'<p class="g-also">'+esc(S.chunkAlsoLine)+' '+al.map(function(x){var c=PARTOF[x.k],t=partRef(x.k)+(c.label?' · '+c.label:'');return '<button type="button" class="nt-b lnk" data-go="'+esc(x.id)+'" title="'+esc(t)+'" aria-label="'+esc(t)+'">'+esc(c.index+'/'+c.count+(c.label?' '+c.label:''))+'</button>';}).join(', ')+'</p>':'';
     /* Each merge that resolved this file by hand, with the command that shows how (the node's path is a pathspec: a
        group's glob covers its files). */
-    var conf=conflictsOf(n).map(function(s){var cmd='git show --remerge-diff '+s+' -- '+shq(n.path);
+    var conf=conflictsOf(n).map(function(s){var cmd='git show --remerge-diff '+s+pathspec(n);
       return '<div class="g-cf"><span><span aria-hidden="true">↯ </span>'+esc(fmt(S.conflictLine,{sha:s}))+'</span><code>'+esc(cmd)+'</code><button type="button" class="nt-b lnk" data-cmd="'+esc(cmd)+'" aria-label="'+esc(fmt(S.conflictCopyAria,{cmd:cmd}))+'">'+esc(S.conflictCopy)+'</button></div>';}).join('');
     detEl.innerHTML='<h4 tabindex="-1">'+esc(S.step+' '+ON[id])+' · '+esc(n.label)+'</h4><div class="p">'+esc(n.path)+'</div>'+(n.role?'<p class="g-role">'+esc(n.role)+'</p>':'')+(n.note?'<p class="g-note">'+safeHtml(n.note)+'</p>':'')+also+conf+
       '<p class="muted">'+esc(L[0])+' · +'+esc(n.added||0)+' / −'+esc(n.removed||0)+'</p>'+hood(id)+'<div class="g-pn">'+pn(pv,'prev')+pn(nx,'next')+'</div>';
@@ -2981,8 +2984,8 @@ html.g-wsroot{overflow:hidden}
 
   var gEl=document.getElementById('graph');
   /* Review plan, per PR tab above the toolbar (open or folded per report under "plan"): one row per area of the PR
-     (clusterGraph over the whole PR; the areas of earlier PRs it uses are left out) in the reading order of each area's
-     first step, with its files, changed lines, depth, an estimate in minutes, and its files resolved by hand in a merge.
+     (clusterGraph over the whole PR; the areas of earlier PRs it uses are left out) in the order of the sections of "Group
+     by area" (shared dependencies, the authored areas, the folders, the late ones), with its files, changed lines, depth, an estimate in minutes, and its files resolved by hand in a merge.
      Depth is the overlay's (`depth` on the area: read, skim, or tool, with its `why` under it), else "skim" when every
      file of the area is a test, i18n, docs, config, or generated (bucketOf), else "read". Minutes: changed lines (added
      plus removed) at 400 an hour to read and 2000 to skim, none for tools; at least 1, above 5 rounded up to the next 5.
@@ -2993,17 +2996,17 @@ html.g-wsroot{overflow:hidden}
   var planEl=document.getElementById('g-plan'),planB=document.getElementById('g-planb'),planSum=document.getElementById('g-plsum'),planRows=[];
   planEl.open=load('plan','1')!=='0';
   planEl.addEventListener('toggle',function(){save('plan',planEl.open?'1':'0');});
-  function planMin(depth,lines){if(depth==='tool')return 0;var m=Math.ceil(lines*60/PLAN_RATE[depth]);if(m<1)m=1;return m>5?Math.ceil(m/5)*5:m;}
+  function planMin(depth,lines){if(depth==='tool'||!(lines>0))return 0;var m=Math.ceil(lines*60/PLAN_RATE[depth]);if(m<1)m=1;return m>5?Math.ceil(m/5)*5:m;}
   function planOf(p){
     var rows=[];
     clusterGraph(p).list.forEach(function(c){
       if(c.kind==='ext')return;
-      var ids=c.ids.filter(function(id){return all[id]&&all[id].pr===p.key;}),a=0,d=0,cf=0,light=true;if(!ids.length)return;
+      var ids=c.ids.filter(function(id){return all[id]&&all[id].pr===p.key&&!all[id].unchanged;}),a=0,d=0,cf=0,light=true;if(!ids.length)return;
       ids.forEach(function(id){var n=all[id];a+=cnt(n.added);d+=cnt(n.removed);if(conflictsOf(n).length)cf++;if(!LIGHTB[bucketOf(n)])light=false;});
       var dep=c.depth||(light?'skim':'read');
-      rows.push({c:c,ids:ids,a:a,d:d,cf:cf,depth:dep,auto:!c.depth,why:c.why||'',min:planMin(dep,a+d),first:Math.min.apply(null,ids.map(function(id){return ON[id];}))});
+      rows.push({c:c,ids:ids,a:a,d:d,cf:cf,depth:dep,auto:!c.depth,why:c.why||'',min:planMin(dep,a+d)});
     });
-    return rows.sort(function(x,y){return x.first-y.first;});
+    return rows;
   }
   function paintPlan(){
     var p=G.p,rows=planRows=planOf(p),T={n:0,a:0,d:0,cf:0,min:0},by={},total=0;
@@ -3110,9 +3113,9 @@ html.g-wsroot{overflow:hidden}
      neighbourhood or the map, which folds to a strip. The separators resize the list and the right pane by pointer or the
      arrow keys (Shift: farther; Home and End: narrowest and widest), kept under "wscols", the pane and its fold under
      "wspane" and "wsrc". The notes panel becomes a drawer from the right. Esc closes the View menu, a note editor, a
-     tour, and the drawer first, then the workspace, which gives the page back its scroll position; the rest of the page
+     tour, and the drawer first (a form field only lets go of the focus), then the workspace, which gives the page back its scroll position; the rest of the page
      is inert meanwhile. Below 1100 pixels of window there is no workspace: the button hides, and leaving that width
-     closes it. */
+     closes it, with the focus on the selected step. */
   var gTop=document.getElementById('g-top'),wsBtn=document.getElementById('g-wsb'),wsXb=document.getElementById('g-wsx'),wsNb=document.getElementById('g-wsnotes');
   var sep1=document.getElementById('g-sep1'),sep2=document.getElementById('g-sep2'),rpc=document.getElementById('g-rpc'),ntPanel=document.getElementById('nt-panel');
   var WSQ=window.matchMedia?window.matchMedia('(min-width:1100px)'):null,wsOn=false,wsAt=null,wsHash=null,wsInert=[];
@@ -3144,19 +3147,21 @@ html.g-wsroot{overflow:hidden}
     gEl.classList.remove('ws-fold');if(tabs.scrollWidth>tabs.clientWidth+1)gEl.classList.add('ws-fold');
     gEl.style.setProperty('--wst',gTop.offsetHeight+'px');
   }
-  function wsEnter(){
+  /* `from` is the address's hash before #ws (a hash change tells it; the button and the key find it; a page opened on #ws had none). */
+  function wsEnter(from){
     if(wsOn||!cur||!wsWide())return;
     menuOpen(false);wsOn=true;wsAt={x:window.scrollX,y:window.scrollY};wsInert=[];
     for(var e=gEl;e&&e.parentNode&&e!==document.body;e=e.parentNode)[].forEach.call(e.parentNode.children,function(x){if(x!==e&&!x.hasAttribute('inert')&&!/^(SCRIPT|STYLE)$/.test(x.tagName)){x.setAttribute('inert','');wsInert.push(x);}});
     document.documentElement.classList.add('g-wsroot');gEl.classList.add('ws');
     wsApply();wsFit();drawCanvas();select(sel);
-    if(location.hash!=='#ws'){wsHash=location.hash;try{history.replaceState(history.state,'','#ws');}catch(e){}}
+    wsHash=typeof from==='string'?from:location.hash!=='#ws'?location.hash:'';
+    if(location.hash!=='#ws'){try{history.replaceState(history.state,'','#ws');}catch(e){}}
     try{if(navigator.userActivation&&navigator.userActivation.isActive&&gEl.requestFullscreen&&!document.fullscreenElement){var f=gEl.requestFullscreen();if(f&&f.catch)f.catch(function(){});}}catch(e){}
     var r=stepOl.querySelector('[tabindex="0"]');if(r)r.focus({preventScroll:true});
     if(sel)listTo(sel);
     say(S.wsOn);
   }
-  function wsExit(){
+  function wsExit(auto){
     if(!wsOn)return;
     wsOn=false;menuOpen(false);wsCols=wsKept();
     gEl.classList.remove('ws','ws-notes','ws-map','ws-rc','ws-fold');document.documentElement.classList.remove('g-wsroot');wsNb.setAttribute('aria-expanded','false');
@@ -3168,14 +3173,16 @@ html.g-wsroot{overflow:hidden}
     if(location.hash==='#ws'){try{history.replaceState(history.state,'',wsHash||location.href.split('#')[0]);}catch(e){}}
     drawCanvas();select(sel);
     back();
-    wsBtn.focus({preventScroll:true});
+    /* Closed by the window getting narrow, the button is hidden: the focus goes to the selected step (or its section's heading). */
+    if(auto===true){var rw=sel&&rowEl[sel],hd=sel&&secEl[SEC[sel]],tg=rw&&visible(rw.li)?rw.b:hd?hd.h:stepOl.querySelector('[tabindex="0"]');if(tg){if(rw&&tg===rw.b)roveRow(sel);tg.focus({preventScroll:true});}}
+    else wsBtn.focus({preventScroll:true});
     say(S.wsOff);
   }
   function wsNotes(v){
     gEl.classList.toggle('ws-notes',v);wsNb.setAttribute('aria-expanded',v?'true':'false');
     if(v){ntPanel.open=true;wsFit();ntPanel.querySelector('summary').focus({preventScroll:true});}else wsNb.focus({preventScroll:true});
   }
-  wsBtn.addEventListener('click',wsEnter);wsXb.addEventListener('click',wsExit);
+  wsBtn.addEventListener('click',function(){wsEnter();});wsXb.addEventListener('click',function(){wsExit();});
   wsNb.addEventListener('click',function(){wsNotes(!gEl.classList.contains('ws-notes'));});
   ntPanel.querySelector('summary').addEventListener('click',function(ev){if(wsOn){ev.preventDefault();wsNotes(false);}});
   [].forEach.call(document.querySelectorAll('[data-p]'),function(b){b.addEventListener('click',function(){wsPane=b.dataset.p;save('wspane',wsPane);wsApply();drawCanvas();select(sel);if(sel)mapTo(sel);});});
@@ -3204,6 +3211,8 @@ html.g-wsroot{overflow:hidden}
     var t=ev.target,tag=t&&t.tagName||'';
     if(ev.key==='Escape'){
       if(!wsOn||(t&&t.closest&&t.closest('.nt-ed')))return;
+      /* A form field (the tour picker, a search box) keeps its Esc: at most it lets go of the focus. */
+      if(t&&(t.isContentEditable||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||'')))){ev.preventDefault();if(t.blur)t.blur();return;}
       ev.preventDefault();if(gEl.classList.contains('ws-notes'))wsNotes(false);else wsExit();
       return;
     }
@@ -3212,8 +3221,8 @@ html.g-wsroot{overflow:hidden}
     if(wsOn){ev.preventDefault();wsExit();}else if(wsWide()&&cur){ev.preventDefault();wsEnter();}
   });
   window.addEventListener('resize',function(){if(wsOn){wsApply();wsFit();}});
-  if(WSQ&&WSQ.addEventListener)WSQ.addEventListener('change',function(){if(!WSQ.matches)wsExit();});
-  window.addEventListener('hashchange',function(){if(location.hash==='#ws')wsEnter();});
+  if(WSQ&&WSQ.addEventListener)WSQ.addEventListener('change',function(){if(!WSQ.matches)wsExit(true);});
+  window.addEventListener('hashchange',function(ev){if(location.hash==='#ws')wsEnter(String(ev&&ev.oldURL||'').split('#').length>1?'#'+String(ev.oldURL).split('#').slice(1).join('#'):'');});
   /* The map (or its overview of areas) where the reader shows it: under the toolbar with the Map view, in the
      workspace's right pane with "Map" picked there. */
   function mapOn(){return wsOn?wsPane==='map'&&!wsRc:view==='map';}
@@ -3249,7 +3258,7 @@ html.g-wsroot{overflow:hidden}
     select(sel);
   }
   render();paintTour();
-  if(location.hash==='#ws')wsEnter();
+  if(location.hash==='#ws')wsEnter('');
   if(window.ResizeObserver){new ResizeObserver(function(){drawLane();}).observe(stepOl);new ResizeObserver(function(){drawNb();}).observe(detEl);}
   else window.addEventListener('resize',function(){drawLane();drawNb();});
   var mq=window.matchMedia('(prefers-color-scheme: dark)');if(mq.addEventListener)mq.addEventListener('change',render);

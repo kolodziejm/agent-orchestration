@@ -103,6 +103,13 @@ module.exports = {
       await B.ev(`document.getElementById('nt-pr-add').click()`); await sleep(50);
       await B.key('Escape');
       t.check(`ws ${th}: Esc in a note editor closes the editor, not the workspace`, (await st()).ws && await B.ev(`document.getElementById('nt-pred').hidden`));
+      // A form field keeps its Esc (the tour picker during a tour is one): it lets go of the focus and the workspace stays.
+      for (const [tag, id] of [['input', 'x-in'], ['select', 'x-sel'], ['textarea', 'x-ta']]) {
+        await B.ev(`(function(){var e=document.createElement('${tag}');e.id='${id}';if('${tag}'==='input')e.type='text';document.getElementById('g-top').appendChild(e);e.focus();})()`);
+        await B.key('Escape');
+        t.check(`ws ${th}: Esc in a ${tag} does not close the workspace, it only lets go of the field`, (await st()).ws && await B.ev(`document.activeElement.id!=='${id}'`), await st());
+        await B.ev(`document.getElementById('${id}').remove()`);
+      }
       await B.ev(`document.activeElement.blur()`);
       await B.key('Escape');
       s = await st();
@@ -143,9 +150,30 @@ module.exports = {
     t.check('ws: the picker switches the PR', await B.ev('T.tab()') === 'Q' && await B.ev(`document.getElementById('g-wspr').value`) === 'Q');
     t.check('ws: the hash link reloads into the workspace without page errors', B.errors.length === 0, B.errors.splice(0));
     // Leaving the width closes it.
-    await B.viewport(1000, 900, false); await sleep(150);
+    await B.ev(`T.pick(T.rows()[2].id)`);
+    await B.viewport(1000, 900); await sleep(150);
     t.check('ws: a window narrower than 1100 px closes it', !(await st()).ws);
+    const fo = await B.ev(`(function(){var a=document.activeElement,r=T.row(T.sel());return {tag:a&&a.tagName,inRow:!!a&&r.contains(a),shown:!!a&&!!a.getClientRects().length,btn:!document.getElementById('g-wsb').getClientRects().length};})()`);
+    t.check('ws: closed that way (the ⤢ button is hidden), the focus goes to the selected step, not the page', fo.btn && fo.inRow && fo.shown, fo);
     await B.viewport(1440, 900, false);
+
+    /* ---------- The address before #ws comes back on leaving, whichever way the workspace was entered ---------- */
+    await t.fresh(PLAN);
+    await B.ev(`location.hash='#risks'`); await sleep(60);
+    await B.ev(`document.getElementById('g-wsb').click()`); await sleep(100);
+    t.check('ws: the button puts #ws on the address', (await st()).ws && await B.ev('location.hash') === '#ws');
+    await B.ev(`document.getElementById('g-wsx').click()`); await sleep(60);
+    t.check('ws: leaving restores the address the button found (#risks)', !(await st()).ws && await B.ev('location.hash') === '#risks', await B.ev('location.hash'));
+    await B.ev(`history.replaceState(null,'','#other');location.hash='#ws'`); await sleep(150);
+    t.check('ws: #ws typed into the address opens it too', (await st()).ws);
+    await B.ev(`document.getElementById('g-wsx').click()`); await sleep(60);
+    t.check('ws: leaving restores the address from before that #ws (#other), not the one of the earlier session', await B.ev('location.hash') === '#other', await B.ev('location.hash'));
+    await B.ev(`history.replaceState(null,'','#other')`);
+    await B.open('about:blank');
+    await t.reload(PLAN + '#ws'); await sleep(200);
+    await B.ev(`document.getElementById('g-wsx').click()`); await sleep(60);
+    t.check('ws: a page opened on #ws leaves it without an address hash', !(await st()).ws && await B.ev('location.hash') === '', await B.ev('location.hash'));
+    t.noErrors('ws address: no page errors');
 
     /* ---------- The overview of a 103-file PR in the right pane ---------- */
     await t.fresh(BIG);

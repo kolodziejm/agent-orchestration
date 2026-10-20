@@ -306,8 +306,8 @@ is easy to miss. build_graph.py lists the PR's merge commits (`git rev-list --me
 on the node of every listed file the PR changes, found by its path at the tip or, for a
 file the PR moves, its path before the move. A clean merge lists nothing. A file the
 merge touched but the PR's diff does not is no node and is not reported. The summary
-prints a hint naming the files. It needs git 2.36 or later; an older git, a shallow
-clone, or a failing call skips the check with one warning and never stops the build.
+prints a hint naming the files. It needs git 2.36 or later; an older git, a shallow or
+partial (blobless) clone, or a failing call skips the check with one warning and never stops the build.
 The viewer marks such files.
 
 ### Areas (clusters)

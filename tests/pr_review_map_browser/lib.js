@@ -103,10 +103,11 @@ async function launch(chrome, workDir, { offline = false } = {}) {
       if (r.result.exceptionDetails) throw new Error(expression.slice(0, 120) + ' -> ' + JSON.stringify(r.result.exceptionDetails.exception?.description || r.result.exceptionDetails.text));
       return r.result.result.value;
     },
-    // Window size and the prefers-color-scheme the page sees (the viewer follows it unless data-theme is set).
+    // Window size and the prefers-color-scheme the page sees (the viewer follows it unless data-theme is set); without `dark`
+    // the colour scheme is left alone (setting it again, even to the same value, makes the viewer draw its list afresh).
     async viewport(width, height, dark) {
       await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+      if (dark !== undefined) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
     },
     // Navigate and wait for the load event (or only for the DOM with interactive, when a held request delays load).
     async open(url, { interactive = false } = {}) {

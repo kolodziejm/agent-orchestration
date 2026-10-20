@@ -554,7 +554,8 @@ def sec(d: Path) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------
 # plan: two stacked PRs for the review plan, conflicts, narrative references, and the workspace. P has three authored
 # areas (read, skim, tool, each with a why), a generated file alone in its folder, docs and i18n, and two files resolved
-# by hand in merges; Q (on P) has no areas, buckets, or conflicts, like a report from before them. The narrative's risks
+# by hand in merges; Q (on P) has no areas, buckets, or conflicts, like a report from before them, two unchanged
+# reference files (one beside its changed file, one alone in an authored area), and a pure rename (no changed lines). The narrative's risks
 # name lines inside and outside the diff, a bare file name, a continuation, and references that must stay plain.
 
 PLAN_NARRATIVE = """<header><h1>Plan sample</h1><p class="sub">Areas, conflicts, and references.</p></header>
@@ -579,7 +580,8 @@ def plan(d: Path) -> dict:
     session = [f"export const s{i} = {i};" for i in range(1, 61)]
     invoice = [f"export const i{k} = {k};" for k in range(1, 11)]
     commit(repo, {"README.md": "# plan\n", "src/auth/session.ts": "\n".join(session) + "\n", "src/billing/invoice.ts": "\n".join(invoice) + "\n",
-                  "locales/en.json": '{"a": "b"}\n'}, "base")
+                  "locales/en.json": '{"a": "b"}\n', "lib/consts.ts": "export const LIMIT = 10;\n", "web/theme.ts": "export const theme = 'dark';\n",
+                  "styles/base.ts": "".join(f"export const c{i} = {i};\n" for i in range(12))}, "base")
     git(repo, "checkout", "-q", "-b", "feat/p")
     session[39] = "export const s40 = 4000;"
     for k in (3, 4, 8):
@@ -598,14 +600,18 @@ def plan(d: Path) -> dict:
         "docs/plan.md": "# Plan\n\nWhy the TTL changed.\n",
     }, "P")
     git(repo, "checkout", "-q", "-b", "feat/q")
+    git(repo, "mv", "styles/base.ts", "styles/main.ts")  # a pure rename: a changed file with no changed lines
     commit(repo, {"web/app.ts": "import { s40 } from '../src/auth/index';\nexport const app = () => s40;\n",
                   "web/app.spec.ts": "import { app } from './app';\ntest('app', () => expect(app()).toBe(4000));\n"}, "Q")
     overlay = d / "overlay.json"
     overlay.write_text(json.dumps({
-        "clusters": {"auth": {"label": "Sign-in", "order": 1}, "billing": {"label": "Billing", "order": 2}, "util": {"label": "Utilities", "order": 3}},
+        "clusters": {"auth": {"label": "Sign-in", "order": 1}, "billing": {"label": "Billing", "order": 2}, "util": {"label": "Utilities", "order": 3},
+                     "ref": {"label": "Reference", "order": 4}},
         "nodes": {"P:src/auth/session.ts": {"cluster": "auth"}, "P:src/auth/token.ts": {"cluster": "auth"}, "P:src/auth/index.ts": {"cluster": "auth"},
                   "P:src/billing/invoice.ts": {"cluster": "billing"}, "P:src/billing/index.ts": {"cluster": "billing"},
-                  "P:src/util/fmt.ts": {"cluster": "util"}},
+                  "P:src/util/fmt.ts": {"cluster": "util"}, "Q:lib/consts.ts": {"cluster": "ref"}},
+        # Unchanged reference files in Q: one beside web/app.ts, one alone in the authored area "ref" (an area of nothing but references).
+        "extraNodes": [{"pr": "Q", "path": "web/theme.ts"}, {"pr": "Q", "path": "lib/consts.ts"}],
     }), encoding="utf-8")
     graph, diffs, narr, out = d / "graphs.json", d / "diffs.json", d / "narrative.html", d / "review.html"
     prs = [("P", "main...feat/p", "P #11"), ("Q", "feat/p...feat/q", "Q #12")]

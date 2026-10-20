@@ -2970,7 +2970,7 @@ class BucketConflictTests(unittest.TestCase):
         self.assertNotIn("remerge", self.out)
 
     def test_an_old_git_or_a_failing_call_skips_conflicts_with_one_warning(self):
-        """This test will fail when a git without --remerge-diff (before 2.36), a shallow clone, or a failing git call stops the build, marks a file, or warns more than once per run, or when a PR above 50 merges is checked past its newest 50 without a warning."""
+        """This test will fail when a git without --remerge-diff (before 2.36), a shallow or partial clone, or a failing git call stops the build, marks a file, or warns more than once per run, or when a PR above 50 merges is checked past its newest 50 without a warning."""
         bindir = self.root / "old-git"
         bindir.mkdir(exist_ok=True)
         fake = bindir / "git"
@@ -2996,6 +2996,8 @@ class BucketConflictTests(unittest.TestCase):
                 return "true\n" if repo == "shallow" else "false\n"
             if args[0] == "rev-list":
                 return merges
+            if args[:2] == ("config", "--get-regexp"):
+                return {"partial": "remote.origin.promisor true\n", "ext": "extensions.partialclone origin\n"}.get(repo, "")
             return None if repo == "broken" else ""
 
         with mock.patch.object(bg, "git", fake_git):
@@ -3009,6 +3011,14 @@ class BucketConflictTests(unittest.TestCase):
             self.assertEqual(check.of("T", "shallow", "main...feat"), {})
             self.assertEqual(len(warnings), 2)
             self.assertIn("shallow is a shallow clone", warnings[1])
+            calls.clear()
+            for name in ("partial", "ext", "partial", "ext"):  # a partial clone is skipped with one warning each, never queried
+                self.assertEqual(check.of("P", name, "main...feat"), {})
+            self.assertEqual([c for c in calls if c[0] in ("rev-list", "show")], [])
+            self.assertEqual(len(warnings), 4)
+            self.assertIn("partial is a partial clone", warnings[2])
+            self.assertIn("ext is a partial clone", warnings[3])
+            warnings[2:] = []
             warnings.clear()
             self.assertEqual(check.of("B", "broken", "main...feat"), {})
             self.assertEqual(check.of("C", "repo", "main...feat"), {})

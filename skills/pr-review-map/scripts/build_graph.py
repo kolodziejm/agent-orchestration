@@ -785,7 +785,8 @@ class Conflicts:
     """Files whose recorded merge result differs from git's automatic re-merge: per merge commit of a PR (`git rev-list
     --merges`, the newest MERGE_CAP), the paths `git show --remerge-diff --name-only` lists (git 2.36+). Hand-resolved
     conflicts show up there, and so does anything else the merge commit changed by hand. An older git, a shallow
-    repository (its re-merges may lack their merge base), or a failing call turns the check off with one warning; it
+    repository (its re-merges may lack their merge base), a partial clone (the re-merges would fetch missing objects
+    one by one), or a failing call turns the check off with one warning; it
     never stops the build."""
 
     def __init__(self, warnings: list[str]) -> None:
@@ -793,6 +794,7 @@ class Conflicts:
         self.version: tuple[int, int] | None = None
         self.off = False
         self.shallow: dict[str, bool] = {}  # repo -> is a shallow clone
+        self.partial: dict[str, bool] = {}  # repo -> is a partial (blobless, treeless) clone
         self.rank: dict[str, int] = {}  # short SHA -> place among the merges checked, oldest first
 
     def stop(self, why: str) -> None:
@@ -811,7 +813,15 @@ class Conflicts:
             self.shallow[repo] = (git(repo, "rev-parse", "--is-shallow-repository", check=False) or "").strip() == "true"
             if self.shallow[repo]:
                 self.warnings.append(f"{repo} is a shallow clone; files with hand-resolved merge conflicts are not marked in it")
-        return not self.shallow[repo]
+        if repo not in self.partial:
+            cfg = git(repo, "config", "--get-regexp", r"^(extensions\.partialclone|remote\..*\.promisor)$", check=False) or ""
+            self.partial[repo] = any(
+                line.split(None, 1)[0].lower().startswith("extensions.") or line.split()[-1].lower() in ("true", "yes", "on", "1")
+                for line in cfg.splitlines() if line.strip()
+            )
+            if self.partial[repo]:
+                self.warnings.append(f"{repo} is a partial clone; files with hand-resolved merge conflicts are not marked in it")
+        return not self.shallow[repo] and not self.partial[repo]
 
     def of(self, key: str, repo: str, rng: str) -> dict[str, list[str]]:
         """path at the merge -> short SHAs of the merges that changed it by hand, oldest first."""

@@ -3,23 +3,28 @@
 // the marks of files resolved by hand in a merge (row chip, detail line with its command, map mark), the lead's folded
 // legend, the View menu, and the narrative's code references and "Add as note" on risks: on the two-PR plan sample in
 // light and dark, its Polish page, a report without the new fields (stack), and markup in the new fields (sec).
+const fs = require('fs');
+const path = require('path');
 const { sleep } = require('./lib');
 
 // What the plan should say for one PR, from the graph alone: areas by path (the sample's), lines and conflicts from the
-// nodes, depth from the area or the default rule, minutes from the documented rate, order by each area's first step.
+// nodes (unchanged reference files do not count), depth from the area or the default rule, minutes from the documented
+// rate (none for no changed lines), order as the sections of "Group by area": authored areas (g 2) by their order, folder
+// areas (g 3) by first step, late ones (g 4).
 function expectPlan(pr, areaOf, steps) {
   const LIGHT = { test: 1, i18n: 1, docs: 1, config: 1, generated: 1 };
   const bucket = (n) => (['logic', 'test', 'i18n', 'docs', 'config', 'generated'].includes(n.bucket) ? n.bucket : ['test', 'i18n', 'docs', 'config'].includes(n.layer) ? n.layer : 'logic');
-  const minutes = (depth, lines) => { if (depth === 'tool') return 0; let m = Math.ceil(lines * 60 / (depth === 'read' ? 400 : 2000)); if (m < 1) m = 1; return m > 5 ? Math.ceil(m / 5) * 5 : m; };
-  const by = {};
+  const minutes = (depth, lines) => { if (depth === 'tool' || !(lines > 0)) return 0; let m = Math.ceil(lines * 60 / (depth === 'read' ? 400 : 2000)); if (m < 1) m = 1; return m > 5 ? Math.ceil(m / 5) * 5 : m; };
+  const by = {}, firstAny = {}; // an unchanged file still sets where its area's section starts
   for (const n of pr.nodes) {
     const a = areaOf(n);
-    const r = by[a.name] || (by[a.name] = { name: a.name, files: 0, a: 0, d: 0, cf: 0, light: true, depth: a.depth || null, why: a.why || '', first: Infinity });
+    if (n.unchanged) { firstAny[a.name] = Math.min(firstAny[a.name] ?? Infinity, steps[n.id]); continue; }
+    const r = by[a.name] || (by[a.name] = { name: a.name, g: a.g, order: a.order || 0, files: 0, a: 0, d: 0, cf: 0, light: true, depth: a.depth || null, why: a.why || '', first: Infinity });
     r.files++; r.a += n.added || 0; r.d += n.removed || 0; if ((n.conflict || []).length) r.cf++; if (!LIGHT[bucket(n)]) r.light = false;
     r.first = Math.min(r.first, steps[n.id]);
   }
-  const rows = Object.values(by).map((r) => { const depth = r.depth || (r.light ? 'skim' : 'read'); return { ...r, auto: !r.depth, depthOut: depth, min: minutes(depth, r.a + r.d) }; });
-  rows.sort((x, y) => x.first - y.first);
+  const rows = Object.values(by).map((r) => { r.first = Math.min(r.first, firstAny[r.name] ?? Infinity); const depth = r.depth || (r.light ? 'skim' : 'read'); return { ...r, auto: !r.depth, depthOut: depth, min: minutes(depth, r.a + r.d) }; });
+  rows.sort((x, y) => x.g - y.g || (x.g === 2 ? x.order - y.order : 0) || x.first - y.first);
   const kinds = {};
   for (const n of pr.nodes) kinds[bucket(n)] = (kinds[bucket(n)] || 0) + (n.added || 0) + (n.removed || 0);
   return { rows, kinds };
@@ -40,12 +45,13 @@ module.exports = {
   async run(t) {
     const B = t.B;
     const PLAN = t.url(t.fixtures, 'plan', 'review.html'), PL = t.url(t.fixtures, 'plan', 'review-pl.html'), STACK = t.url(t.fixtures, 'stack', 'review.html');
-    const AUTH = { name: 'Sign-in', depth: 'read', why: 'Token lifetime and storage' }, BILL = { name: 'Billing', depth: 'skim', why: 'Mechanical rounding change' };
+    const AUTH = { name: 'Sign-in', depth: 'read', why: 'Token lifetime and storage', g: 2, order: 1 }, BILL = { name: 'Billing', depth: 'skim', why: 'Mechanical rounding change', g: 2, order: 2 };
     const AREA = {
       'src/auth/session.ts': AUTH, 'src/auth/session.spec.ts': AUTH, 'src/auth/token.ts': AUTH, 'src/auth/index.ts': AUTH,
       'src/billing/invoice.ts': BILL, 'src/billing/invoice.spec.ts': BILL, 'src/billing/index.ts': BILL,
-      'src/util/fmt.ts': { name: 'Utilities', depth: 'tool', why: 'Formatting only' }, 'gen/api.ts': { name: 'gen/' },
-      'locales/en.json': { name: 'Docs, config, i18n' }, 'docs/plan.md': { name: 'Docs, config, i18n' }, 'web/app.ts': { name: 'web/' }, 'web/app.spec.ts': { name: 'web/' },
+      'src/util/fmt.ts': { name: 'Utilities', depth: 'tool', why: 'Formatting only', g: 2, order: 3 }, 'gen/api.ts': { name: 'gen/', g: 3 },
+      'locales/en.json': { name: 'Docs, config, i18n', g: 4 }, 'docs/plan.md': { name: 'Docs, config, i18n', g: 4 }, 'web/app.ts': { name: 'web/', g: 3 }, 'web/app.spec.ts': { name: 'web/', g: 3 }, 'styles/main.ts': { name: 'styles/', g: 3 },
+      'web/theme.ts': { name: 'web/', g: 3 }, 'lib/consts.ts': { name: 'Reference', g: 2, order: 4 }, // unchanged reference files
     };
     const DEPTH = { read: 'read', skim: 'skim', tool: 'tools' };
     let strings = null, data = null, lightColors = null;
@@ -62,7 +68,7 @@ module.exports = {
         const exp = expectPlan(pr, (n) => AREA[n.path], steps), got = await B.ev(READ_PLAN);
         const want = exp.rows.map((r) => ({ name: r.name, files: r.files, lines: `+${r.a} −${r.d}`, depth: DEPTH[r.depthOut], auto: r.auto, why: r.why, min: r.min, cf: r.cf }));
         const have = got.rows.map((r) => ({ name: r.name, files: r.files, lines: r.lines, depth: r.depth, auto: / auto/.test(r.cls), why: r.why, min: r.min, cf: r.cf }));
-        t.check(`plan ${th} ${k}: one row per area in the order of its first step, with files, lines, depth, why, minutes, and conflicts`, JSON.stringify(have) === JSON.stringify(want), { have, want });
+        t.check(`plan ${th} ${k}: one row per area in the order of the "Group by area" sections, with files, lines, depth, why, minutes, and conflicts`, JSON.stringify(have) === JSON.stringify(want), { have, want });
         const tot = exp.rows.reduce((s, r) => ({ n: s.n + r.files, a: s.a + r.a, d: s.d + r.d, min: s.min + r.min, cf: s.cf + r.cf }), { n: 0, a: 0, d: 0, min: 0, cf: 0 });
         t.check(`plan ${th} ${k}: the total row and the summary add the rows up`, JSON.stringify(got.foot) === JSON.stringify([String(tot.n), `+${tot.a} −${tot.d}`, '', String(tot.min), String(tot.cf)])
           && got.sum === `≈ ${tot.min} min · ${tot.n} ${tot.n === 1 ? 'file' : 'files'} · +${tot.a} −${tot.d}`, { foot: got.foot, sum: got.sum, tot });
@@ -73,6 +79,13 @@ module.exports = {
           && got.legend.every((l) => l[2].startsWith(strings.buckets[l[0]])), { got: [got.bar, got.legend], kinds: exp.kinds });
         t.check(`plan ${th} ${k}: the bar is decoration (aria-hidden) inside a named group whose legend is the text`, got.barHidden === 'true' && got.group === strings.kindsTitle, got);
         t.check(`plan ${th} ${k}: the table's lines equal the bar's`, Object.values(exp.kinds).reduce((s, x) => s + x, 0) === tot.a + tot.d);
+        if (k === 'Q') {
+          const refs = pr.nodes.filter((n) => n.unchanged).map((n) => n.path).sort();
+          t.check(`plan ${th} Q: (setup) Q has two unchanged reference files, one beside a changed file and one alone in its area`, JSON.stringify(refs) === '["lib/consts.ts","web/theme.ts"]', refs);
+          t.check(`plan ${th} Q: unchanged files are not counted (web/ has its two changed files), an area of nothing but them has no row, and a changed file with no changed lines takes no time`,
+            have.every((r) => r.name !== 'Reference') && have.find((r) => r.name === 'web/').files === 2 && JSON.stringify(have.find((r) => r.name === 'styles/')) === JSON.stringify({ name: 'styles/', files: 1, lines: '+0 −0', depth: 'read', auto: true, why: '', min: 0, cf: 0 })
+            && got.sum.startsWith('≈ 1 min · 3 files'), { have, sum: got.sum });
+        }
         if (k === 'P') {
           if (!dark) lightColors = got.bar.map((b) => b[2]);
           else t.check('plan: the bar\'s colours follow the theme', got.bar.length > 2 && got.bar.every((b, i) => b[2] !== lightColors[i]) && new Set(got.bar.map((b) => b[2])).size === got.bar.length, { dark: got.bar, light: lightColors });
@@ -106,6 +119,19 @@ module.exports = {
     await B.ev(`document.querySelector('#g-plan>summary').click()`);
     t.noErrors('plan clicks: no page errors');
 
+    /* ---------- The plan keeps the sections' order of "Group by area" in both reading orders ---------- */
+    await t.fresh(PLAN);
+    for (const o of ['top', 'bottom', 'top']) {
+      await B.ev(`document.querySelector('[data-o=${o}]').click()`); await sleep(60);
+      const names = await B.ev(`[].map.call(document.querySelectorAll('#g-planb tbody th button'),function(b){return b.textContent.replace(/^◆ /,'');})`);
+      await B.ev(`document.getElementById('g-area').click()`); await sleep(80);
+      const secs = await B.ev(`[].filter.call(document.querySelectorAll('#g-order .g-sec'),function(s){return /^a:/.test(s.dataset.sec);}).map(function(s){return s.querySelector('.g-sh').title;})`);
+      t.check(`plan order ${o}: the rows follow the sections of "Group by area" (and do not move when the reading order changes)`, JSON.stringify(names) === JSON.stringify(secs) && names.length === 5
+        && JSON.stringify(names.slice(0, 3)) === '["Sign-in","Billing","Utilities"]', { names, secs });
+      await B.ev(`document.getElementById('g-area').click()`);
+    }
+    t.noErrors('plan order: no page errors');
+
     /* ---------- Conflicts: row chip, detail line and command, map mark ---------- */
     const chips = await B.ev(`[].map.call(document.querySelectorAll('#g-order .g-cfb'),function(c){return [c.closest('li').dataset.id,c.title,c.getAttribute('aria-label')];})`);
     t.check('conflict: a chip on exactly the rows of files resolved by hand, its title naming the merges', JSON.stringify(chips) === JSON.stringify([
@@ -118,6 +144,20 @@ module.exports = {
       && det[0][2] === 'Copy the command git show --remerge-diff abc1234 -- src/auth/session.ts', det);
     const copied = await B.ev(`new Promise(function(r){window.__c=null;navigator.clipboard.writeText=function(x){window.__c=x;return Promise.resolve();};document.querySelector('#g-detail .g-cf button').click();setTimeout(function(){r({c:window.__c,st:document.getElementById('nt-status').textContent});},100);})`);
     t.check('conflict: "Copy" puts the command on the clipboard and says so', copied.c === 'git show --remerge-diff abc1234 -- src/auth/session.ts' && copied.st === strings.conflictCopied, copied);
+    // The command quotes a glob (a shell would expand it) and names no pathspec for a list of files: the same page with two nodes' paths replaced.
+    const html = fs.readFileSync(PLAN.replace(/^file:\/\//, ''), 'utf8'), at = html.indexOf('id="graph-data">'), end = html.indexOf('</script>', at);
+    const gd = JSON.parse(html.slice(html.indexOf('>', at) + 1, end)), P0 = gd.prs[0];
+    const tweak = (path, to) => { const n = P0.nodes.find((x) => x.path === path); n.path = to; n.conflict = ['abc1234']; return n.id; };
+    const gid = tweak('src/auth/token.ts', 'locales/*.json'), lid = tweak('src/auth/index.ts', 'a.json, b.json, c.json, …'), qid = tweak('src/billing/index.ts', "docs/it's [a] $x.md");
+    const GLOB = path.join(t.work, 'glob.html');
+    fs.writeFileSync(GLOB, html.slice(0, html.indexOf('>', at) + 1) + JSON.stringify(gd).replace(/</g, '\\u003c') + html.slice(end));
+    await t.fresh(t.url(GLOB));
+    const cmdOf = async (id) => { await B.ev(`T.pick('${id}')`); await sleep(60); return B.ev(`(document.querySelector('#g-detail .g-cf code')||{}).textContent`); };
+    const cmds = [await cmdOf(gid), await cmdOf(lid), await cmdOf(qid)];
+    t.check('conflict: a glob path is single-quoted in the command, a list of files gets no pathspec, odd characters are quoted', JSON.stringify(cmds) === JSON.stringify([
+      "git show --remerge-diff abc1234 -- 'locales/*.json'", 'git show --remerge-diff abc1234', "git show --remerge-diff abc1234 -- 'docs/it'\\''s [a] $x.md'"]), cmds);
+    t.noErrors('conflict commands: no page errors');
+    await t.fresh(PLAN);
     await B.ev(`T.pick('${pid('src/auth/token.ts')}')`);
     t.check('conflict: a file without conflicts has no conflict line', await B.ev(`document.querySelectorAll('#g-detail .g-cf').length`) === 0);
     await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(200);
