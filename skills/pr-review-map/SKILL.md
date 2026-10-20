@@ -86,7 +86,7 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
    tabs grouped under it; a file other parts change too carries an "also in parts"
    chip and a whole-PR diff toggle. **Tours** ("Trasy", step 3): a picker beside the
    view toggle walks one flow ("Step 3 of 8 · note", Prev/Next, `[` `]`, Esc), opening
-   each step's lines on its tab and drawing the path on the map.
+   each step's lines on its tab and drawing the path on the map. **Review plan** (per tab, under the tabs, foldable): one row per area in reading order with files, +/−, depth (the area's `depth`/`why` from the overlay, else skim when every file is test/i18n/docs/config/generated, else read), ≈ minutes (400 changed lines an hour to read, 2000 to skim, 0 for tools), and files resolved by hand in a merge (node `conflict`; ↯ also on the row, the map box, and the detail panel with a copyable `git show --remerge-diff`); a bar splits the changed lines by node `bucket`. The list and map toggles sit in a **View** menu; ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider).
 3. **Architecture** as a mermaid flowchart, then the **request flow** as a
    mermaid sequence diagram plus an error-mapping table across layers.
 4. **Data shape across layers**: one table, a row per field, a column per layer.
@@ -94,7 +94,7 @@ the rest as `narrative.html` (building blocks: `references/narrative.md`).
 6. **One section per PR**: purpose, an "open on the reading graph" button,
    a collapsible file list, and "to check" callouts. No numbered reading-order
    list here: the graph owns the order and per-file notes live in its detail panel.
-7. **Risks** ranked by severity (coloured stripe), then what is out of scope.
+7. **Risks** ranked by severity (coloured stripe), then what is out of scope. A `<code>path:line</code>` (or `path:start-end`, or a unique file name) anywhere in the narrative opens that line in the diff, and each risk gets "Add as note" (an issue note).
 8. **Verification**: what was actually run and its result, and what was not.
 
 Write the narrative and the UI strings in the user's language. Built-in UI
