@@ -16,7 +16,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const SUITES = ['core', 'hubs', 'sfc', 'addon', 'refresh', 'security', 'mdnote', 'plan', 'workspace'];
+const SUITES = ['core', 'hubs', 'sfc', 'addon', 'refresh', 'security', 'mdnote', 'plan', 'workspace', 'wsmap'];
 const ROOT = path.resolve(__dirname, '..', '..');
 
 function usage(msg) {

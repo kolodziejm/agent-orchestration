@@ -319,8 +319,11 @@ but the PR's diff does not is no node and is not reported. The summary prints a 
 naming the merged files with each merge's lines and counting the picked ones. It needs
 git 2.36 or later; an older git, a shallow or partial (blobless) clone, or a failing call
 skips the check with one warning and never stops the build. The viewer marks only merged
-files (↯ on the row and the map box; the plan's conflicts column counts them); the detail
-panel lists every resolution with its lines, picked ones dimmed.
+files (↯ on the row and the map box; the plan's conflicts column counts them). When the
+merged files are more than 10 and more than a quarter of the PR's changed files (a long
+branch merged from main often), the row and map marks hide by default, a line in the plan
+says how many and that "Conflict marks" in the View menu shows them. The detail panel
+always lists every resolution with its lines, picked ones dimmed.
 
 ### Areas (clusters)
 

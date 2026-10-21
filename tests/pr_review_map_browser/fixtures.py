@@ -123,6 +123,23 @@ def assemble(graph: Path, diffs: Path, narr: Path, title: str, out: Path, *, lan
     validate(out, rejects=rejects)
 
 
+def merged_pages(d: Path, title: str, counts: tuple[int, ...], *, pl: tuple[int, ...] = ()) -> dict:
+    """Pages of the report in `d` whose first PR has its first n nodes (stored order) combined by hand in a merge each,
+    one per n in `counts` (noise<n>.html; with n in `pl` also noise<n>-pl.html): for the conflict marks' noise rule."""
+    out = {}
+    for count in counts:
+        data = json.loads((d / "graphs.json").read_text(encoding="utf-8"))
+        for i, node in enumerate(data["prs"][0]["nodes"][:count]):
+            node["conflict"] = [{"sha": f"{0xc0ffee00 + i:08x}", "kind": "merged", "lines": 2 + i}]
+        graph = d / f"graphs-noise{count}.json"
+        graph.write_text(json.dumps(data), encoding="utf-8")
+        for lang in ("en", "pl") if count in pl else ("en",):
+            page_out = d / f"noise{count}{'' if lang == 'en' else '-' + lang}.html"
+            assemble(graph, d / "diffs.json", d / "narrative.html", title, page_out, lang=lang)
+            out[f"noise{count}{'' if lang == 'en' else '-' + lang}"] = str(page_out)
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # stack: three stacked PRs (A, B, C) with cross-PR links, overlay edges, tests, docs, config, and translations.
 
@@ -236,7 +253,9 @@ def big(d: Path) -> dict:
         "locales/en.json": '{"a": "b"}\n', "locales/pl.json": '{"a": "b"}\n',
     })
     commit(repo, files, "big")
-    return {"page": str(page(d, repo, [("P", "main...feat/big", "P #900")], "Big sample", extra=("--alias", "@big/=src/")))}
+    out = {"page": str(page(d, repo, [("P", "main...feat/big", "P #900")], "Big sample", extra=("--alias", "@big/=src/")))}
+    # 26 of the 103 files combined by hand is above a quarter (the marks hide), 25 is not (they show).
+    return {**out, **merged_pages(d, "Big sample", (26, 25), pl=(26,))}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -640,7 +659,8 @@ def plan(d: Path) -> dict:
     assemble(graph, diffs, narr, "Plan sample", out)
     pl = d / "review-pl.html"
     assemble(graph, diffs, narr, "Plan sample", pl, lang="pl")
-    return {"page": str(out), "pl": str(pl)}
+    # All 11 files of P combined by hand is more than 10 (the marks hide); 10 of them is not (they show).
+    return {"page": str(out), "pl": str(pl), **merged_pages(d, "Plan sample", (11, 10))}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

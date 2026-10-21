@@ -52,10 +52,22 @@ module.exports = {
     t.check('arcs: the selected row gets a "◆" chip naming the shared dependencies it uses', !!chip && chip.text.startsWith('◆') && usesHubs.every((h) => chip.title.includes(byId[h].label)), chip);
     t.check('arcs: only the selected row has that chip', await B.ev(`document.querySelectorAll('#g-order .g-hc').length`) === 1);
     t.check('arcs: the used hubs\' rows are marked as dependencies and their dots ringed', await B.ev(`[${usesHubs.map((h) => `'${h}'`).join(',')}].every(function(h){return T.row(h).classList.contains('dep');})`) && await B.ev(`document.querySelectorAll('#g-lane circle.dot.hu').length`) === usesHubs.length);
+    t.check('arcs: a file linked to 12 rows or fewer has no "+n" at its dot', await B.ev(`!document.querySelector('#g-lane text.more')`));
     await B.ev(`T.pick('${idx}')`); await sleep(100);
     arcs = await B.ev('T.arcs()');
-    const idxUsers = g.edges.filter((e) => e.to === idx && e.kind !== 'test').length;
-    t.check('arcs: selecting a shared dependency draws its incoming arcs (orange)', arcs.filter((a) => a.t === idx).length === idxUsers && arcs.filter((a) => a.t === idx).every((a) => /\buse\b/.test(a.c)) && await B.ev(`!document.querySelector('#g-order .g-hc')`), { n: arcs.filter((a) => a.t === idx).length, idxUsers });
+    // The index is linked to more than 12 rows: the lane draws the arcs of the 12 nearest rows (by rows between, then
+    // the upper one) and "+n" at its dot for the others, whose rows keep their orange or blue mark.
+    const laneSubj = exp.order.top.M.subj, laneRows = (await B.ev('T.rows()')).map((r) => r.id), at = Object.fromEntries(laneRows.map((id, i) => [id, i]));
+    const linked = [...new Set(g.edges.filter((e) => (e.from === idx || e.to === idx) && e.from !== e.to && !(e.kind === 'test' && laneSubj[e.from] === e.to) && at[e.from] != null && at[e.to] != null)
+      .map((e) => (e.from === idx ? e.to : e.from)))];
+    const nearest = linked.slice().sort((a, b) => Math.abs(at[a] - at[idx]) - Math.abs(at[b] - at[idx]) || at[a] - at[b]).slice(0, 12);
+    const endsOf = (list) => [...new Set(list.filter((a) => a.f === idx || a.t === idx).map((a) => (a.f === idx ? a.t : a.f)))].sort();
+    const more = async () => B.ev(`(function(){var m=document.querySelector('#g-lane text.more'),d=document.querySelector('#g-lane circle.dot.on');return m?{text:m.textContent,dx:+m.getAttribute('x')-(+d.getAttribute('cx')),dy:+m.getAttribute('y')-(+d.getAttribute('cy'))}:null;})()`);
+    let mk = await more();
+    t.check('arcs: a shared dependency linked to more than 12 rows draws the arcs of only the 12 nearest rows (orange in, blue out)', linked.length > 12 && JSON.stringify(endsOf(arcs)) === JSON.stringify(nearest.slice().sort())
+      && arcs.filter((a) => a.t === idx).every((a) => /\buse\b/.test(a.c)) && arcs.filter((a) => a.f === idx).every((a) => /\bdep\b/.test(a.c)) && await B.ev(`!document.querySelector('#g-order .g-hc')`), { linked: linked.length, drawn: endsOf(arcs), nearest });
+    t.check('arcs: "+n" beside the selected row\'s dot counts the rows left out', !!mk && mk.text === `+${linked.length - 12}` && mk.dx > 0 && mk.dx < 12 && Math.abs(mk.dy) < 10, { mk, linked: linked.length });
+    t.check('arcs: the rows left out keep their blue or orange mark', await B.ev(`${JSON.stringify(linked.filter((x) => !nearest.includes(x)))}.every(function(id){var c=T.row(id).classList;return c.contains('use')||c.contains('dep');})`));
     await B.ev(`T.row('${gas}').dispatchEvent(new MouseEvent('mouseenter'))`); await sleep(50);
     await B.ev(`T.row('${gas}').dispatchEvent(new MouseEvent('mouseleave'));T.row('${ft}').dispatchEvent(new MouseEvent('mouseenter'))`); await sleep(50);
     arcs = await B.ev('T.arcs()');
@@ -65,6 +77,10 @@ module.exports = {
     await B.ev(`T.pick('${gas}')`); await sleep(80);
     arcs = await B.ev('T.arcs()');
     t.check('arcs: "All links" leaves out every arc into a shared dependency (unless that hub is selected)', arcs.length > 20 && arcs.every((a) => !HUBS.includes(a.t) || HUBS.includes(a.f)), arcs.length);
+    await B.ev(`T.pick('${idx}')`); await sleep(80);
+    arcs = await B.ev('T.arcs()'); mk = await more();
+    t.check('arcs: with "All links" the selected shared dependency still highlights only its 12 nearest rows, the rest drawn like any other link', JSON.stringify(endsOf(arcs.filter((a) => /\b(dep|use)\b/.test(a.c)))) === JSON.stringify(nearest.slice().sort())
+      && endsOf(arcs).length === linked.length && !!mk && mk.text === `+${linked.length - 12}`, { hl: endsOf(arcs.filter((a) => /\b(dep|use)\b/.test(a.c))).length, all: endsOf(arcs).length, mk });
     await B.ev(`document.getElementById('g-all').click()`);
 
     /* ---------- Neighbourhood ---------- */
