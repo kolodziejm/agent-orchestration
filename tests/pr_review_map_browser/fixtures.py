@@ -429,7 +429,9 @@ def hub(d: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# sfc: Vue, Svelte, and Astro files with hunks in each block, plus files whose language highlight.js loads on demand.
+# sfc: Vue, Svelte, and Astro files with hunks in each block, files whose language highlight.js loads on demand, and
+# block comments over several lines (a new file's doc comment, a comment opened on one side only, a hunk that starts
+# inside a doc comment, an HTML comment).
 
 
 def sfc(d: Path) -> dict:
@@ -454,12 +456,33 @@ def sfc(d: Path) -> dict:
                           "  main { padding: 1rem; }", "  p { color: red; }", "</style>", ""])
     astro = "\n".join(["---", "import Layout from '../layouts/Layout.astro';", "const title: string = 'Visits';", "---",
                        "<Layout title={title}>", "  <h1>{title}</h1>", "</Layout>", "<style>", "  h1 { color: navy; }", "</style>", ""])
+    doc = ["/**", " * The platforms the landing lists, in display order. Each status (and an",
+           " * optional `url`) lives in `platforms.json`, which the server also reads to",
+           " * declare only released platforms in the structured data",
+           " * (`App\\Shared\\Presentation\\LandingPlatforms`). The label and the action of",
+           " * each status come from `platformStatusCopy`, so the tile of a released",
+           " * platform follows from `platforms.json`. Releasing a platform is not only",
+           ' * that change: several landing messages state "coming soon" in words (see the',
+           ' * "Platform launch checklist" in docs/domains/beta-and-public-surfaces.md).',
+           " * Linux is deliberately not listed.", " */"]
+    platforms = "\n".join(["import type { Platform } from './types';", ""] + doc
+                          + ["export const landingPlatforms: readonly Platform[] = ['ios', 'android'];", "const glob = 'lib/*';",
+                             "export const shown: number = 3;", "/* opens here", "   and closes */ export const tail = 2;", ""])
+    legacy = (["export const a = 1;", "/* legacy:", "export const b = 2;", "*/", "export const c = 3;", "export const d = 4;",
+               "export const e = 5;"] + [f"export const f{i} = {i};" for i in range(10)]
+              + ["/**"] + [f" * Doc {w}" for w in ("one", "two", "three", "four", "five", "six, before", "seven", "eight")]
+              + [" */", "export function keep(): number { return 1; }", ""])
+    legacy2 = (["export const a = 1;", "export const b = 2;", "export const c = 3;", "/* disabled:", "export const d = 4;", "*/",
+                "export const e = 5;"] + legacy[7:])
+    legacy2[legacy2.index(" * Doc six, before")] = " * Doc six, after"
+    landing = "\n".join(["<main>", "  <!-- hidden until launch:", '  <section class="beta">Beta</section>', "  -->",
+                         '  <p class="live">Live</p>', "</main>", ""])
     commit(repo, {
         "web/src/components/VisitCard.vue": vue, "web/src/routes/+page.svelte": svelte,
         "Dockerfile": "FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nRUN npm ci\n", "app/build.gradle": "plugins {\n  id 'java'\n}\n",
         "api/visit.proto": 'syntax = "proto3";\nmessage Visit {\n  int64 id = 1;\n}\n', "web/.env.development": "API_URL=http://localhost\n",
         "db/schema.pgsql": "CREATE TABLE visit (id bigint PRIMARY KEY);\n", "infra/main.tf": 'resource "aws_s3_bucket" "b" {\n  bucket = "x"\n}\n',
-        "settings.gradle.kts": 'rootProject.name = "x"\n',
+        "settings.gradle.kts": 'rootProject.name = "x"\n', "web/src/landing/legacy.ts": "\n".join(legacy),
     }, "base")
     git(repo, "checkout", "-q", "-b", "feat")
     vue2 = vue.replace('    <p class="row-7">{{ visit.field7 }}</p>', '    <p class="row-7" :title="label(visit)">{{ visit.field7 }}</p>')
@@ -475,6 +498,7 @@ def sfc(d: Path) -> dict:
         "web/.env.development": "API_URL=http://localhost:8080\nDEBUG=true\n",
         "db/schema.pgsql": "CREATE TABLE visit (id bigint PRIMARY KEY, name text NOT NULL);\n",
         "infra/main.tf": 'resource "aws_s3_bucket" "b" {\n  bucket = "y"\n}\n', "settings.gradle.kts": 'rootProject.name = "visits"\n',
+        "web/src/landing/platforms.ts": platforms, "web/src/landing/legacy.ts": "\n".join(legacy2), "web/public/landing.html": landing,
     }, "feat")
     narrative = "<header><h1>Vue sample</h1></header>\n<!-- review-map:graph -->\n<footer>x</footer>\n"
     return {"page": str(page(d, repo, [("V", "main...feat", "V #7")], "Vue sample", narrative=narrative))}

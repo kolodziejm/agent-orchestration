@@ -877,10 +877,11 @@ html.g-wsroot{overflow:hidden}
   }
   function dvMeasure(){var w=dvEl.offsetWidth,n=wsOn&&w>0&&w<DV_NARROW;if(n!==dvNarrow){dvNarrow=n;dvPin=false;}dvSwitch();dinfoFit();}
   syncM();
-  /* Highlighting: highlight.js from cdnjs, one diff line at a time. LANG maps a file extension and NAMES a whole file
-     name to a highlight.js language. A language outside the cdnjs bundle (the ones hljs.getLanguage does not know) is
-     fetched from the same cdnjs release when a diff on this page needs it, and the shown diff re-renders when it
-     arrives unless a note editor is open in it. Terraform/HCL has no highlight.js language and stays plain. */
+  /* Highlighting: highlight.js from cdnjs, one diff line at a time (a block comment carries over, see hlRows). LANG
+     maps a file extension and NAMES a whole file name to a highlight.js language. A language outside the cdnjs bundle
+     (the ones hljs.getLanguage does not know) is fetched from the same cdnjs release when a diff on this page needs
+     it, and the shown diff re-renders when it arrives unless a note editor is open in it. Terraform/HCL has no
+     highlight.js language and stays plain. */
   var LANG={ts:'typescript',tsx:'typescript',mts:'typescript',cts:'typescript',js:'javascript',jsx:'javascript',mjs:'javascript',cjs:'javascript',
     php:'php',phtml:'php-template',py:'python',pyi:'python',rb:'ruby',rake:'ruby',gemspec:'ruby',go:'go',rs:'rust',java:'java',kt:'kotlin',kts:'kotlin',
     swift:'swift',cs:'csharp',c:'c',h:'c',cpp:'cpp',cc:'cpp',cxx:'cpp',hpp:'cpp',hh:'cpp',hxx:'cpp',m:'objectivec',mm:'objectivec',lua:'lua',
@@ -979,6 +980,43 @@ html.g-wsroot{overflow:hidden}
       });
     });
   }
+  /* Block comments carry from line to line: a line after one that leaves a comment open, on the same side of the same
+     hunk, is highlighted with the comment's opener put in front and taken out again, so it reads as comment up to the
+     closer and as code after it. Each side follows its own lines: context and removed on the old side, context and
+     added on the new. A hunk whose first line on a side starts with "*" starts inside a /** comment there when the
+     first closer of one comes before any opener. A language's block comments are the pairs of BC (/* and the HTML
+     comment) that highlight.js reads as one comment over several lines. Strings over several lines (template
+     literals, triple quotes) stay per line: their opener and closer look alike, so a hunk that starts inside one
+     would read the code after it as a string. Sets r.ho and r.hn on each row, the HTML of its code on each side. */
+  var BC=[['/*','*/'],['\x3c!--','-->']],bcs=Object.create(null);
+  function bcOf(l){
+    if(!hlOk(l))return [];
+    return bcs[l]||(bcs[l]=BC.filter(function(d){var c=d[0]+'\nx\n'+d[1];return hl(c,l)==='<span class="hljs-comment">'+esc(c)+'</span>';}));
+  }
+  /* The opener to put in front of the next line when the highlighted line h ends inside one of the comments ds, else
+     null. A /** comment stays one (so its @tags stay highlighted). */
+  function bcOpen(h,ds){
+    var i=h.lastIndexOf('<span class="hljs-comment">'),r=/<(\/?)span[^>]*>/g,d=0,m;if(!ds.length||i<0)return null;
+    r.lastIndex=i;while((m=r.exec(h))){d+=m[1]?-1:1;if(!d)break;}
+    if(!m||!/^(<\/span>)+$/.test(h.slice(m.index)))return null;
+    var t=h.slice(i,m.index).replace(/<[^>]*>/g,''),p=ds.filter(function(q){var o=esc(q[0]),c=esc(q[1]);return t.indexOf(o)===0&&!(t.length>=o.length+c.length&&t.slice(-c.length)===c);})[0];
+    return p?(p[0]==='/*'&&t.indexOf('/**')===0?'/**':p[0])+' ':null;
+  }
+  function hlRows(hs,l){
+    ['o','n'].forEach(function(sd){
+      hs.forEach(function(h){
+        var rows=h.rows.filter(function(r){return sd==='o'?r.t!=='add':r.t!=='del';}),t=rows.map(function(r){return r.s;}).join('\n'),e=t.indexOf('*/');
+        var open=/^\s*\*(?:[\s\/]|$)/.test(t)&&e>=0&&t.lastIndexOf('/*',e)<0?'/** ':null;
+        rows.forEach(function(r){
+          var lg=r['l'+sd]||l,ds=bcOf(lg),p,out;
+          if(open&&!ds.some(function(q){return open.indexOf(q[0])===0;}))open=null;
+          if(open){p='<span class="hljs-comment">'+esc(open);out=hl(open+r.s,lg);if(out.indexOf(p)!==0)open=null;}
+          if(!open)out=hl(r.s,lg);
+          r['h'+sd]=open?'<span class="hljs-comment">'+out.slice(p.length):out;open=bcOpen(out,ds);
+        });
+      });
+    });
+  }
   /* A file's hunks. Each @@ line says how many old and new lines its hunk holds; lines are read as its body until both
      counts are used up, so a removed "-- comment" (diff line "--- comment") or an added "++i" stays a code line, and
      anything outside a hunk (the "---"/"+++" file header) is skipped. A "\ No newline" marker counts as neither. */
@@ -1008,7 +1046,7 @@ html.g-wsroot{overflow:hidden}
      A read-only table (the whole-PR diff of a file split across parts) has neither, so no line can be selected. */
   function atCell(s,n){return n?' data-s="'+s+'" data-l="'+n+'"':'';}
   function table(f,ro){
-    var l=lang(f.path),hs=parse(f.diff),at=ro?function(){return '';}:atCell;sfcLangs(f.path,hs);
+    var l=lang(f.path),hs=parse(f.diff),at=ro?function(){return '';}:atCell;sfcLangs(f.path,hs);hlRows(hs,l);
     if(!hs.length)return '<div class="df-note">'+esc(typeof f.moved==='string'&&f.moved?fmt(S.movedBare,{from:f.moved}):S.noHunks)+'</div>';
     var html=(typeof f.moved==='string'&&f.moved?'<div class="df-note">'+esc(fmt(S.movedNote,{from:f.moved}))+'</div>':'')+'<table class="dt '+(dmode==='sbs'?'sbs':'uni')+'">';
     if(dmode==='sbs')html+='<colgroup><col style="width:46px"><col><col style="width:46px"><col></colgroup>';
@@ -1019,12 +1057,12 @@ html.g-wsroot{overflow:hidden}
         pairs(h.rows).forEach(function(p){
           var L=p[0],R=p[1],lc=L?(L.t==='ctx'?'':'del'):'emp',rc=R?(R.t==='ctx'?'':'add'):'emp';
           var la=at('old',L&&L.o),ra=at('new',R&&R.n);
-          html+='<tr><td class="ln '+lc+'"'+la+'>'+(L?L.o:'')+'</td><td class="cd '+lc+'">'+(L?hl(L.s,L.lo||l):'')+'</td><td class="ln '+rc+'"'+ra+'>'+(R?R.n:'')+'</td><td class="cd '+rc+'">'+(R?hl(R.s,R.ln||l):'')+'</td></tr>';
+          html+='<tr><td class="ln '+lc+'"'+la+'>'+(L?L.o:'')+'</td><td class="cd '+lc+'">'+(L?L.ho:'')+'</td><td class="ln '+rc+'"'+ra+'>'+(R?R.n:'')+'</td><td class="cd '+rc+'">'+(R?R.hn:'')+'</td></tr>';
         });
       }else{
         h.rows.forEach(function(r){
           var c=r.t==='ctx'?'':r.t,mk=r.t==='add'?'+':r.t==='del'?'−':' ';
-          html+='<tr><td class="ln '+c+'"'+at('old',r.o)+'>'+(r.o||'')+'</td><td class="ln '+c+'"'+at('new',r.n)+'>'+(r.n||'')+'</td><td class="cd '+c+'"><span class="mk">'+mk+'</span>'+hl(r.s,(r.t==='del'?r.lo:r.ln)||l)+'</td></tr>';
+          html+='<tr><td class="ln '+c+'"'+at('old',r.o)+'>'+(r.o||'')+'</td><td class="ln '+c+'"'+at('new',r.n)+'>'+(r.n||'')+'</td><td class="cd '+c+'"><span class="mk">'+mk+'</span>'+(r.t==='del'?r.ho:r.hn)+'</td></tr>';
         });
       }
     });

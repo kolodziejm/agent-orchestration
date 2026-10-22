@@ -1,7 +1,8 @@
 'use strict';
 // Syntax highlighting: Vue, Svelte, and Astro hunks highlighted by the block they sit in (both diff sides, both diff
-// modes), languages outside the highlight.js bundle loaded from cdnjs on demand, the extension and file-name map, and
-// the fence hint of a copied note on a .vue line. Needs network access to cdnjs, as the assembled page does.
+// modes), block comments over several lines (each side on its own lines, a hunk that starts inside one), languages
+// outside the highlight.js bundle loaded from cdnjs on demand, the extension and file-name map, and the fence hint of a
+// copied note on a .vue line. Needs network access to cdnjs, as the assembled page does.
 const { sleep } = require('./lib');
 
 const HELPERS = `window.V={
@@ -10,7 +11,15 @@ const HELPERS = `window.V={
   cls:function(text,side){var cells=[].filter.call(document.querySelectorAll('#dv-files td.cd'),function(td){return td.textContent.indexOf(text)>=0;});
     if(side==='new')cells=cells.filter(function(td){return td.classList.contains('add')||!td.classList.contains('del');}).slice(-1);
     if(side==='old')cells=cells.filter(function(td){return td.classList.contains('del');}).slice(0,1);
-    var td=cells[0];if(!td)return null;var out={};[].forEach.call(td.querySelectorAll('[class^=hljs-],[class*=" hljs-"]'),function(s){s.className.split(' ').forEach(function(c){if(/^hljs-/.test(c))out[c]=1;});});return Object.keys(out).sort();}
+    var td=cells[0];if(!td)return null;var out={};[].forEach.call(td.querySelectorAll('[class^=hljs-],[class*=" hljs-"]'),function(s){s.className.split(' ').forEach(function(c){if(/^hljs-/.test(c))out[c]=1;});});return Object.keys(out).sort();},
+  /* The code cell of the first line holding text on a side (old: the left cell, new: the right one; unified mode has
+     one): its text outside highlight.js comments, and the words it marks as keywords. */
+  code:function(text,side){
+    var uni=!!document.querySelector('#dv-files table.dt.uni'),td=null;
+    [].some.call(document.querySelectorAll('#dv-files table.dt tr'),function(tr){var c=tr.cells[uni?2:side==='old'?1:3];return !!(c&&c.textContent.indexOf(text)>=0&&(td=c));});
+    if(!td)return null;var out='',w=document.createTreeWalker(td,NodeFilter.SHOW_TEXT),n;
+    while((n=w.nextNode()))if(!n.parentNode.closest('.hljs-comment,.mk'))out+=n.data;
+    return {code:out.replace(/\\s+/g,' ').trim(),kw:[].map.call(td.querySelectorAll('.hljs-keyword'),function(s){return s.textContent;})};}
 };true`;
 const LAZY = ['dockerfile', 'groovy', 'protobuf', 'pgsql'];
 
@@ -41,6 +50,19 @@ module.exports = {
         await B.ev(`V.open('web/src/pages/index.astro')`); await sleep(150);
         const as = await B.ev(`({fm:V.cls("const title",'new'),mk:V.cls('<h1>{title}','new'),css:V.cls('color: navy','new')})`);
         t.check(`${th} astro ${m}: frontmatter as TypeScript, markup as xml, <style> as CSS`, has(as.fm, 'hljs-keyword') && has(as.mk, 'hljs-tag') && has(as.css, 'hljs-attribute') && !has(as.css, 'hljs-tag'), as);
+        await B.ev(`V.open('web/src/landing/platforms.ts')`); await sleep(150);
+        const doc = await B.ev(`[' * The platforms',' * optional',' * declare only',' * (\`App',' * each status',' * platform follows',' * that change',' * "Platform launch',' * Linux is',' */'].map(function(s){return V.code(s,'new');})`);
+        t.check(`${th} block comment ${m}: every line of a new file's doc comment reads as comment, through its closing line`, doc.every((c) => c && c.code === ''), doc);
+        const pl = await B.ev(`({after:V.code('export const landingPlatforms','new'),glob:V.code("const glob = 'lib/*'",'new'),next:V.code('export const shown','new'),tail:V.code('and closes','new')})`);
+        t.check(`${th} block comment ${m}: code after a comment, after a "/*" in a string, and after the closer on a line stays code`, pl.after.kw.includes('const') && pl.glob.kw.includes('const') && pl.next.code === 'export const shown: number = 3;' && pl.tail.code === 'export const tail = 2;' && pl.tail.kw.includes('const'), pl);
+        await B.ev(`V.open('web/src/landing/legacy.ts')`); await sleep(150);
+        const lg = await B.ev(`({bOld:V.code('export const b = 2','old'),bNew:V.code('export const b = 2','new'),dOld:V.code('export const d = 4','old'),dNew:V.code('export const d = 4','new'),two:V.code(' * Doc two','new'),twoOld:V.code(' * Doc two','old'),six:V.code('Doc six, after','new'),keep:V.code('export function keep','new')})`);
+        if (m === 'sbs') t.check(`${th} block comment sbs: a comment removed on the old side or added on the new covers its lines on that side only`, lg.bOld.code === '' && lg.bNew.kw.includes('const') && lg.dOld.kw.includes('const') && lg.dNew.code === '', lg);
+        else t.check(`${th} block comment uni: context lines follow the new side (inside the added comment, outside the removed one)`, lg.bNew.kw.includes('const') && lg.dNew.code === '', lg);
+        t.check(`${th} block comment ${m}: a hunk that starts inside a doc comment reads as comment up to the closer, code after it`, lg.two.code === '' && lg.twoOld.code === '' && lg.six.code === '' && lg.keep.kw.includes('function'), lg);
+        await B.ev(`V.open('web/public/landing.html')`); await sleep(150);
+        const ht = await B.ev(`({inside:V.code('<section class="beta">','new'),after:V.cls('<p class="live">','new')})`);
+        t.check(`${th} block comment ${m}: an HTML comment over several lines covers the markup inside it`, ht.inside.code === '' && has(ht.after, 'hljs-tag'), ht);
       }
       await B.ev(`document.querySelector('[data-m=sbs]').click()`);
       for (const [p, text, want] of [['Dockerfile', 'FROM node:22', 'hljs-keyword'], ['app/build.gradle', "id 'application'", 'hljs-string'], ['api/visit.proto', 'string name', 'hljs-type'],
