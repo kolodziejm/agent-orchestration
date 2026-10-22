@@ -16,6 +16,10 @@ The table of contents is built from each `<section id="…">` and its first <h2>
 --target artifact (default) emits the fragment the Claude Artifact page contract
 expects: it starts with <title>, and diagrams in <pre class="mermaid"> are rendered
 by the host. --target local emits a complete document and loads mermaid from cdnjs.
+Both carry the theme switch (View › Theme: Auto, Light, Dark), applied before the
+first paint; on a theme change the viewer redraws the diagrams itself for --target
+local and, for --target artifact, only through a window.mermaid the host exposes.
+The target is in review-config as "target".
 
 UI strings come from assets/strings.json for --lang, overridden key by key by
 --strings. JSON data is embedded in <script type="application/json"> blocks with
@@ -68,17 +72,8 @@ MARKER = "<!-- review-map:graph -->"
 PLACEHOLDER = re.compile(r"\{\{(S:[A-Za-z0-9_]+|[A-Z_]+)\}\}")
 KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 COLOR = re.compile(r"var\(--pal-[1-8]\)|#[0-9A-Fa-f]{3,8}|[A-Za-z]{3,20}")
-MERMAID_LOCAL = """<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js"></script>
-<script>
-(function(){
-  if(!window.mermaid)return;
-  var t=document.documentElement.getAttribute('data-theme');
-  var dark=t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches);
-  mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:dark?'dark':'default'});
-  mermaid.run({querySelector:'pre.mermaid'});
-})();
-</script>
-"""
+# The viewer draws the diagrams with it (and again in the other theme when the page turns light or dark).
+MERMAID_LOCAL = '<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.min.js"></script>\n'
 
 
 def embed_json(value: object) -> str:
@@ -203,7 +198,7 @@ def main() -> int:
     for parent in graph.get("parents") or []:
         pr_css.append(f".c-{parent['key']}{{--c:{first[parent['parts'][0]]}}}")
     storage_key = args.storage_key or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")[:60] or "review"
-    config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "strings": strings, "prs": prs}
+    config = {"lang": args.lang, "title": args.title, "storageKey": storage_key, "target": args.target, "strings": strings, "prs": prs}
     if previous is not None:
         config["previous"] = previous
     here = args.graph.resolve().parent

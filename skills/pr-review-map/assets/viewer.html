@@ -1,32 +1,87 @@
 {{DOC_START}}<title>{{TITLE}}</title>
 {{HEAD_META}}
+<script>
+/* The theme, set before the page paints. The reader's pick in View › Theme is kept in localStorage under
+   "review-map:theme" (one key for every report): "light" or "dark" sets data-theme on <html> and keeps it there, also
+   when the host page changes the attribute later. Without a pick (Auto) the attribute stays the host page's (an
+   Artifact host sets it), followed when the host changes it, and with none the system's prefers-color-scheme decides.
+   window.__reviewMapTheme: choice() is "auto", "light", or "dark"; dark() whether the page is dark now; set(choice);
+   on(fn) calls fn after any change of the pick, the attribute, or the system's scheme. */
+(function(){
+  var d=document.documentElement,K='review-map:theme',mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null,subs=[];
+  var T={host:d.getAttribute('data-theme'),pref:null};
+  try{var v=localStorage.getItem(K);if(v==='light'||v==='dark')T.pref=v;}catch(e){}
+  /* Records of this script's own writes are taken away at once, so the observer sees only the host's changes. */
+  var obs=window.MutationObserver?new MutationObserver(function(){T.host=d.getAttribute('data-theme');if(T.pref)write();fire();}):null;
+  function write(){
+    if(obs&&obs.takeRecords().length)T.host=d.getAttribute('data-theme');
+    var w=T.pref||T.host;
+    if(w==null)d.removeAttribute('data-theme');else if(d.getAttribute('data-theme')!==w)d.setAttribute('data-theme',w);
+    if(obs)obs.takeRecords();
+  }
+  function fire(){subs.slice().forEach(function(f){f();});}
+  T.choice=function(){return T.pref||'auto';};
+  T.dark=function(){var a=d.getAttribute('data-theme');return a==='dark'||(a!=='light'&&!!mq&&mq.matches);};
+  T.set=function(c){T.pref=c==='light'||c==='dark'?c:null;try{if(T.pref)localStorage.setItem(K,T.pref);else localStorage.removeItem(K);}catch(e){}write();fire();};
+  T.on=function(f){subs.push(f);};
+  write();
+  if(obs)obs.observe(d,{attributes:true,attributeFilter:['data-theme']});
+  if(mq){if(mq.addEventListener)mq.addEventListener('change',fire);else if(mq.addListener)mq.addListener(fire);}
+  window.__reviewMapTheme=T;
+})();
+</script>
 <style>
 /* Reference document: sticky TOC rail on wide screens, one reading column, PRs colour-coded by palette slot */
+/* Theme tokens. Light below; dark when data-theme="dark", or when the system prefers dark and data-theme is not "light"
+   (the reader's pick in View › Theme, else the host page's attribute, else the system). The two dark blocks stay
+   identical. Every colour the page draws comes from these tokens: the rest of the CSS and the SVG the script draws
+   use var(--…) only, so switching the theme redraws nothing. Diff rows (--d-*), syntax (--hl-*), review-plan buckets
+   (--b-*), and layers (--l-*) live here too. */
 :root{
+  color-scheme:light;
   --bg:#f6f7f9; --surface:#ffffff; --fg:#1b2230; --muted:#5b6577; --line:#dde2ea; --soft:#eef1f6;
   --accent:#00a0a0; --accent-ink:#00706f;
   --pal-1:#7a4fd6; --pal-2:#d0731d; --pal-3:#1f7ae0; --pal-4:#1a9b5a; --pal-5:#0e8f8a; --pal-6:#c2417a; --pal-7:#8a6a2f; --pal-8:#4b5d78;
   --dep:#1f7ae0; --use:#d0731d;
   --warn-bg:#fff6e5; --warn-fg:#8a5300; --risk-bg:#fdecee; --risk-fg:#a3263a; --ok-bg:#e8f6ee; --ok-fg:#17643c;
-  --code-bg:#f1f3f7;
+  --code-bg:#f1f3f7; --shadow:rgba(0,0,0,.18);
+  --d-add:#e6f7ec; --d-add-ln:#cdeedd; --d-del:#fdebec; --d-del-ln:#f8d4d7; --d-emp:#f3f4f7; --d-sel:rgba(245,185,0,.3);
+  --hl-k:#a2338a; --hl-s:#1a7f37; --hl-n:#0550ae; --hl-c:#6e7781; --hl-t:#953800; --hl-f:#6639ba; --hl-a:#0a3069;
+  --b-logic:#4f6bd8; --b-test:#8a94a6; --b-i18n:#2f9e6e; --b-docs:#c08a2e; --b-config:#b5487e; --b-generated:#c3cad6;
+  --l-contract:#1f7ae0; --l-domain:#7a4fd6; --l-logic:#0e9f9a; --l-infra:#d0731d; --l-rest:#c2410c; --l-wiring:#a3263a;
+  --l-ui:#1a9b5a; --l-data:#8a6a2f; --l-test:#6b7280; --l-config:#8a5300; --l-docs:#5b6577; --l-i18n:#2f855a; --l-other:#888888;
   --f-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   --f-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;
   --f-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
   --bg:#12161d; --surface:#1a2029; --fg:#e4e8ef; --muted:#9aa4b5; --line:#2c3441; --soft:#212835;
   --accent:#2cc6c4; --accent-ink:#5fd9d7;
   --pal-1:#a78bf0; --pal-2:#f0a35a; --pal-3:#6aa9f5; --pal-4:#4fc98a; --pal-5:#3cc9c3; --pal-6:#f07fb0; --pal-7:#d1b07a; --pal-8:#9fb0cc;
   --dep:#6aa9f5; --use:#f0a35a;
   --warn-bg:#33270f; --warn-fg:#f2c26b; --risk-bg:#3a1a20; --risk-fg:#f39aa8; --ok-bg:#15301f; --ok-fg:#8fdcae;
-  --code-bg:#222a36; color-scheme:dark}}
+  --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
+  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
+  --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
+  --b-logic:#7f9cf5; --b-test:#a3adbf; --b-i18n:#57c793; --b-docs:#e0b45e; --b-config:#e07fb0; --b-generated:#5d6778;
+  --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
+  --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
+}}
 :root[data-theme="dark"]{
+  color-scheme:dark;
   --bg:#12161d; --surface:#1a2029; --fg:#e4e8ef; --muted:#9aa4b5; --line:#2c3441; --soft:#212835;
   --accent:#2cc6c4; --accent-ink:#5fd9d7;
   --pal-1:#a78bf0; --pal-2:#f0a35a; --pal-3:#6aa9f5; --pal-4:#4fc98a; --pal-5:#3cc9c3; --pal-6:#f07fb0; --pal-7:#d1b07a; --pal-8:#9fb0cc;
   --dep:#6aa9f5; --use:#f0a35a;
   --warn-bg:#33270f; --warn-fg:#f2c26b; --risk-bg:#3a1a20; --risk-fg:#f39aa8; --ok-bg:#15301f; --ok-fg:#8fdcae;
-  --code-bg:#222a36; color-scheme:dark}
+  --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
+  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
+  --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
+  --b-logic:#7f9cf5; --b-test:#a3adbf; --b-i18n:#57c793; --b-docs:#e0b45e; --b-config:#e07fb0; --b-generated:#5d6778;
+  --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
+  --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
+}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.55;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
@@ -165,7 +220,7 @@ footer{color:var(--muted);font-size:13px}
 .g-lane .arc.pk{stroke:var(--accent);stroke-opacity:.9;stroke-width:1.6}
 .g-lane .arc.dep{stroke:var(--dep);stroke-opacity:1;stroke-width:2.2}
 .g-lane .arc.use{stroke:var(--use);stroke-opacity:1;stroke-width:2.2}
-.g-lane .dot{stroke:var(--surface);stroke-width:1.5}
+.g-lane .dot{fill:var(--lc,var(--muted));stroke:var(--surface);stroke-width:1.5}
 .g-lane .dot.on{stroke:var(--fg);stroke-width:2}
 .g-lane .dot.hu{stroke:var(--dep);stroke-width:2.2}
 .g-lane .more{font-family:var(--f-mono);font-size:10px;font-weight:700;fill:var(--fg);paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
@@ -225,9 +280,15 @@ footer{color:var(--muted);font-size:13px}
 .g-legend .g-hint{flex-basis:100%;max-width:80ch}
 .g-legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
 svg .nd rect{stroke-width:1.5}
+/* Node colours come from custom properties on each node (--lc its layer, --c its PR), so they follow the theme */
+svg .nd rect.box{fill:var(--surface);stroke:var(--line)}
+svg .nd.ext rect.box{stroke:var(--c)}
+svg .nd rect.lb{fill:var(--lc)}
+svg .mk{fill:var(--muted)} svg .mk.mk-dep{fill:var(--dep)} svg .mk.mk-use{fill:var(--use)}
 svg .nd text{font-family:var(--f-body);fill:var(--fg)}
 svg .nd .sub{fill:var(--muted);font-family:var(--f-mono)}
-svg .nd .num{font-family:var(--f-mono);font-weight:600}
+svg .nd .num{font-family:var(--f-mono);font-weight:600;fill:var(--lc)}
+svg .nd.ext .num{fill:var(--c)}
 svg .nd{cursor:pointer;transition:opacity .15s}
 svg .nd:focus{outline:none}
 svg .nd:focus-visible rect.box{stroke:var(--accent);stroke-width:3}
@@ -235,7 +296,7 @@ svg .ed{fill:none;stroke:var(--muted);stroke-opacity:.55;stroke-width:1.4;transi
 svg .ed.http{stroke-dasharray:6 4}
 svg .ed.type{stroke-dasharray:2 3;stroke-opacity:.3}
 svg .ed.xtra{display:none}
-svg .gl{font-family:var(--f-body);font-size:12px;font-weight:700}
+svg .gl{font-family:var(--f-body);font-size:12px;font-weight:700;fill:var(--c)}
 svg .shl{font-family:var(--f-body);font-size:12px;fill:var(--muted)}
 svg .shb{fill:none;stroke:var(--line);stroke-dasharray:4 4}
 svg .hbb{fill:color-mix(in srgb,var(--dep) 7%,transparent);stroke:var(--line);stroke-dasharray:4 4}
@@ -309,12 +370,6 @@ table.dt tr.hk td{background:var(--soft);color:var(--muted);padding:3px 8px;font
 td.del{background:var(--d-del)} td.add{background:var(--d-add)} td.emp{background:var(--d-emp)}
 td.ln.del{background:var(--d-del-ln)} td.ln.add{background:var(--d-add-ln)}
 td.cd .mk{user-select:none;color:var(--muted);display:inline-block;width:1.1em}
-:root{--d-add:#e6f7ec;--d-add-ln:#cdeedd;--d-del:#fdebec;--d-del-ln:#f8d4d7;--d-emp:#f3f4f7;--d-sel:rgba(245,185,0,.3);
-  --hl-k:#a2338a;--hl-s:#1a7f37;--hl-n:#0550ae;--hl-c:#6e7781;--hl-t:#953800;--hl-f:#6639ba;--hl-a:#0a3069}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--d-add:#14301f;--d-add-ln:#1c4029;--d-del:#3a1a1e;--d-del-ln:#4a2126;--d-emp:#1d232d;--d-sel:rgba(255,200,40,.22);
-  --hl-k:#ff7bd8;--hl-s:#7ee2a8;--hl-n:#79c0ff;--hl-c:#8b949e;--hl-t:#ffa657;--hl-f:#d2a8ff;--hl-a:#a5d6ff}}
-:root[data-theme="dark"]{--d-add:#14301f;--d-add-ln:#1c4029;--d-del:#3a1a1e;--d-del-ln:#4a2126;--d-emp:#1d232d;--d-sel:rgba(255,200,40,.22);
-  --hl-k:#ff7bd8;--hl-s:#7ee2a8;--hl-n:#79c0ff;--hl-c:#8b949e;--hl-t:#ffa657;--hl-f:#d2a8ff;--hl-a:#a5d6ff}
 .hljs-keyword,.hljs-meta .hljs-keyword,.hljs-built_in,.hljs-literal{color:var(--hl-k)}
 .hljs-string,.hljs-regexp,.hljs-template-tag{color:var(--hl-s)}
 .hljs-number,.hljs-variable.constant_{color:var(--hl-n)}
@@ -404,7 +459,7 @@ details.nt-panel{margin:0}
 /* Tours: the picker beside the view toggle, the bar at the foot of the graph (held at the bottom of the window while the
    graph is in view), each row's step numbers, and the tour's path on the map */
 .g-tools select{font:inherit;font-size:13px;max-width:260px;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
-.g-tour{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:4;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent-ink);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.14);font-size:14px}
+.g-tour{position:sticky;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:4;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:12px;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent-ink);border-radius:10px;box-shadow:0 6px 18px var(--shadow);font-size:14px}
 .g-tour[hidden]{display:none}
 .g-tour .tn{font-weight:700;color:var(--accent-ink)}
 .g-tour .ts{font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -424,10 +479,7 @@ details.g-more{border:0;background:none;margin:-10px 0 14px}
 details.g-more>summary{padding:2px 0;font-size:14px;color:var(--accent-ink);display:inline-flex}
 .g-morel{margin:6px 0 0;padding-left:20px;display:grid;gap:5px;font-size:14px;color:var(--muted)}
 .g-morel li{max-width:92ch}
-/* Review plan: the PR's areas in reading order with an estimate, and its changed lines by kind */
-:root{--b-logic:#4f6bd8;--b-test:#8a94a6;--b-i18n:#2f9e6e;--b-docs:#c08a2e;--b-config:#b5487e;--b-generated:#c3cad6}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--b-logic:#7f9cf5;--b-test:#a3adbf;--b-i18n:#57c793;--b-docs:#e0b45e;--b-config:#e07fb0;--b-generated:#5d6778}}
-:root[data-theme="dark"]{--b-logic:#7f9cf5;--b-test:#a3adbf;--b-i18n:#57c793;--b-docs:#e0b45e;--b-config:#e07fb0;--b-generated:#5d6778}
+/* Review plan: the PR's areas in reading order with an estimate, and its changed lines by kind (--b-* tokens at the top) */
 .b-logic{--bc:var(--b-logic)} .b-test{--bc:var(--b-test)} .b-i18n{--bc:var(--b-i18n)} .b-docs{--bc:var(--b-docs)} .b-config{--bc:var(--b-config)} .b-generated{--bc:var(--b-generated)}
 details.g-plan{margin:0 0 12px}
 details.g-plan>summary{padding:9px 14px;gap:8px;flex-wrap:wrap}
@@ -512,12 +564,16 @@ svg .nd.hl,.g-ovs .cl.hl{opacity:1!important}
 svg .nd.hl rect.box,.g-ovs .cl.hl rect.cb{stroke:var(--accent);stroke-width:3.5;stroke-dasharray:none}
 /* View menu: the list and map toggles behind one button */
 .g-menu{position:relative;display:inline-flex}
-.g-mpop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:grid;gap:2px;min-width:250px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.18);color:var(--fg);white-space:nowrap}
+.g-mpop{position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:grid;gap:2px;min-width:250px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px var(--shadow);color:var(--fg);white-space:nowrap}
 .g-mpop[hidden]{display:none}
 .g-tools .g-mpop label{display:flex;padding:4px;border-radius:6px}
 .g-tools .g-mpop label[hidden]{display:none}
 .g-mpop label:hover{background:var(--soft)}
 .g-tools .g-mbtn[aria-expanded="true"]{background:var(--soft)}
+/* View › Theme: Auto (the host page's or the system's), Light, Dark; one line under the toggles */
+.g-mth{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;padding:8px 4px 2px;border-top:1px solid var(--line)}
+.g-mth[hidden]{display:none}
+.g-tools .g-mth .dv-mode button{padding:3px 10px}
 /* Code references in the narrative open their lines; a risk becomes a note */
 button.g-ref{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:inherit}
 button.g-ref code{color:var(--accent-ink);text-decoration:underline dotted;text-underline-offset:2px}
@@ -544,7 +600,7 @@ html.g-wsroot{overflow:hidden}
 #graph.ws .g-tools{flex:0 0 auto;flex-wrap:nowrap;margin:0;gap:8px 12px}
 #graph.ws .g-tools select{max-width:200px}
 #graph.ws .g-mpop{left:auto;right:0}
-#graph.ws .nt-pred{position:absolute;top:100%;left:12px;width:min(640px,calc(100% - 24px));margin:6px 0 0;box-shadow:0 10px 28px rgba(0,0,0,.2)}
+#graph.ws .nt-pred{position:absolute;top:100%;left:12px;width:min(640px,calc(100% - 24px));margin:6px 0 0;box-shadow:0 10px 28px var(--shadow)}
 #graph.ws .g-work{flex:1 1 auto;min-height:0;margin:0;gap:0;align-items:stretch;
   grid-template-columns:var(--wl,340px) 10px minmax(0,1fr) 10px var(--wr,420px);grid-template-rows:auto minmax(0,1fr);
   grid-template-areas:"list s1 diff s2 rh" "list s1 diff s2 rb"}
@@ -574,7 +630,7 @@ html.g-wsroot{overflow:hidden}
 #graph.ws.ws-lmap .g-canvas{grid-area:list;margin:10px 0 10px 10px}
 #graph.ws.ws-lmap .dv{padding-right:10px}
 #graph.ws #nt-panel{display:none}
-#graph.ws.ws-notes #nt-panel{display:block;position:absolute;top:var(--wst,52px);right:0;bottom:0;z-index:9;width:min(460px,92vw);margin:0;overflow:auto;border-radius:0;border-width:0 0 0 1px;box-shadow:-12px 0 32px rgba(0,0,0,.2)}
+#graph.ws.ws-notes #nt-panel{display:block;position:absolute;top:var(--wst,52px);right:0;bottom:0;z-index:9;width:min(460px,92vw);margin:0;overflow:auto;border-radius:0;border-width:0 0 0 1px;box-shadow:-12px 0 32px var(--shadow)}
 #graph.ws.ws-notes #nt-panel>summary::before{content:none}
 #graph.ws.ws-notes #nt-panel>summary::after{content:"✕";margin-left:auto;color:var(--muted)}
 #graph.ws .nt-list{max-height:none}
@@ -640,6 +696,7 @@ html.g-wsroot{overflow:hidden}
         <label><input type="checkbox" id="g-tests" checked> {{S:showTests}}</label>
         <label><input type="checkbox" id="g-ext" checked> {{S:showExternal}}</label>
         <label id="g-cfl" title="{{S:cfMarksTitle}}" hidden><input type="checkbox" id="g-cfmarks"> {{S:cfMarks}}</label>
+        <span class="g-mth" id="g-thm" role="group" aria-labelledby="g-thl"><span id="g-thl">{{S:theme}}</span><span class="dv-mode"><button type="button" data-th="auto" title="{{S:themeAutoTitle}}">{{S:themeAuto}}</button><button type="button" data-th="light">{{S:themeLight}}</button><button type="button" data-th="dark">{{S:themeDark}}</button></span></span>
       </span>
     </span>
     <span class="g-pnb"><button type="button" id="g-prev">{{S:prev}}</button> <button type="button" id="g-next">{{S:next}}</button></span>
@@ -717,7 +774,8 @@ html.g-wsroot{overflow:hidden}
   var data=JSON.parse(document.getElementById('graph-data').textContent);
   var DIFFS=JSON.parse(document.getElementById('diff-data').textContent);
   var S=CFG.strings;
-  var LAYER_COLORS={contract:'#1f7ae0',domain:'#7a4fd6',logic:'#0e9f9a',infra:'#d0731d',rest:'#c2410c',wiring:'#a3263a',ui:'#1a9b5a',data:'#8a6a2f',test:'#6b7280',config:'#8a5300',docs:'#5b6577',i18n:'#2f855a'};
+  /* Each layer's colour is a theme token (--l-<layer> in the CSS, with a dark value), used through var() wherever it lands. */
+  var LAYER_COLORS={};['contract','domain','logic','infra','rest','wiring','ui','data','test','config','docs','i18n'].forEach(function(l){LAYER_COLORS[l]='var(--l-'+l+')';});
   var LATE={docs:1,config:1,i18n:1};
   /* own(o,k): o's own property k, else null. Keys that come from data (file extensions and names, layers, PR keys)
      are looked up through it, so "constructor" or "__proto__" never reach Object.prototype. */
@@ -737,7 +795,7 @@ html.g-wsroot{overflow:hidden}
   function sha7(s){return String(s||'').slice(0,7);}
   /* A part named for copied notes: "#251 · part 2/5 (abc1234..def5678)". */
   function partRef(k){var c=PARTOF[k];return c?prName(c.of)+' · '+fmt(S.chunkOf,{i:c.index,n:c.count})+' ('+sha7(c.from)+'..'+sha7(c.to)+')':prName(k);}
-  function layerOf(l){return [own(S.layers,l)||l||'?',own(LAYER_COLORS,l)||'#888'];}
+  function layerOf(l){return [own(S.layers,l)||l||'?',own(LAYER_COLORS,l)||'var(--l-other)'];}
   var KEY='review-map:'+(CFG.storageKey||CFG.title||document.title||location.pathname||'review')+':';
   function load(k,d){try{var v=localStorage.getItem(KEY+k);return v==null?d:v;}catch(e){return d;}}
   function save(k,v){try{localStorage.setItem(KEY+k,v);}catch(e){}}
@@ -1723,7 +1781,6 @@ html.g-wsroot{overflow:hidden}
   var omode=cur?modeOf(cur):'top',view=load('view','list')==='map'?'map':'list',selBy={},peek=null,nbAll={};
   var NS='http://www.w3.org/2000/svg';
   function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
-  function css(v){var m=/^var\((--[\w-]+)\)$/.exec(v);if(m)v=m[1];return getComputedStyle(document.documentElement).getPropertyValue(v).trim()||v;}
   function trunc(s,n){return s.length>n?s.slice(0,Math.max(1,n-1))+'…':s;}
   var tabs=document.getElementById('g-tabs'),stepOl=document.getElementById('g-order'),obox=document.getElementById('g-orderbox'),lane=document.getElementById('g-lane');
   var xl=document.getElementById('g-xlist'),cv=document.getElementById('g-canvas'),detEl=document.getElementById('g-detail');
@@ -1789,6 +1846,15 @@ html.g-wsroot{overflow:hidden}
   menu.addEventListener('keydown',function(ev){if(ev.key==='Escape'&&!mPop.hidden){ev.preventDefault();ev.stopPropagation();menuOpen(false,true);}});
   menu.addEventListener('focusout',function(ev){if(ev.relatedTarget&&!menu.contains(ev.relatedTarget))menuOpen(false);});
   document.addEventListener('pointerdown',function(ev){if(!mPop.hidden&&!menu.contains(ev.target))menuOpen(false);});
+  /* View › Theme: Auto, Light, or Dark through the head script's window.__reviewMapTheme, which applies the pick before
+     the first paint and keeps it. The buttons say which is picked and follow a change from another source (the host
+     page, the system, a storage-less reload). Colours come from CSS tokens only, so nothing is redrawn. */
+  var TH=window.__reviewMapTheme||null,thBox=document.getElementById('g-thm'),thBtns=thBox.querySelectorAll('[data-th]');
+  function paintTheme(){var c=TH.choice();[].forEach.call(thBtns,function(b){b.setAttribute('aria-pressed',b.dataset.th===c?'true':'false');});}
+  if(TH){
+    [].forEach.call(thBtns,function(b){b.addEventListener('click',function(){TH.set(b.dataset.th);paintTheme();say(S.theme+': '+b.textContent);});});
+    TH.on(paintTheme);paintTheme();
+  }else thBox.hidden=true;
   /* The PR picker the workspace shows instead of the tabs when they do not fit its top bar. */
   var wsPr=document.getElementById('g-wspr');
   data.prs.forEach(function(p){var o=document.createElement('option'),c=PARTOF[p.key];o.value=p.key;o.textContent=(c?prName(c.of)+' · '+fmt(S.chunkOf,{i:c.index,n:c.count})+(c.label?' '+c.label:''):prName(p.key))+' · '+p.nodes.length;wsPr.appendChild(o);});
@@ -2263,7 +2329,7 @@ html.g-wsroot{overflow:hidden}
       var c='arc'+(e.kind==='http'?' http':e.kind==='type'?' type':'')+(r===2?(e.from===sel?' dep':' use'):r?' pk':'');
       el('path',{class:c,d:'M'+x1+','+y1+' C'+(x1+w)+','+y1+' '+(x2+w)+','+y2+' '+x2+','+y2,'data-f':e.from,'data-t':e.to},lane);
     });
-    rows.forEach(function(li){var id=li.dataset.id;if(!hid[id])el('circle',{class:'dot'+(id===sel?' on':hu[id]?' hu':''),cx:x[id],cy:y[id],r:id===sel?4.5:3,fill:li.style.getPropertyValue('--lc')},lane);});
+    rows.forEach(function(li){var id=li.dataset.id;if(!hid[id])el('circle',{class:'dot'+(id===sel?' on':hu[id]?' hu':''),cx:x[id],cy:y[id],r:id===sel?4.5:3,style:'--lc:'+li.style.getPropertyValue('--lc')},lane);});
     if(more)el('text',{class:'more',x:x[sel]+7,y:y[sel]-5},lane).textContent='+'+more;
   }
   /* "◆n" on the selected row: the shared dependencies it uses, whose arcs the lane leaves out. */
@@ -2605,7 +2671,7 @@ html.g-wsroot{overflow:hidden}
     var H=(rest.length?shY+Math.ceil(rest.length/K)*(MH+MY)-MY:maxY)+MP;
     var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':S.graphAria+' '+prName(cur)},cv);MAP.svg=svg;
     var defs=el('defs',{},svg);
-    [['ar','--muted'],['ar-dep','--dep'],['ar-use','--use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',fill:css(a[1])},m);});
+    [['ar',''],['ar-dep',' mk-dep'],['ar-use',' mk-use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',class:'mk'+a[1]},m);});
     if(rest.length){el('line',{class:'shb',x1:MP,x2:W-MP,y1:shY-26,y2:shY-26},svg);el('text',{class:'shl',x:MP,y:shY-9},svg).textContent=S.shelf;}
     if(hubs.length){el('rect',{class:'hbb',x:MP/2,y:MP/2,width:W-MP,height:by-MP/2,rx:10},svg);el('text',{class:'shl',x:MP,y:MP+12},svg).textContent='◆ '+S.sharedDeps+' · '+S.sharedMap;}
     var eg=el('g',{},svg),pg=el('g',{},svg),ng=el('g',{},svg),drawn={};
@@ -2633,15 +2699,15 @@ html.g-wsroot{overflow:hidden}
       edge(e,link(a,z),' xtra');
     });
     function node(n,p){
-      var ext=!!n.ext,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),cf=cfShow?mergedOf(n):[],cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
-      var g=el('g',{class:'nd'+(isDone(n.id)?' done':''),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(cft?', '+cft:'')},ng);
-      el('rect',{class:'box',width:p.w,height:p.h,rx:8,fill:css('--surface'),stroke:ext?prc:css('--line'),'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
-      el('rect',{width:5,height:p.h-12,x:6,y:6,rx:2,fill:L[1]},g);
+      var ext=!!n.ext,L=layerOf(n.layer),num=ext?n.id:String(ON[n.id]),cf=cfShow?mergedOf(n):[],cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
+      var g=el('g',{class:'nd'+(ext?' ext':'')+(isDone(n.id)?' done':''),style:'--lc:'+L[1]+';--c:'+prColor(n.pr),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(cft?', '+cft:'')},ng);
+      el('rect',{class:'box',width:p.w,height:p.h,rx:8,'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
+      el('rect',{class:'lb',width:5,height:p.h-12,x:6,y:6,rx:2},g);
       var t=el('text',{x:18,y:p.h>MT?20:19,'font-size':13,'font-weight':600},g);
-      el('tspan',{class:'num',fill:ext?prc:L[1]},t).textContent=num+' ';
+      el('tspan',{class:'num'},t).textContent=num+' ';
       el('tspan',{},t).textContent=trunc(n.label,Math.floor((p.w-30)/7.6)-num.length);
       if(p.h>MT)el('text',{class:'sub',x:18,y:37,'font-size':11},g).textContent=ext?prName(n.pr)+' · '+L[0]:L[0]+' · +'+(n.added||0)+(n.removed?'/−'+n.removed:'');
-      if(p.head)el('text',{class:'gl',x:0,y:-7,fill:prc},g).textContent=prName(n.pr);
+      if(p.head)el('text',{class:'gl',x:0,y:-7},g).textContent=prName(n.pr);
       if(cft)cfMark(g);
       el('title',{},g).textContent=n.path+'\n'+(n.role||'')+(cft?'\n↯ '+cft:'');
       function go(){if(ext)goto(n.id);else select(n.id,'map');}
@@ -2860,15 +2926,15 @@ html.g-wsroot{overflow:hidden}
     });
   }
   function ovNode(n,p,c,ng){
-    var M=MAP,ext=n.pr!==cur,L=layerOf(n.layer),prc=css(prColor(n.pr)),num=ext?n.id:String(ON[n.id]),ts=(own(c.tests,n.id)||[]).filter(function(t){return byId[t];});
+    var M=MAP,ext=n.pr!==cur,L=layerOf(n.layer),num=ext?n.id:String(ON[n.id]),ts=(own(c.tests,n.id)||[]).filter(function(t){return byId[t];});
     var cf=cfShow?mergedOf(n):[],cft=cf.length?fmt(S.conflictTitle,{list:cf.join(', ')}):'';
     var aria=(ext?fmt(S.usesPr,{pr:prName(n.pr),path:n.path}):S.step+' '+num+': '+n.label+', '+L[0])+(ts.length?', '+fmt(S.testsAria,{n:ts.length}):'')+(cft?', '+cft:'');
-    var g=el('g',{class:'nd'+(isDone(n.id)?' done':''),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':aria},ng);
+    var g=el('g',{class:'nd'+(ext?' ext':'')+(isDone(n.id)?' done':''),style:'--lc:'+L[1]+';--c:'+prColor(n.pr),transform:'translate('+p.x+','+p.y+')',tabindex:-1,role:'button','aria-label':aria},ng);
     el('title',{},g).textContent=n.path+'\n'+(n.role||'')+(cft?'\n↯ '+cft:'');
-    el('rect',{class:'box',width:p.w,height:p.h,rx:8,fill:css('--surface'),stroke:ext?prc:css('--line'),'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
-    el('rect',{width:5,height:p.h-12,x:6,y:6,rx:2,fill:L[1]},g);
+    el('rect',{class:'box',width:p.w,height:p.h,rx:8,'stroke-dasharray':(ext||n.layer==='test')?'5 4':''},g);
+    el('rect',{class:'lb',width:5,height:p.h-12,x:6,y:6,rx:2},g);
     var t=el('text',{x:18,y:20,'font-size':13,'font-weight':600},g);
-    el('tspan',{class:'num',fill:ext?prc:L[1]},t).textContent=num+' ';
+    el('tspan',{class:'num'},t).textContent=num+' ';
     el('tspan',{},t).textContent=trunc(n.label,Math.floor((p.w-30-(ts.length?38:0))/7.6)-num.length);
     el('text',{class:'sub',x:18,y:37,'font-size':11},g).textContent=ext?prName(n.pr)+' · '+L[0]:L[0]+' · +'+(n.added||0)+(n.removed?'/−'+n.removed:'');
     if(ts.length){
@@ -2986,7 +3052,7 @@ html.g-wsroot{overflow:hidden}
       +'</span><span class="g-ovh">'+esc(S.zoomHint)+'</span>';
     cv.appendChild(bar);
     var svg=el('svg',{class:'g-ovs',role:'group','aria-label':fmt(S.mapAreasAria,{pr:prName(cur)})},cv),defs=el('defs',{},svg);
-    [['ov-ar','--muted'],['ov-ar-dep','--dep'],['ov-ar-use','--use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:9,markerHeight:9,markerUnits:'userSpaceOnUse',orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',fill:css(a[1])},m);});
+    [['ov-ar',''],['ov-ar-dep',' mk-dep'],['ov-ar-use',' mk-use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:9,markerHeight:9,markerUnits:'userSpaceOnUse',orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',class:'mk'+a[1]},m);});
     var vp=el('g',{class:'vp'},svg),ag=el('g',{},vp),cg=el('g',{},vp),ig=el('g',{},vp),ng=el('g',{},vp),sg=el('g',{},vp),pg=el('g',{},vp),adj=Object.create(null);
     var M=MAP={ov:1,pr:cur,svg:svg,vp:vp,L:L,nd:{},cl:Object.create(null),foc:Object.create(null),seq:[],ed:[],ag:[],sg:sg,pg:pg,inE:Object.create(null),t:null,adj:adj,drag:0};
     M.rp=function(x){var n=all[x];return n&&n.layer==='test'&&SUBJ[x]?SUBJ[x]:x;};
@@ -3565,8 +3631,41 @@ html.g-wsroot{overflow:hidden}
   if(location.hash==='#ws')wsEnter('');
   if(window.ResizeObserver){new ResizeObserver(function(){drawLane();}).observe(stepOl);new ResizeObserver(function(){drawNb();}).observe(detEl);new ResizeObserver(function(){dvMeasure();}).observe(dvEl);}
   else window.addEventListener('resize',function(){drawLane();drawNb();dvMeasure();});
-  var mq=window.matchMedia('(prefers-color-scheme: dark)');if(mq.addEventListener)mq.addEventListener('change',render);
-  new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+})();
+</script>
+<script>
+/* Mermaid diagrams follow the theme: mermaid's "dark" theme on a dark page, "default" on a light one.
+   --target local (review-config "target"): the page loads mermaid (the script after this one) and this draws every
+   <pre class="mermaid"> once the document is parsed, then again whenever the page turns light or dark.
+   --target artifact: the host draws them. When the page later turns light or dark and the host's mermaid is reachable
+   as window.mermaid, the diagrams whose source this kept (read before the host drew them) are drawn again in the new
+   theme; so are they once the host has drawn them all when the reader's pick disagrees with the host's own theme. A
+   failed redraw puts back what the host drew. Without window.mermaid or the source nothing is touched. */
+(function(){
+  var T=window.__reviewMapTheme,cfg={};
+  try{cfg=JSON.parse(document.getElementById('review-config').textContent)||{};}catch(e){}
+  var own=cfg.target==='local',pres=[].filter.call(document.querySelectorAll('pre.mermaid'),function(p){return !p.hasAttribute('data-processed')&&!p.querySelector('svg');});
+  if(!pres.length||!T)return;
+  var src=pres.map(function(p){return p.innerHTML;}),drawn=null,queue=Promise.resolve(),was=T.dark();
+  function draw(){
+    queue=queue.then(function(){
+      var M=window.mermaid,k=T.dark()?'dark':'default';
+      if(k===drawn||!M||typeof M.initialize!=='function'||typeof M.run!=='function')return;
+      var before=pres.map(function(p){return [p.innerHTML,p.getAttribute('data-processed')];});
+      pres.forEach(function(p,i){p.removeAttribute('data-processed');p.innerHTML=src[i];});
+      return Promise.resolve().then(function(){M.initialize({startOnLoad:false,securityLevel:'strict',theme:k});return M.run({nodes:pres});})
+        .then(function(){drawn=k;},function(){if(own)return;pres.forEach(function(p,i){p.innerHTML=before[i][0];if(before[i][1]!=null)p.setAttribute('data-processed',before[i][1]);});});
+    });
+  }
+  T.on(function(){var k=T.dark();if(k===was)return;was=k;draw();});
+  if(own){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',draw);else draw();return;}
+  var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+  var hostDark=T.host==='dark'||(T.host!=='light'&&!!mq&&mq.matches);
+  if(T.choice()!=='auto'&&hostDark!==T.dark()&&window.MutationObserver){
+    var mo=new MutationObserver(function(){if(pres.every(function(p){return !!p.querySelector('svg');})){mo.disconnect();draw();}});
+    pres.forEach(function(p){mo.observe(p,{childList:true});});
+    setTimeout(function(){mo.disconnect();},60000);
+  }
 })();
 </script>
 {{DOC_END}}

@@ -242,4 +242,9 @@ State only what was actually run. A suite you did not run goes under "Not run".
 (`path`, `d`, `role`), `steps`, `risk-list` + `sev-h|sev-m|sev-l` + `who`,
 `diagram` + `pre.mermaid`, `pre.code`, `cols-2`, `pill ok|warn|risk`, `lead`, `sub`.
 Theme tokens: `--bg --surface --fg --muted --line --soft --accent --accent-ink`,
-`--pal-1 … --pal-8`, `--warn-* --risk-* --ok-*`; they switch for dark mode.
+`--pal-1 … --pal-8`, `--warn-* --risk-* --ok-*`; they switch with the reader's theme
+(View › Theme: Auto follows the host page or the system, or Light, or Dark). Write any
+inline colour as one of them (`style="color:var(--muted)"`), never as hex or `rgb()`,
+so the narrative reads in both themes. Mermaid diagrams are redrawn in mermaid's dark
+or default theme when the page turns dark or light (on an Artifact only when the host
+exposes its mermaid as `window.mermaid`); do not set a theme in the diagram source.

@@ -104,7 +104,7 @@ async function launch(chrome, workDir, { offline = false } = {}) {
       return r.result.result.value;
     },
     // Window size and the prefers-color-scheme the page sees (the viewer follows it unless data-theme is set); without `dark`
-    // the colour scheme is left alone (setting it again, even to the same value, makes the viewer draw its list afresh).
+    // the colour scheme is left alone.
     async viewport(width, height, dark) {
       await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       if (dark !== undefined) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
@@ -190,7 +190,7 @@ function viewerOrder(file) {
 // The context one suite runs with: the browser, fixture paths, checks, and page loading.
 class Suite {
   constructor(name, opts) {
-    Object.assign(this, opts); // fixtures, work, python, root, shots, verbose, micromark; the runner sets B
+    Object.assign(this, opts); // fixtures, work, python, root, shots, verbose, micromark, cdn (cdnjs reachable); the runner sets B
     this.name = name; this.passed = 0; this.failures = []; this.skips = []; this.helpers = [];
   }
   check(name, cond, extra) {

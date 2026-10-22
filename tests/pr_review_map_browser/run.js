@@ -16,7 +16,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const SUITES = ['core', 'hubs', 'sfc', 'addon', 'refresh', 'security', 'mdnote', 'plan', 'workspace', 'wsmap'];
+const SUITES = ['core', 'hubs', 'sfc', 'addon', 'refresh', 'security', 'mdnote', 'plan', 'workspace', 'wsmap', 'theme'];
 const ROOT = path.resolve(__dirname, '..', '..');
 
 function usage(msg) {
@@ -96,7 +96,7 @@ async function loadMicromark() {
     const runOne = async (suite) => {
       const t0 = Date.now();
       const dir = fs.mkdtempSync(path.join(work, suite.name + '-'));
-      const t = new Suite(suite.name, { fixtures, work: dir, python, root: ROOT, shots: opts.shots, verbose: opts.verbose, micromark: have.micromark });
+      const t = new Suite(suite.name, { fixtures, work: dir, python, root: ROOT, shots: opts.shots, verbose: opts.verbose, micromark: have.micromark, cdn: have.cdn });
       let B = null;
       try {
         if (suite.needs.includes('chrome')) t.B = B = await launch(have.chrome, dir, { offline: !have.cdn });

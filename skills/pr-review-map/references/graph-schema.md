@@ -53,7 +53,8 @@ PR fields:
   when git cannot resolve them. Copied review notes name them per PR.
 - `color` — optional: `var(--pal-1)` … `var(--pal-8)`, a hex colour, or a colour
   name (anything else is refused, since it lands in CSS); by default PR *n* gets
-  palette slot `--pal-n` (8 slots, light and dark variants).
+  palette slot `--pal-n` (8 slots, light and dark variants; a hex colour or a name
+  stays the same in both themes, so prefer a slot).
 - List PRs in merge order. Edges may point only to the same or an earlier PR.
 - `readFrom`, `readFromWhy` — the reading mode build_graph.py recommends for the PR,
   `"dependencies"` or `"entry"`, and the numbers behind it, `{"entries": 31, "light":

@@ -858,7 +858,90 @@ def demo_rebuild(demo: Path, out: Path | None = None) -> dict:
     return _demo_tips(demo / "repo")
 
 
-FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan}
+# ---------------------------------------------------------------------------------------------------------------------
+# theme: one two-PR report as a local document (review.html) and as an Artifact fragment (artifact.html), with every
+# narrative building block and two mermaid diagrams (one with a <br/> and an escaped "<" in a label).
+
+THEME_NARRATIVE = """<header><h1>Theme fixture</h1><p class="sub">Every building block, in light and dark.</p></header>
+<section id="stack" data-toc="PR stack">
+  <h2>PR stack and merge order</h2>
+  <p class="lead">A ships first.</p>
+  <div class="grid-4">
+    <div class="pr-card c-A"><span class="k">A · api</span><span class="t">A #1</span><span class="meta">base <code>main</code> · 6 files</span><ul><li>Adds the service</li></ul></div>
+    <div class="pr-card c-B"><span class="k">B · web</span><span class="t">B #2</span><span class="meta">base <code>feat/a</code> · 2 files</span><ul><li>Renders it</li></ul></div>
+  </div>
+  <div class="callout warn"><strong>Branch history:</strong> merge commits.</div>
+</section>
+<!-- review-map:graph -->
+<section id="arch">
+  <h2>Architecture</h2>
+  <div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  S["service<br/>a &lt; b"] --> W["web"]
+</pre>
+  </div>
+  <div class="cols-2" style="margin-top:16px"><div class="panel"><h4>Boundaries</h4><ul><li>One</li></ul></div><div class="panel"><h4>Owners</h4><ol class="steps c-A"><li><span><strong>Dedupe</strong>: first wins.</span></li></ol></div></div>
+</section>
+<section id="flow">
+  <h2>Request flow</h2>
+  <div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant W as web
+  participant A as api
+  W->>A: GET /items
+  A-->>W: 200
+</pre>
+  </div>
+  <div class="tbl"><table><thead><tr><th>Situation</th><th>Result</th></tr></thead><tbody><tr><td>Unknown id</td><td class="num">404</td></tr></tbody></table></div>
+  <pre class="code">const a = 1;</pre>
+</section>
+<section id="pr-A" data-toc="PR A"><h2><span class="tag c-A">A</span> Service</h2><p><button type="button" class="tag c-A" data-gopen="A"></button></p>
+  <details><summary>Files (2)</summary><div class="body"><ul class="files"><li><span class="path">src/service.ts</span><span class="d">+3</span><span class="role">The service</span></li></ul></div></details>
+</section>
+<section id="risks">
+  <h2>Risks</h2>
+  <ul class="risk-list">
+    <li class="sev-h"><span class="who tag c-A">A</span><strong>Deploy order.</strong> Why (<code>src/service.ts:1</code>).</li>
+    <li class="sev-m"><span class="who tag c-B">B</span><strong>Copy.</strong> Text.</li>
+    <li class="sev-l"><span class="who tag c-B">B</span><strong>Spacing.</strong> Text.</li>
+  </ul>
+</section>
+<section id="verify">
+  <h2>Verification</h2>
+  <div class="callout ok"><strong>Ran:</strong> unit tests.</div>
+  <div class="callout risk"><strong>Not run:</strong> e2e.</div>
+  <p><span class="pill ok">ok</span> <span class="pill warn">warn</span> <span class="pill risk">risk</span></p>
+</section>
+<footer>As of today.</footer>
+"""
+
+
+def theme(d: Path) -> dict:
+    repo = new_repo(d / "repo")
+    commit(repo, {"README.md": "# theme\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/a")
+    commit(repo, {
+        "src/types.ts": "export interface Item { id: string; }\n",
+        "src/service.ts": "import { Item } from './types';\nexport const list = (): Item[] => [];\nexport const one = 1;\n",
+        "src/service.spec.ts": "import { list } from './service';\ntest('list', () => expect(list()).toEqual([]));\n",
+        "config/app.yaml": "items:\n  limit: 10\n",
+        "docs/items.md": "# Items\n",
+        "locales/en.json": '{"items": "Items"}\n',
+    }, "A")
+    git(repo, "checkout", "-q", "-b", "feat/b")
+    commit(repo, {"web/app.tsx": "import { list } from '../src/service';\nexport const App = () => list().length;\n",
+                  "web/app.spec.tsx": "import { App } from './app';\ntest('app', () => expect(App()).toBe(0));\n"}, "B")
+    out = page(d, repo, [("A", "main...feat/a", "A #1"), ("B", "feat/a...feat/b", "B #2")], "Theme fixture", narrative=THEME_NARRATIVE)
+    artifact = d / "artifact.html"
+    script("assemble.py", "--graph", d / "graphs.json", "--diffs", d / "diffs.json", "--narrative", d / "narrative.html",
+           "--title", "Theme fixture", "--lang", "en", "--target", "artifact", "--out", artifact, "--no-manifest")
+    validate(artifact)
+    return {"page": str(out), "artifact": str(artifact)}
+
+
+FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan, "theme": theme}
 
 
 def main(argv: list[str]) -> None:

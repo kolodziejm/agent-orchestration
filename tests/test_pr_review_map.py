@@ -309,6 +309,52 @@ class SkillPackageTests(unittest.TestCase):
                 self.assertIn("other", catalog["files"])
                 self.assertIn("other", catalog["links"])
 
+    def test_viewer_colours_come_from_theme_tokens_with_a_dark_value_each(self):
+        """This test will fail when a colour is hard-coded outside the viewer's three token blocks (light, dark by the system, dark by data-theme) — in its CSS, in a script (a hex, rgb(), hsl(), or white/black string, a fill/stroke/color/background set to one, or a token read back with getComputedStyle), in assemble.py's templates, or in the narrative building blocks — when the two dark blocks differ, or when a light token has no dark value."""
+        template = (SKILL / "assets" / "viewer.html").read_text(encoding="utf-8")
+        css = re.search(r"<style>(.*?)</style>", template, re.DOTALL).group(1)
+        light = re.search(r"(?m)^:root\{(.*?)\n\}", css, re.DOTALL)
+        by_system = re.search(r'(?m)^@media \(prefers-color-scheme: dark\)\{:root:not\(\[data-theme="light"\]\)\{(.*?)\n\}\}', css, re.DOTALL)
+        by_attr = re.search(r'(?m)^:root\[data-theme="dark"\]\{(.*?)\n\}', css, re.DOTALL)
+        self.assertTrue(light and by_system and by_attr, "the three token blocks moved or changed shape")
+
+        def declarations(block: str) -> dict[str, str]:
+            return {k.strip(): v.strip() for k, v in re.findall(r"([\w-]+)\s*:\s*([^;]+?)\s*(?:;|$)", re.sub(r"/\*.*?\*/", "", block, flags=re.DOTALL))}
+
+        light_d, system_d, attr_d = (declarations(m.group(1)) for m in (light, by_system, by_attr))
+        self.assertEqual(system_d, attr_d)
+        colours = {k for k in light_d if k.startswith("--") and not k.startswith("--f-")}
+        self.assertEqual(colours, {k for k in system_d if k.startswith("--")})
+        self.assertEqual((light_d["color-scheme"], system_d["color-scheme"]), ("light", "dark"))
+        self.assertEqual(css.count(":root"), 3, "tokens belong in the three blocks at the top, where each has a dark value")
+        rest = css.replace(light.group(0), "").replace(by_system.group(0), "").replace(by_attr.group(0), "")
+        literal = re.compile(r"#[0-9A-Fa-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|(?<![\w-])(?:white|black|red|green|blue|gray|grey|orange|yellow|purple|pink|silver)(?![\w-])")
+        self.assertEqual(literal.findall(re.sub(r"/\*.*?\*/", "", rest, flags=re.DOTALL)), [])
+        scripts = [body for attrs, body in re.findall(r"<script\b([^>]*)>(.*?)</script>", template, re.DOTALL) if "src=" not in attrs and "type=" not in attrs]
+        self.assertEqual(len(scripts), 3)  # the theme in the head, the viewer, the diagrams
+        in_js = re.compile(r"""['"]#[0-9A-Fa-f]{3,8}['"]|\b(?:rgba?|hsla?)\(|['"](?:white|black)['"]|(?<![\w-])(?:fill|stroke|color|background)\s*:\s*['"]?\s*(?:#|rgb|hsl|white|black)|getPropertyValue\(['"]--(?!lc\b|c\b)""")
+        for index, body in enumerate(scripts):
+            with self.subTest(script=index):
+                self.assertEqual(in_js.findall(body), [])
+        assemble = (SCRIPTS / "assemble.py").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"#[0-9A-Fa-f]{6}\b|\brgba?\(", assemble.split("MERMAID_LOCAL =")[1].split("\n\n")[0]), [])
+        narrative = (SKILL / "references" / "narrative.md").read_text(encoding="utf-8")
+        styles = re.findall(r'style="([^"]*)"', "\n".join(re.findall(r"```html\n(.*?)```", narrative, re.DOTALL)))
+        self.assertTrue(styles)
+        self.assertEqual(literal.findall(" ".join(styles)), [])
+
+    def test_theme_is_applied_in_the_head_before_the_page_paints(self):
+        """This test will fail when the theme script stops running before the page's CSS and content (a flash of the wrong theme), stops reading its own localStorage key or respecting a host page's data-theme, or the View menu loses its Auto/Light/Dark buttons."""
+        template = (SKILL / "assets" / "viewer.html").read_text(encoding="utf-8")
+        head = re.search(r"<script>(.*?)</script>", template, re.DOTALL)
+        self.assertLess(head.start(), template.index("<style>"))
+        self.assertLess(head.start(), template.index('<div class="wrap">'))
+        for needle in ("'review-map:theme'", "getAttribute('data-theme')", "setAttribute('data-theme'", "prefers-color-scheme: dark", "window.__reviewMapTheme"):
+            self.assertIn(needle, head.group(1))
+        menu = re.search(r'<span class="g-mpop" id="g-mpop".*?</span>\n    </span>', template, re.DOTALL).group(0)
+        self.assertEqual(re.findall(r'data-th="(\w+)"', menu), ["auto", "light", "dark"])
+        self.assertIn('role="group" aria-labelledby="g-thl"', menu)
+
 
 class ReviewMapPipelineTests(unittest.TestCase):
     @classmethod
@@ -949,17 +995,22 @@ class ReviewMapPipelineTests(unittest.TestCase):
                 config = embedded_json(page, "review-config")
                 self.assertEqual(config["title"], "Demo <review>")
                 self.assertEqual(config["storageKey"], "demo-review")
+                self.assertEqual(config["target"], target)
                 self.assertEqual([(p["key"], p["repo"]) for p in config["prs"]], [("A", "acme/demo"), ("B", "acme/web")])
                 self.assertEqual([(p["base"], p["tip"]) for p in config["prs"]], [(p["base"], p["tip"]) for p in self.graph["prs"]])
                 for element in ('id="nt-panel"', 'id="nt-copy"', 'id="nt-clear"', 'id="nt-list"', 'id="nt-manual-text"',
                                 'id="nt-filter"', 'id="nt-pr-add"', 'id="nt-pred"'):
                     self.assertIn(element, page)
+                # The theme script runs before the CSS; the viewer (not a second copy) draws the diagrams for a local page.
+                self.assertLess(page.index("window.__reviewMapTheme=T"), page.index("<style>"))
+                self.assertNotIn("mermaid.run({querySelector", page)
                 if target == "artifact":
                     self.assertTrue(page.startswith("<title>"))
                     self.assertNotIn("mermaid.min.js", page)
                 else:
                     self.assertTrue(page.startswith("<!doctype html>"))
                     self.assertIn("mermaid.min.js", page)
+                    self.assertLess(page.index("M.run({nodes:pres})"), page.index("mermaid.min.js"))
 
     def test_string_overrides_replace_single_keys(self):
         """This test will fail when a --strings override is ignored or wipes the other strings."""
