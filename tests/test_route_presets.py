@@ -39,11 +39,11 @@ class RoutePresetTests(unittest.TestCase):
 
     def test_committed_presets_match_the_profiles(self):
         """This test will fail when presets.json differs from what scripts/generate builds from the [route] profiles."""
-        committed = (ROOT / "skills" / "route" / "presets.json").read_text(encoding="utf-8")
+        committed = (ROOT / "skills" / "save-subscription" / "presets.json").read_text(encoding="utf-8")
         self.assertEqual(
             committed,
             self.module.render_presets(),
-            "skills/route/presets.json is stale; run scripts/generate",
+            "skills/save-subscription/presets.json is stale; run scripts/generate",
         )
         self.assertEqual(
             sorted(json.loads(committed)),
@@ -53,7 +53,7 @@ class RoutePresetTests(unittest.TestCase):
     def test_route_profiles_cover_every_role_or_list_it_as_native(self):
         """This test will fail when a [route] profile lacks a routing role, or lists a native role that does not exist."""
         self.assertTrue(self.profiles)
-        presets = json.loads((ROOT / "skills" / "route" / "presets.json").read_text(encoding="utf-8"))
+        presets = json.loads((ROOT / "skills" / "save-subscription" / "presets.json").read_text(encoding="utf-8"))
         for path, profile in self.profiles.items():
             with self.subTest(profile=path.name):
                 native = set(profile["route"].get("native", []))

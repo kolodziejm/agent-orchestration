@@ -1,16 +1,16 @@
 ---
-name: route
+name: save-subscription
 description: >-
-  Route this thread's subagent work to another provider's models through the
-  host app, such as DeepSeek Flash through OpenCode in T3 Code, while the primary
+  Spare the user's subscription in this thread: route its subagent work to
+  another provider's models through the host app, such as DeepSeek Flash through OpenCode in T3 Code, while the primary
   agent keeps its model. Use it only when the user invokes it with a preset name
   or `off`; never start it on your own initiative.
 compatibility: Requires a host app that runs child tasks on another provider, such as T3 Code with its `orchestrator_capabilities`, `delegate_task`, and `task_status` tools.
 ---
 
-# Route
+# Save subscription
 
-The user picks a preset for this thread: `/route <preset>` turns it on, `/route off` turns it off, `/route` alone reports the current routing and lists the presets from `presets.json`. A preset holds until the user turns it off or picks another one.
+The user picks a preset for this thread: `/save-subscription <preset>` turns it on, `/save-subscription off` turns it off, `/save-subscription` alone reports the current routing and lists the presets from `presets.json`. A preset holds until the user turns it off or picks another one.
 
 ## Presets
 

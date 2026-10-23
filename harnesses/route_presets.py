@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build skills/route/presets.json from the repository profiles that carry a [route] table."""
+"""Build skills/save-subscription/presets.json from the repository profiles that carry a [route] table."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PRESETS_FILE = ROOT / "skills" / "route" / "presets.json"
+PRESETS_FILE = ROOT / "skills" / "save-subscription" / "presets.json"
 
 
 def build_presets(root: Path = ROOT) -> dict:
