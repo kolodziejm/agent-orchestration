@@ -422,6 +422,7 @@ def validate_profile(
         "capabilities",
         "models",
         "control_plane",
+        "route",
     }
     unknown_profile_keys = set(profile) - allowed_profile_keys
     if unknown_profile_keys:
@@ -434,6 +435,23 @@ def validate_profile(
         raise SystemExit(f"Invalid profile name in {path}")
     if not isinstance(profile.get("addendum"), str) or not profile["addendum"]:
         raise SystemExit(f"Invalid profile addendum in {path}")
+
+    route = profile.get("route")
+    if route is not None:
+        if not isinstance(route, dict) or not set(route) <= {"provider_instance", "native"}:
+            raise SystemExit(f"Invalid profile route in {path}: expected provider_instance and native")
+        if not isinstance(route.get("provider_instance"), str) or not route["provider_instance"]:
+            raise SystemExit(f"Invalid profile route provider_instance in {path}")
+        native = route.get("native", [])
+        if (
+            not isinstance(native, list)
+            or not all(isinstance(role, str) for role in native)
+            or len(set(native)) != len(native)
+            or not set(native) <= expected_roles
+        ):
+            raise SystemExit(
+                f"Invalid profile route native in {path}: expected unique roles of the routing policy"
+            )
 
     models = profile.get("models")
     if not isinstance(models, dict) or set(models) != expected_roles:

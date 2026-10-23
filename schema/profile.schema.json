@@ -28,7 +28,20 @@
       "minProperties": 1,
       "additionalProperties": {"$ref": "#/$defs/roleModel"}
     },
-    "control_plane": {"$ref": "#/$defs/controlPlane"}
+    "control_plane": {"$ref": "#/$defs/controlPlane"},
+    "route": {
+      "type": "object",
+      "required": ["provider_instance"],
+      "properties": {
+        "provider_instance": {"type": "string", "minLength": 1},
+        "native": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "$defs": {
     "roleModel": {

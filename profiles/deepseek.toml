@@ -18,6 +18,10 @@ effort = "high"
 model = "deepseek/deepseek-flash"
 effort = "max"
 
+[route]
+provider_instance = "opencode"
+native = ["reviewer"]
+
 [capabilities]
 native_vision = true
 primary_installable = true

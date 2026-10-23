@@ -1,0 +1,55 @@
+{
+  "deepseek": {
+    "providerInstanceId": "opencode",
+    "roles": {
+      "worker": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "high"
+        }
+      },
+      "worker-complex": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "max"
+        }
+      },
+      "validator": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "high"
+        }
+      },
+      "debugger": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "max"
+        }
+      },
+      "explorer": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "low"
+        }
+      },
+      "planner": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "max"
+        }
+      },
+      "design-partner": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "high"
+        }
+      },
+      "ux-critic": {
+        "model": "deepseek/deepseek-flash",
+        "options": {
+          "variant": "high"
+        }
+      }
+    }
+  }
+}
