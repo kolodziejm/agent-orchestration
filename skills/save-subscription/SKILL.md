@@ -28,7 +28,7 @@ Presets live in `presets.json` next to this file, generated from the repo profil
 ## While a preset is on
 
 - Start every role the preset lists with the host's `delegate_task`: `target` is the preset's `providerInstanceId`, and that role's model and options, and `mode` is `async`. Give each task its own `clientRequestId`. Its completion wakes this thread, so do not poll; use `task_status` only when you need the result mid-turn, and `task_cancel` to stop it.
-- Brief the child as you would a native subagent, with two additions. Start the brief by telling the child it is a subagent and must do the work itself, without delegating: it loads an `AGENTS.md` that says to delegate by default. For a role with `readOnly`, say the child must not create, modify, or delete files; the child does not load the role's agent definition, so its `tools` limit is lost.
+- Brief the child as you would a native subagent, with two additions. Start the brief by telling the child it is a subagent and must do the work itself, without delegating: it loads the same `AGENTS.md`, which says to delegate by default unless you are a subagent. For a role with `readOnly`, say the child must not create, modify, or delete files; the child does not load the role's agent definition, so its `tools` limit is lost.
 - Start a role the preset does not list through the native subagent tool as before.
 - If a routed task fails because of the provider (unavailable model, quota, auth), tell the user and ask whether to run it natively.
 
