@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -60,6 +61,37 @@ class RoutePresetTests(unittest.TestCase):
                 self.assertLessEqual(native, self.roles, "route.native names a role missing from routing.toml")
                 self.assertGreaterEqual(set(profile["models"]), self.roles - native)
                 self.assertEqual(set(presets[profile["name"]]["roles"]), self.roles - native)
+
+    def test_read_only_follows_the_edit_permission_of_the_routing_policy(self):
+        """This test will fail when a preset role's readOnly flag differs from edit = "deny" in routing.toml."""
+        policy = load_toml(ROOT / "policy" / "routing.toml")["roles"]
+        denied = {role for role, config in policy.items() if config["edit"] == "deny"}
+        self.assertTrue(denied)
+        self.assertLess(denied, set(policy))
+        presets = self.module.build_presets()
+        self.assertTrue(presets)
+        for name, preset in presets.items():
+            for role, entry in preset["roles"].items():
+                with self.subTest(preset=name, role=role):
+                    self.assertIs(entry["readOnly"], role in denied)
+
+    def test_read_only_is_derived_from_a_temporary_policy(self):
+        """This test will fail when the generator hand-writes readOnly instead of reading edit from the policy."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "policy").mkdir()
+            (root / "profiles").mkdir()
+            (root / "policy" / "routing.toml").write_text(
+                '[roles.a]\nedit = "allow"\n[roles.b]\nedit = "deny"\n', encoding="utf-8"
+            )
+            (root / "profiles" / "p.toml").write_text(
+                'name = "p"\n[route]\nprovider_instance = "x"\n'
+                '[models.a]\nmodel = "m/a"\n[models.b]\nmodel = "m/b"\nvariant = "high"\n',
+                encoding="utf-8",
+            )
+            roles = self.module.build_presets(root)["p"]["roles"]
+        self.assertEqual(roles["a"], {"model": "m/a", "readOnly": False})
+        self.assertEqual(roles["b"], {"model": "m/b", "readOnly": True, "options": {"variant": "high"}})
 
 
 if __name__ == "__main__":

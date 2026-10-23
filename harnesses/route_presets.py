@@ -19,7 +19,8 @@ def build_presets(root: Path = ROOT) -> dict:
     names in ``route.native``, with the profile's model and variant (or effort).
     """
     with (root / "policy" / "routing.toml").open("rb") as handle:
-        roles = list(tomllib.load(handle)["roles"])
+        policy_roles = tomllib.load(handle)["roles"]
+    roles = list(policy_roles)
     presets: dict[str, dict] = {}
     for path in sorted((root / "profiles").glob("*.toml")):
         with path.open("rb") as handle:
@@ -41,7 +42,7 @@ def build_presets(root: Path = ROOT) -> dict:
                     f"Profile {path.name} has a [route] table but no [models.{role}] "
                     "and does not list it in route.native"
                 )
-            entry: dict = {"model": config["model"]}
+            entry: dict = {"model": config["model"], "readOnly": policy_roles[role]["edit"] == "deny"}
             option = config.get("variant", config.get("effort"))
             if option is not None:
                 entry["options"] = {"variant": option}
