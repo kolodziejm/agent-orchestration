@@ -34,7 +34,7 @@
 
 ## Units (status; dependencies)
 
-**A — This plan:** completed; deps: none. **B — Audit tool (`audit/`, `scripts/usage-audit`, `tests/test_usage_audit.py`):** pending; deps: A. **C — Routing descriptions and verification policy (`policy/routing.toml`, `policy/orchestration.md`, `profiles/claude.md`):** pending; deps: none. **D — `worker-complex` effort `xhigh` → `high` (`profiles/claude.toml`):** pending; deps: none.
+**A — This plan:** completed; deps: none. **B — Audit tool (`audit/`, `scripts/usage-audit`, `tests/test_usage_audit.py`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: A. **C — Routing descriptions and verification policy (`policy/routing.toml`, `policy/orchestration.md`, `profiles/claude.md`):** pending; deps: none. **D — `worker-complex` effort `xhigh` → `high` (`profiles/claude.toml`):** pending; deps: none.
 
 Each unit ends with `uv run --locked ./scripts/check`, one `CHANGELOG.md` "## Unreleased" bullet, and the README updated where it applies. The final check also runs `./scripts/install-claude-code --dry-run`; installing happens after merge.
 
@@ -47,8 +47,10 @@ Re-audit on or about 2026-11-06 with `./scripts/usage-audit --since 2026-10-24 -
 | `worker-complex` share of weighted cost | 63% | ≤ 35% |
 | `worker-complex` share of implementation runs | 41% | ≤ 20% |
 | WORKER_ENOUGH share of `worker-complex` runs | 36% | < 10% |
-| Median test and build Bash calls per implementation run | — | −50% |
+| Median test and build Bash calls per implementation run | 34 | −50% (≤ 17) |
 | `general-purpose` spawns | 53 | ≤ 5 |
+
+Baseline measured with `./scripts/usage-audit --since 2026-10-10 --until 2026-10-23`: 63% of weighted cost, 41% of 320 implementation runs (131 `worker-complex`, 189 `worker`; the hand review covered 129 of those `worker-complex` runs), 53 `general-purpose` spawns, none unspecified. Per implementation run the median is 34 test, lint, and build Bash calls, of which 4 are full gates and 2 are targeted test runs.
 
 Quality guardrails, which must not get worse: the `validator` FAIL rate, review-fix rounds per series, and re-delegations from `worker` to `worker-complex`.
 

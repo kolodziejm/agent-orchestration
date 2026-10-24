@@ -310,7 +310,15 @@ Nothing in this repository rewrites those files for you.
   the managed policy-section and skill helpers shared by the generators and
   installers, and `harnesses/validate.py` — the source-validation entrypoint run by
   `scripts/check`.
-- `scripts/` — `generate`, `check`, `check-browser`, `check-runtime`, and the per-harness installers.
+- `scripts/` — `generate`, `check`, `check-browser`, `check-runtime`, `usage-audit`, and the per-harness installers.
+- `audit/` — `usage_audit.py`, run through `scripts/usage-audit`: reads the Claude Code
+  transcripts on the machine and reports token usage and weighted cost by agent type,
+  the model each agent type ran on each day, spawns by `subagent_type`, and per
+  subagent run the files edited and the full-gate and targeted test commands run. It
+  writes outside the repository, applies a price table only from a user config file,
+  and its `README.md` holds the verdict rubric for reviewing whether a
+  `worker-complex` run needed it. Covered by `tests/test_usage_audit.py`. Transcripts
+  hold prompts and paths, so its output is never committed.
 - `skills/<name>/` — the Agent Skills packages this repository distributes.
   `planned-change-report` and `completed-change-report` render a visual HTML
   explanation of a change before and after it is made; a harness may invoke them
