@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import importlib.util
 import io
 import json
@@ -8,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -170,6 +172,101 @@ class CommandClassifierTests(AuditTestCase):
             self.assertEqual(classifier.classify(command), "targeted", command)
         for command in other:
             self.assertIsNone(classifier.classify(command), command)
+
+    def test_words_that_only_mention_a_runner_are_not_runs(self):
+        """This test will fail when a command that reads or installs a runner is counted as a test run."""
+        classifier = audit.CommandClassifier()
+        for command in ("cat jest.config.js", "rg vitest package.json", "uv add --dev pytest", "git commit -m 'add tests'",
+                        'git commit -m "run pnpm web:check && npm test"', "echo pnpm web:check", "pnpm add -D vitest",
+                        "ls vendor/bin/pest", "grep -rn 'scripts/check' README.md"):
+            with self.subTest(command=command):
+                self.assertIsNone(classifier.classify(command))
+                self.assertFalse(classifier.is_verification(command))
+
+    def test_a_path_argument_makes_a_run_targeted_but_a_flag_value_does_not(self):
+        """This test will fail when a directory argument counts as a full run, or a flag value as a path."""
+        classifier = audit.CommandClassifier()
+        for command in ("npx jest src/components", "yarn jest path/to/thing", "pnpm exec vitest run packages/ui",
+                        "vendor/bin/pest tests/Feature", "pytest tests/", "npx jest ./src/a.ts",
+                        "python -m unittest tests.test_usage_audit", "npm test -- src/a.test.ts"):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "targeted")
+        for command in ("npx jest --config jest.config.js", "npx jest --coverage --maxWorkers 4", "vitest run --reporter verbose",
+                        "pytest .", "npx jest 2>&1", "npm test > /tmp/out.log", "pytest -p no:cacheprovider"):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "full")
+
+    def test_a_package_scoped_test_script_is_targeted(self):
+        """This test will fail when pnpm --filter or -F runs are not counted, or counted as full."""
+        classifier = audit.CommandClassifier()
+        for command in ("pnpm --filter web test", "pnpm -F web test", "pnpm --filter=web test", "pnpm -F web run test:unit",
+                        "npm test --workspace=web", "npm -w web test", "pnpm --filter web exec vitest run"):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "targeted")
+        self.assertEqual(classifier.classify("pnpm -r test"), "full")
+        self.assertEqual(classifier.classify("pnpm --filter web web:check"), "full")
+
+    def test_tests_in_a_directory_name_do_not_make_a_run_targeted(self):
+        """This test will fail when a directory such as latest/ is mistaken for tests/ in a cd segment."""
+        classifier = audit.CommandClassifier()
+        self.assertEqual(classifier.classify("cd ~/code/latest/app && npm test"), "full")
+        self.assertEqual(classifier.classify("cd ~/code/tests-app && npx jest"), "full")
+        self.assertEqual(classifier.classify("cd tests && pytest"), "full")
+        self.assertEqual(classifier.classify("pytest tests/unit"), "targeted")
+
+    def test_check_scripts_with_a_longer_name_are_not_the_full_gate(self):
+        """This test will fail when check-browser or check-runtime is counted as scripts/check."""
+        classifier = audit.CommandClassifier()
+        for command in ("./scripts/check-browser", "./scripts/check-runtime", "scripts/checks"):
+            with self.subTest(command=command):
+                self.assertIsNone(classifier.classify(command))
+        for command in ("./scripts/check", "scripts/check --quick", "SKIP_BROWSER_CHECKS=1 ./scripts/check", "bash scripts/check",
+                        "uv run --locked ./scripts/check", "PYTHON=.venv/bin/python ./scripts/check"):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "full")
+
+    def test_wrappers_and_separators_are_looked_through(self):
+        """This test will fail when a runner behind a wrapper or after a separator is missed."""
+        classifier = audit.CommandClassifier()
+        cases = {
+            "docker exec -w /var/www/html app-container php artisan test": "full",
+            "docker compose exec -T app php artisan test --filter=A": "targeted",
+            "sail artisan test": "full",
+            "FOO=1 BAR=2 npx vitest run": "full",
+            "time npm test": "full",
+            "cd app; pnpm web:check": "full",
+            "echo start\nnpx jest src/a.ts\n": "targeted",
+            "(cd app && pnpm exec vitest)": "full",
+            "npm test 2>&1 | tail -20": "full",
+            "bash -c 'cd app && npx jest src/a.ts'": "targeted",
+            "bash -c 'cd app && npm test'": "full",
+            "corepack pnpm@10.1.0 exec vitest run packages/ui": "targeted",
+            "/tmp/tools/sail.sh php artisan test": "full",
+            "cat > notes.md <<'EOF'\nnpm test\nEOF\nls": None,
+            "python3 - <<EOF\nprint('pnpm web:check')\nEOF\npnpm web:check": "full",
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command.replace("\\n", "\n")), expected)
+
+    def test_segments_ignore_operators_inside_quotes(self):
+        """This test will fail when an operator inside a quoted string splits a command."""
+        self.assertEqual(audit.split_segments('git commit -m "a && b; c" && ls'), [["git", "commit", "-m", "a && b; c"], ["ls"]])
+        self.assertEqual(audit.split_segments("echo 'x | y' | tail -1"), [["echo", "x | y"], ["tail", "-1"]])
+        self.assertEqual(audit.split_segments("npm test 2>&1"), [["npm", "test", "2>&1"]])
+        self.assertEqual(audit.split_segments(""), [])
+
+    def test_verification_uses_segments_not_substrings(self):
+        """This test will fail when a directory name or a commit message makes a command count as verification."""
+        classifier = audit.CommandClassifier()
+        for command in ("cd ~/code/expo-app && git status", 'git commit -m "add tests"', "cd ~/code/build-tools && ls",
+                        "cat tests/test_a.py", "rg lint src", "git log --oneline -- tests"):
+            with self.subTest(command=command):
+                self.assertFalse(classifier.is_verification(command))
+        for command in ("tsc --noEmit", "npx tsc -p web", "cd web && pnpm lint", "pnpm --filter web typecheck",
+                        "cargo clippy", "xcodebuild -scheme App build", "vendor/bin/pint --test", "pnpm build"):
+            with self.subTest(command=command):
+                self.assertTrue(classifier.is_verification(command))
 
     def test_a_chained_command_counts_once_and_a_full_gate_wins(self):
         """This test will fail when a chained command is counted twice or a gate is hidden by a filter."""
@@ -370,6 +467,97 @@ class RunStatisticsTests(AuditTestCase):
         self.assertAlmostEqual(priced["agent-w1"]["cost_usd"], (30 + 4) * 10 / 1e6, places=8)
 
 
+class RoundsAndWindowTests(AuditTestCase):
+    def continued_run(self):
+        tool_result = {"type": "user", "timestamp": "2026-10-10T12:00:20.000Z",
+                       "message": {"content": [{"type": "tool_result", "tool_use_id": "x", "content": "ok"}]}}
+        self.fixture.subagent("r1", "worker", "t-continued", [
+            {"type": "user", "timestamp": "2026-10-10T12:00:00.000Z", "message": {"content": "Implement the thing"}},
+            {"type": "user", "isMeta": True, "timestamp": "2026-10-10T12:00:01.000Z", "message": {"content": "reminder"}},
+            assistant("2026-10-10T12:00:10.000Z", SONNET, "r-1", usage(output=5), [
+                bash("rb1", "pnpm web:check"), bash("rb2", "pnpm exec vitest run src/a.test.ts"), bash("rb3", "ls")]),
+            tool_result,
+            {"type": "user", "timestamp": "2026-10-10T12:05:00.000Z", "message": {"content": "web:check failed: fix the types"}},
+            {"type": "user", "timestamp": "2026-10-10T12:05:30.000Z",
+             "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}},
+            assistant("2026-10-10T12:06:00.000Z", SONNET, "r-2", usage(output=6), [
+                bash("rb4", "pnpm exec tsc --noEmit"), bash("rb5", "pnpm web:check")]),
+        ])
+        return next(run for run in self.runs() if run["id"] == "agent-r1")
+
+    def test_a_continued_run_reports_its_rounds_and_their_counts(self):
+        """This test will fail when a continuation is not counted as a round or its commands land in the wrong round."""
+        run = self.continued_run()
+        self.assertEqual(run["rounds"], 2)
+        self.assertEqual(run["by_round"], [
+            {"round": 1, "api_calls": 1, "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 5), "bash_calls": 3,
+             "verification_bash_calls": 2, "full_gate_calls": 1, "targeted_test_calls": 1},
+            {"round": 2, "api_calls": 1, "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 6), "bash_calls": 2,
+             "verification_bash_calls": 2, "full_gate_calls": 1, "targeted_test_calls": 0},
+        ])
+        self.assertEqual((run["bash_calls"], run["full_gate_calls"], run["targeted_test_calls"]), (5, 2, 1))
+
+    def test_an_ordinary_run_is_one_round_and_statistics_report_per_round_counts(self):
+        """This test will fail when a run without continuations reports more than one round."""
+        self.continued_run()
+        runs = self.runs()
+        by_id = {run["id"]: run for run in runs}
+        self.assertEqual(by_id["agent-w1"]["rounds"], 1)
+        self.assertEqual(len(by_id["agent-w1"]["by_round"]), 1)
+        stats = audit.run_stats(runs, audit.PriceTable(None))["worker"]
+        self.assertEqual(stats["rounds"], {"continued_runs": 1, "max": 2, "total": 3})
+        self.assertEqual(stats["per_round"]["verification_bash_calls"]["median"], 2.0)
+        usage_result = audit.aggregate_usage(self.transcripts(), self.window(), audit.PriceTable(None))
+        head = audit.headline(usage_result, runs, audit.run_stats(runs, audit.PriceTable(None)), ("worker", "worker-complex"))
+        self.assertEqual(head["continued_implementation_runs"], 1)
+
+    def test_transcripts_are_counted_only_for_runs_starting_in_the_window(self):
+        """This test will fail when the transcript count includes runs that started outside the window."""
+        result = audit.aggregate_usage(self.transcripts(), self.window("2026-10-11", "2026-10-11"), audit.PriceTable(None))
+        self.assertEqual(result["by_agent"]["worker-complex"]["transcripts"], 1)
+        self.assertEqual(result["by_agent"]["main"]["transcripts"], 0)
+        full = audit.aggregate_usage(self.transcripts(), self.window(), audit.PriceTable(None))
+        self.assertEqual(full["by_agent"]["main"]["transcripts"], 1)
+
+    def test_a_subagent_without_a_type_in_its_meta_file_is_unspecified(self):
+        """This test will fail when an unknown agent type gets a second label."""
+        self.fixture.subagent("n1", None, "t-none", [
+            {"type": "user", "timestamp": "2026-10-10T13:00:00.000Z", "message": {"content": "go"}},
+            assistant("2026-10-10T13:00:10.000Z", SONNET, "n-1", usage(output=1)),
+        ])
+        runs = {run["id"]: run for run in self.runs()}
+        self.assertEqual(runs["agent-n1"]["agent"], audit.UNSPECIFIED)
+        result = audit.aggregate_usage(self.transcripts(), self.window(), audit.PriceTable(None))
+        self.assertIn(audit.UNSPECIFIED, result["by_agent"])
+        self.assertNotIn("unknown", result["by_agent"])
+        self.assertEqual(result["agent_spawns_by_subagent_type"]["unspecified"], 1)
+
+
+class TimeZoneTests(unittest.TestCase):
+    def test_the_local_zone_follows_daylight_saving_per_timestamp(self):
+        """This test will fail when day boundaries use one fixed offset for the whole window."""
+        if not hasattr(time, "tzset"):
+            self.skipTest("time.tzset is not available")
+        previous = os.environ.get("TZ")
+        self.addCleanup(lambda: (os.environ.__setitem__("TZ", previous) if previous is not None else os.environ.pop("TZ", None), time.tzset()))
+        os.environ["TZ"] = "Europe/Warsaw"
+        time.tzset()
+        if time.tzname[0] != "CET":
+            self.skipTest("the time zone database has no Europe/Warsaw")
+        window = audit.Window(None, None, audit.resolve_timezone(None), audit.zone_label(None))
+        self.assertEqual(window.day_of("2026-01-31T22:30:00.000Z"), "2026-01-31")  # CET, UTC+1
+        self.assertEqual(window.day_of("2026-07-31T22:30:00.000Z"), "2026-08-01")  # CEST, UTC+2
+        self.assertEqual(window.label, "Europe/Warsaw (system local zone)")
+        bounded = audit.Window(datetime.date(2026, 8, 1), datetime.date(2026, 8, 1), None)
+        self.assertTrue(bounded.contains("2026-07-31T22:30:00.000Z"))
+        self.assertFalse(bounded.contains("2026-01-31T22:30:00.000Z"))
+
+    def test_a_named_zone_is_reported_by_name(self):
+        """This test will fail when the output stops naming the zone it cut days in."""
+        self.assertEqual(audit.zone_label("UTC"), "UTC")
+        self.assertEqual(audit.zone_label("Europe/Warsaw"), "Europe/Warsaw")
+
+
 class CommandLineTests(AuditTestCase):
     def run_cli(self, *args):
         out, err = io.StringIO(), io.StringIO()
@@ -449,6 +637,28 @@ class CommandLineTests(AuditTestCase):
         priced_usage = json.loads((priced / "usage.json").read_text())
         self.assertGreater(priced_usage["totals"]["cost_usd"], 0)
         self.assertEqual(priced_usage["unpriced_models"], [SONNET])
+
+    def test_output_inside_the_repository_is_refused(self):
+        """This test will fail when --out can point into the repository, where prompts and paths could be committed."""
+        for target in (ROOT / "audit-output-should-not-exist", ROOT, ROOT / "audit" / "out", ROOT / "x" / ".." / "y"):
+            with self.subTest(target=str(target)):
+                code, _, err = self.run_cli("--projects-dir", str(self.fixture.projects), "--out", str(target), "--quiet")
+                self.assertEqual(code, 2)
+                self.assertIn("inside the repository", err)
+        self.assertFalse((ROOT / "audit-output-should-not-exist").exists())
+        self.assertFalse((ROOT / "audit" / "out").exists())
+        code, _, _ = self.run_cli("--projects-dir", str(self.fixture.projects), "--out", str(self.root / "fine"), "--quiet")
+        self.assertEqual(code, 0)
+
+    def test_the_wrapper_uses_the_python_named_by_the_environment(self):
+        """This test will fail when scripts/usage-audit stops honoring PYTHON like scripts/check does."""
+        environment = {**os.environ, "AGENT_ORCHESTRATION_UV_RUN": "1"}
+        good = subprocess.run([str(SCRIPT), "--help"], capture_output=True, text=True, env={**environment, "PYTHON": sys.executable})
+        self.assertEqual(good.returncode, 0, good.stderr)
+        self.assertIn("--since", good.stdout)
+        bad = subprocess.run([str(SCRIPT), "--help"], capture_output=True, text=True, env={**environment, "PYTHON": "/bin/false"})
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("Python 3.11+ is required", bad.stderr)
 
     def test_the_entrypoint_script_runs_the_module(self):
         """This test will fail when scripts/usage-audit stops being an executable entrypoint."""

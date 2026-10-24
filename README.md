@@ -314,7 +314,7 @@ Nothing in this repository rewrites those files for you.
 - `audit/` — `usage_audit.py`, run through `scripts/usage-audit`: reads the Claude Code
   transcripts on the machine and reports token usage and weighted cost by agent type,
   the model each agent type ran on each day, spawns by `subagent_type`, and per
-  subagent run the files edited and the full-gate and targeted test commands run. It
+  subagent run (and per round, for a continued one) the files edited and the full-gate and targeted test commands run. It
   writes outside the repository, applies a price table only from a user config file,
   and its `README.md` holds the verdict rubric for reviewing whether a
   `worker-complex` run needed it. Covered by `tests/test_usage_audit.py`. Transcripts

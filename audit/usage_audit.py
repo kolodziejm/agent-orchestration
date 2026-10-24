@@ -25,6 +25,7 @@ import statistics
 import tomllib
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROJECTS_DIR = "~/.claude/projects"
 DEFAULT_OUT_ROOT = "~/.local/state/agent-orchestration/audits"
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
@@ -33,45 +34,11 @@ WEIGHTS = {"input": 1.0, "cache_creation": 1.25, "cache_read": 0.1, "output": 5.
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 SPAWN_TOOLS = frozenset({"Agent", "Task"})
 DEFAULT_IMPLEMENTATION_AGENTS = ("worker", "worker-complex")
+# One label for an agent type that is not known: a spawn without `subagent_type` whose subagent left
+# no meta file, and a subagent transcript whose meta file names no type.
 UNSPECIFIED = "unspecified"
 MAX_PROMPT_CHARS = 6000
 MAX_REPORT_CHARS = 1500
-
-# Bash commands that count as verification of any kind (the original audit's test/build/lint filter).
-DEFAULT_VERIFICATION = r"test|jest|vitest|pytest|tsc|lint|build|xcodebuild|expo|gradle"
-# A command matching one of these is a full gate, whatever else it names.
-DEFAULT_FULL_GATE = (
-    r"\bweb:check\b",
-    r"\bi18n:check\b",
-    r"(^|[\s/])scripts/check\b",
-)
-# A command matching one of these runs a test suite: a full gate unless a targeted marker also matches.
-DEFAULT_RUNNERS = (
-    r"\b(jest|vitest|pest)\b",
-    r"\bartisan\s+test\b",
-    r"\bcargo\s+test\b",
-    r"\bpytest\b",
-    r"\bpython[\d.]*\s+-m\s+(unittest|pytest)\b",
-    r"\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b",
-)
-# A runner command matching one of these names a file, a test, or a package, so it is targeted.
-DEFAULT_TARGETED = (
-    r"\S+\.(test|spec)\.[cm]?[jt]sx?\b",
-    r"\S*Test\.php\b",
-    r"\btest_\w+\.py\b",
-    r"\b\w+_test\.(py|go|rs)\b",
-    r"(^|\s)\S*tests?/\S+",
-    r"--filter\b",
-    r"--testNamePattern\b",
-    r"--testPathPattern\b",
-    r"--findRelatedTests\b",
-    r"--related\b",
-    r"--changedSince\b",
-    r"(^|\s)-t\s",
-    r"(^|\s)-k\s",
-    r"\bcargo\s+test\b.*(\s-p\s|--package\b|--lib\b|--test\s|--bin\s|\s--\s+\w)",
-)
-
 
 class AuditError(Exception):
     """A usage problem the CLI reports without a traceback."""
@@ -81,9 +48,272 @@ class AuditError(Exception):
 # Command classification
 # ---------------------------------------------------------------------------
 
+# Command patterns are matched against one command segment with its wrappers removed (see
+# `normalize_segment`): env assignments, `npx`, `pnpm exec`, `uv run`, `php`, `docker exec`, and the
+# like are gone, a package-manager script reads `<pm> run <script> <args>` (`pnpm web:check` is
+# `pnpm run web:check`, `npm test` is `npm run test`), and `cd` or `git` are segments of their own.
+# A runner is recognised only at the start of a segment, so `cat jest.config.js` or
+# `git commit -m "add tests"` match nothing.
+#
+# Verification of any kind: a full gate, a targeted run, or one of these tools.
+DEFAULT_VERIFICATION = (
+    r"^(\S*/)?(tsc|vue-tsc|eslint|biome|prettier|phpstan|pint|ruff|mypy|pyright|flake8|xcodebuild|gradle|gradlew|swiftlint)(\s|$)"
+    r"|^(npm|pnpm|yarn|bun) run (lint|build|typecheck|type-check|tsc|check|format)\S*(\s|$)"
+    r"|^(cargo (build|check|clippy|fmt)|go (build|vet)|swift build|next build|vite build|expo (export|prebuild))(\s|$)"
+    r"|^(make|just) \S*(test|lint|build|check|ci)"
+)
+# A segment matching one of these is a full gate, whatever else it names.
+DEFAULT_FULL_GATE = (
+    r"^(npm|pnpm|yarn|bun) run (web|i18n):check(\s|$)",
+    r"^(\S*/)?scripts/check(\s|$)",
+)
+# A segment matching one of these runs a test suite: a full gate unless it is also targeted.
+DEFAULT_RUNNERS = (
+    r"^(\S*/)?(jest|vitest|pest|phpunit|pytest|py\.test)(\s|$)",
+    r"^(\S*/)?artisan test(\s|$)",
+    r"^cargo (test|nextest)(\s|$)",
+    r"^unittest(\s|$)",
+    r"^go test(\s|$)",
+    r"^(npm|pnpm|yarn|bun) run test(:\S*)?(\s|$)",
+)
+# A runner segment matching one of these names a test, a pattern, or a package, so it is targeted.
+# A path-like argument, or a package manager's `--filter`, `-F`, or `--workspace`, also makes a run
+# targeted; that part is in code (`has_path_argument`, `normalize_segment`).
+DEFAULT_TARGETED = (
+    r"(^|\s)(--filter|--testNamePattern|--testPathPattern|--findRelatedTests|--related|--changedSince)(=|\s|$)",
+    r"(^|\s)-[tk]\s",
+    r"^cargo (test|nextest)\b.*(\s-p\s|\s--package\b|\s--lib\b|\s--test\s|\s--bin\s|\s--\s+\w)",
+)
+
+ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+PYTHON_NAME = re.compile(r"^python[\d.]*$")
+PATH_LIKE = re.compile(
+    r"\.(py|php|[cm]?[jt]sx?|rs|go|rb|java|kt|swift)$"
+    r"|(^|\.)test_\w+|\w+_test$|\w+Test$|\.(test|spec)(\.|$)"
+)
+REDIRECTION = re.compile(r"^\d*[<>]+&?\d*$")
+SHELL_WRAPPERS = frozenset({"env", "time", "command", "nohup", "exec", "sudo", "nice", "caffeinate", "corepack"})
+PACKAGE_MANAGERS = frozenset({"npm", "pnpm", "yarn", "bun"})
+BINARY_NAMES = frozenset({"jest", "vitest", "pest", "phpunit", "pytest", "tsc", "eslint", "prettier", "biome"})
+# A `*.sh` wrapper script followed by one of these is looked through (`notify-work/sail.sh php artisan test`).
+WRAPPED_COMMANDS = PACKAGE_MANAGERS | frozenset({
+    "php", "node", "npx", "bunx", "pnpx", "python", "python3", "cargo", "pest", "pint", "phpunit", "vitest", "jest",
+    "pytest", "sh", "bash", "docker",
+})
+PYTHON_RUNNERS = frozenset({"uv", "poetry", "pipenv", "pdm", "rye", "hatch"})
+PYTHON_RUNNER_VALUE_FLAGS = frozenset({"--project", "--with", "--python", "-p", "--directory", "--package", "--env-file"})
+# Test-runner flags that take a value, so the value is not mistaken for a path.
+VALUE_FLAGS = frozenset({
+    "--config", "-c", "--reporter", "--reporters", "--maxWorkers", "--max-workers", "--project", "--projects",
+    "--root", "--rootdir", "--outputFile", "--testTimeout", "--env", "--setupFiles", "--shard", "--pool",
+    "--environment", "--testEnvironment", "--junitxml", "--cov", "--ignore", "--deselect", "-o", "-n", "-w",
+    "-p", "--coverage-reporters", "--color", "--log-level",
+})
+DOCKER_VALUE_FLAGS = frozenset({"-w", "--workdir", "-e", "--env", "-u", "--user", "--name", "-v", "--volume"})
+PM_VALUE_FLAGS = frozenset({"--dir", "-C", "--prefix", "--cwd"})
+
+
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def strip_heredocs(command: str) -> str:
+    """The command without here-document bodies, which are input data, not commands."""
+    kept: list[str] = []
+    pending: list[tuple[str, bool]] = []
+    for line in command.split("\n"):
+        if pending:
+            delimiter, indented = pending[0]
+            if (line.strip() if indented else line) == delimiter:
+                pending.pop(0)
+            continue
+        kept.append(line)
+        for match in HEREDOC.finditer(line):
+            pending.append((match.group(2), "<<-" in match.group(0)))
+    return "\n".join(kept)
+
+
+def split_segments(command: str) -> list[list[str]]:
+    """Split a shell command into segments of words at unquoted `&&`, `||`, `;`, `|`, `&`,
+    parentheses, and newlines. Quotes are removed from the words, text inside them is never
+    taken for an operator, and here-document bodies are dropped."""
+    command = strip_heredocs(command)
+    segments: list[list[str]] = []
+    words: list[str] = []
+    word: list[str] = []
+    in_word = False
+    quote = None
+    index = 0
+
+    def end_word():
+        nonlocal in_word
+        if in_word:
+            words.append("".join(word))
+            word.clear()
+            in_word = False
+
+    def end_segment():
+        end_word()
+        if words:
+            segments.append(words[:])
+            words.clear()
+
+    while index < len(command):
+        char = command[index]
+        if quote:
+            if char == quote:
+                quote = None
+            elif char == "\\" and quote == '"' and index + 1 < len(command):
+                index += 1
+                word.append(command[index])
+            else:
+                word.append(char)
+        elif char in "'\"":
+            quote, in_word = char, True
+        elif char == "\\" and index + 1 < len(command):
+            index += 1
+            word.append(command[index])
+            in_word = True
+        elif char in "\n;|()":
+            end_segment()
+        elif char == "&":
+            previous = command[index - 1] if index else ""
+            following = command[index + 1] if index + 1 < len(command) else ""
+            if previous in "<>" or following == ">":
+                word.append(char)
+                in_word = True
+            else:
+                end_segment()
+        elif char in " \t":
+            end_word()
+        else:
+            word.append(char)
+            in_word = True
+        index += 1
+    end_segment()
+    return segments
+
+
+def _skip_flags(words: list[str]) -> list[str]:
+    index = 0
+    while index < len(words) and words[index].startswith("-") and words[index] != "--":
+        index += 1
+    return words[index:]
+
+
+def _unwrap_package_manager(words: list[str]) -> tuple[list[str], bool, bool]:
+    """(words, scoped, done) after `npm`, `pnpm`, `yarn`, or `bun`. `done` means the words are
+    final (a script, or something that is not a runner); otherwise the caller keeps unwrapping."""
+    manager = words[0].rsplit("/", 1)[-1].split("@", 1)[0]
+    scoped = False
+    index = 1
+    while index < len(words):
+        word = words[index]
+        if word in ("--filter", "-F", "--workspace") or (manager == "npm" and word == "-w"):
+            scoped, index = True, index + 2
+        elif word.startswith(("--filter=", "--workspace=")) or (word.startswith("-F") and len(word) > 2):
+            scoped, index = True, index + 1
+        elif word in PM_VALUE_FLAGS:
+            index += 2
+        elif word.startswith("-"):
+            index += 1
+        else:
+            break
+    rest = words[index:]
+    if not rest:
+        return [], scoped, True
+    sub, args = rest[0], rest[1:]
+    if sub in ("exec", "dlx", "x"):
+        args = _skip_flags(args)
+        return (args[1:] if args[:1] == ["--"] else args), scoped, False
+    if sub in ("run", "run-script"):
+        args = _skip_flags(args)
+        if not args:
+            return [], scoped, True
+        script, args = args[0], args[1:]
+    elif sub in ("test", "t", "tst"):
+        script = "test"
+    elif manager in ("yarn", "pnpm", "bun"):
+        if sub.rsplit("/", 1)[-1] in BINARY_NAMES:
+            return rest, scoped, False
+        script = sub
+    else:
+        return [manager, *rest], scoped, True
+    scoped = scoped or any(a.startswith(("--workspace", "--filter")) for a in args)
+    return [manager, "run", script, *args], scoped, True
+
+
+def normalize_segment(words: list[str]) -> tuple[list[str], bool, str | None]:
+    """(words, scoped, nested) for one segment without its wrappers. `scoped` means the package
+    manager limited the run to one package; `nested` is the command string of a `sh -c`."""
+    words = list(words)
+    scoped = False
+    while words:
+        word = words[0]
+        base = word.rsplit("/", 1)[-1]
+        if ENV_ASSIGNMENT.match(word):
+            words = words[1:]
+        elif base in SHELL_WRAPPERS:
+            words = _skip_flags(words[1:])
+        elif base == "timeout":
+            words = _skip_flags(words[1:])[1:]
+        elif base in ("npx", "bunx", "pnpx"):
+            words = _skip_flags(words[1:])
+        elif base.endswith(".sh") and words[1:2] and words[1].rsplit("/", 1)[-1].split("@", 1)[0] in WRAPPED_COMMANDS:
+            words = words[1:]
+        elif base.split("@", 1)[0] in PACKAGE_MANAGERS:
+            words, found, done = _unwrap_package_manager(words)
+            scoped = scoped or found
+            if done:
+                break
+        elif base in PYTHON_RUNNERS and words[1:2] == ["run"]:
+            words = words[2:]
+            while words and words[0].startswith("-"):
+                words = words[2:] if words[0] in PYTHON_RUNNER_VALUE_FLAGS else words[1:]
+        elif base in ("docker", "docker-compose"):
+            rest = words[1:]
+            if base == "docker" and rest[:1] == ["compose"]:
+                rest = rest[1:]
+            if rest[:1] not in (["exec"], ["run"]):
+                break
+            rest = rest[1:]
+            while rest and rest[0].startswith("-"):
+                rest = rest[2:] if rest[0] in DOCKER_VALUE_FLAGS else rest[1:]
+            words = rest[1:]
+        elif base == "sail":
+            words = words[1:]
+        elif base in ("php", "node") or PYTHON_NAME.match(base):
+            words = words[1:]
+            if PYTHON_NAME.match(base) and words[:1] == ["-m"]:
+                words = words[1:]
+        elif base in ("bash", "sh", "zsh"):
+            words = words[1:]
+            if words[:1] in (["-c"], ["-lc"], ["-ic"]) and len(words) > 1:
+                return [], scoped, words[1]
+        else:
+            break
+    return words, scoped, None
+
+
+def has_path_argument(words: list[str]) -> bool:
+    """True when an argument after the runner names a file, a directory, or a test."""
+    index = 1
+    while index < len(words):
+        word = words[index]
+        index += 1
+        if REDIRECTION.match(word):
+            index += 1
+        elif word == "--" or re.match(r"^\d*[<>]", word):
+            continue
+        elif word.startswith("-"):
+            if "=" not in word and word in VALUE_FLAGS:
+                index += 1
+        elif word not in (".", "./") and ("/" in word or PATH_LIKE.search(word)):
+            return True
+    return False
+
 
 class CommandClassifier:
-    """Sorts Bash commands into full gates, targeted test runs, and other verification."""
+    """Sorts Bash commands into full gates, targeted test runs, and other verification, segment by segment."""
 
     def __init__(self, full_gate=DEFAULT_FULL_GATE, runners=DEFAULT_RUNNERS, targeted=DEFAULT_TARGETED,
                  verification=DEFAULT_VERIFICATION):
@@ -92,18 +322,30 @@ class CommandClassifier:
         self.targeted = [re.compile(p) for p in targeted]
         self.verification = re.compile(verification, re.IGNORECASE)
 
+    def _segment(self, words: list[str]) -> tuple[str | None, bool]:
+        """(kind, is verification) of one segment."""
+        normalized, scoped, nested = normalize_segment(words)
+        if nested is not None:
+            return self.classify(nested), self.is_verification(nested)
+        if not normalized:
+            return None, False
+        text = " ".join(normalized)
+        if any(p.search(text) for p in self.full_gate):
+            kind = "full"
+        elif any(p.search(text) for p in self.runners):
+            targeted = scoped or has_path_argument(normalized) or any(p.search(text) for p in self.targeted)
+            kind = "targeted" if targeted else "full"
+        else:
+            kind = None
+        return kind, kind is not None or bool(self.verification.search(text))
+
     def classify(self, command: str) -> str | None:
-        """`full`, `targeted`, or None; a command counts once, and a full gate wins."""
-        if not command:
-            return None
-        if any(p.search(command) for p in self.full_gate):
-            return "full"
-        if any(p.search(command) for p in self.runners):
-            return "targeted" if any(p.search(command) for p in self.targeted) else "full"
-        return None
+        """`full`, `targeted`, or None; a command counts once, and a full gate wins over a targeted run."""
+        kinds = {self._segment(words)[0] for words in split_segments(command or "")}
+        return "full" if "full" in kinds else ("targeted" if "targeted" in kinds else None)
 
     def is_verification(self, command: str) -> bool:
-        return bool(command) and (self.classify(command) is not None or bool(self.verification.search(command)))
+        return any(self._segment(words)[1] for words in split_segments(command or ""))
 
 
 def load_config(path: str | None) -> dict:
@@ -223,9 +465,11 @@ def parse_timestamp(value: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def resolve_timezone(name: str | None) -> datetime.tzinfo:
+def resolve_timezone(name: str | None) -> datetime.tzinfo | None:
+    """The zone for day boundaries; None is the system's local zone, which `astimezone()` applies
+    per timestamp, so a daylight-saving change inside the window is followed."""
     if not name:
-        return datetime.datetime.now().astimezone().tzinfo
+        return None
     if name.upper() == "UTC":
         return datetime.timezone.utc
     try:
@@ -234,6 +478,20 @@ def resolve_timezone(name: str | None) -> datetime.tzinfo:
         return zoneinfo.ZoneInfo(name)
     except Exception as error:  # unknown name or missing tz database
         raise AuditError(f"unknown time zone {name!r}: {error}") from error
+
+
+def zone_label(name: str | None) -> str:
+    """A readable name for the zone in the output: the requested one, else the system's."""
+    if name:
+        return name
+    system = os.environ.get("TZ", "").lstrip(":")
+    if not system:
+        try:
+            target = os.path.realpath("/etc/localtime")
+        except OSError:
+            target = ""
+        system = target.split("zoneinfo/", 1)[1] if "zoneinfo/" in target else ""
+    return f"{system or datetime.datetime.now().astimezone().tzname() or 'local'} (system local zone)"
 
 
 def parse_day(value: str | None, flag: str) -> datetime.date | None:
@@ -272,6 +530,22 @@ def discover(projects_dir: Path):
         yield path, path.parents[2].name, path.parents[1].name, True
 
 
+def is_prompt(record: dict) -> bool:
+    """True for a user record that starts a round: the brief, or a message that continues the run.
+    Tool results, meta records, compaction summaries, and interruption notices are not prompts."""
+    if record.get("type") != "user" or record.get("isMeta") or record.get("isCompactSummary"):
+        return False
+    content = (record.get("message") or {}).get("content")
+    if isinstance(content, list):
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            return False
+        content = "".join(b.get("text") or "" for b in content if isinstance(b, dict) and b.get("type") == "text")
+    if not isinstance(content, str):
+        return False
+    content = content.strip()
+    return bool(content) and not content.startswith("[Request interrupted")
+
+
 def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -> dict:
     meta: dict = {}
     if is_subagent:
@@ -282,12 +556,15 @@ def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -
     transcript = {
         "path": str(path), "project": project, "session": session, "is_subagent": is_subagent,
         "agent_id": path.stem if is_subagent else None, "meta": meta,
-        "agent": (meta.get("agentType") or "unknown") if is_subagent else "main",
+        "agent": (meta.get("agentType") or UNSPECIFIED) if is_subagent else "main",
         "calls": {}, "tools": {}, "timestamps": [], "texts": [], "cwds": collections.Counter(),
+        "prompts": 0,
     }
     with open(path, errors="replace") as handle:
         for line in handle:
-            if '"assistant"' not in line:
+            # Lines that are neither assistant messages nor possible prompts (tool results are the
+            # bulk of a transcript) only contribute their timestamp.
+            if '"assistant"' not in line and not (is_subagent and '"user"' in line and '"tool_result"' not in line):
                 if is_subagent:
                     found = _TIMESTAMP.search(line)
                     if found:
@@ -301,8 +578,11 @@ def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -
                 continue
             if record.get("timestamp"):
                 transcript["timestamps"].append(record["timestamp"])
+            if is_subagent and is_prompt(record):
+                transcript["prompts"] += 1
             if record.get("type") != "assistant":
                 continue
+            round_number = max(transcript["prompts"], 1)
             if record.get("cwd"):
                 transcript["cwds"][record["cwd"]] += 1
             message = record.get("message") or {}
@@ -312,7 +592,7 @@ def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -
                 message_id = message.get("id")
                 key = (message_id, record.get("requestId")) if message_id else ("uuid", record.get("uuid"))
                 call = {
-                    "model": model, "ts": record.get("timestamp"),
+                    "model": model, "ts": record.get("timestamp"), "round": round_number,
                     "u": {
                         "input": usage.get("input_tokens") or 0, "output": usage.get("output_tokens") or 0,
                         "cache_read": usage.get("cache_read_input_tokens") or 0,
@@ -327,7 +607,7 @@ def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -
                     continue
                 if block.get("type") == "tool_use" and block.get("id"):
                     transcript["tools"].setdefault(
-                        block["id"], (block.get("name"), block.get("input") or {}, record.get("timestamp")))
+                        block["id"], (block.get("name"), block.get("input") or {}, record.get("timestamp"), round_number))
                 elif block.get("type") == "text" and (block.get("text") or "").strip():
                     transcript["texts"].append(block["text"])
     return transcript
@@ -355,10 +635,12 @@ def load_transcripts(projects_dir: Path, modified_since: float | None = None) ->
 
 
 class Window:
-    """The inclusive local-day range an audit covers."""
+    """The inclusive local-day range an audit covers. `tz` None means the system's local zone."""
 
-    def __init__(self, since: datetime.date | None, until: datetime.date | None, tz: datetime.tzinfo):
+    def __init__(self, since: datetime.date | None, until: datetime.date | None, tz: datetime.tzinfo | None,
+                 label: str | None = None):
         self.since, self.until, self.tz = since, until, tz
+        self.label = label or zone_label(None)
 
     def day_of(self, timestamp: str | None) -> str | None:
         if not timestamp:
@@ -407,7 +689,7 @@ def resolve_spawns(transcripts: list[dict]) -> list[dict]:
             meta_types[transcript["meta"]["toolUseId"]] = transcript["meta"].get("agentType")
     spawns: dict = {}
     for transcript in transcripts:
-        for tool_id, (name, tool_input, timestamp) in transcript["tools"].items():
+        for tool_id, (name, tool_input, timestamp, _round) in transcript["tools"].items():
             if name in SPAWN_TOOLS and tool_id not in spawns:
                 declared = tool_input.get("subagent_type")
                 spawns[tool_id] = {
@@ -427,7 +709,7 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
     calls = dedupe_calls(transcripts, window)
     tool_calls = {}
     for transcript in transcripts:
-        for tool_id, (name, tool_input, timestamp) in transcript["tools"].items():
+        for tool_id, (name, tool_input, timestamp, _round) in transcript["tools"].items():
             if tool_id in tool_calls or not window.contains(timestamp):
                 continue
             tool_calls[tool_id] = (name, transcript["is_subagent"])
@@ -472,12 +754,13 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
     total_weighted = sum(weighted(d) for d in by_agent.values())
     total_output = total["output"]
     total_input = sum(total[k] for k in TOKEN_KINDS if k != "output")
-    run_counts = collections.Counter(t["agent"] for t in transcripts if t["is_subagent"])
+    started = [t for t in transcripts if t["timestamps"] and window.contains(min(t["timestamps"]))]
+    run_counts = collections.Counter(t["agent"] for t in started if t["is_subagent"])
     agents = {}
     for name, usage in sorted(by_agent.items(), key=lambda item: -weighted(item[1])):
         entry = {
             **usage, "weighted_cost_units": round(weighted(usage)),
-            "transcripts": run_counts.get(name, 0) if name != "main" else sum(1 for t in transcripts if not t["is_subagent"]),
+            "transcripts": run_counts.get(name, 0) if name != "main" else sum(1 for t in started if not t["is_subagent"]),
             "models": dict(agent_models[name].most_common()),
             "share_output": share(usage["output"], total_output),
             "share_input_plus_cache": share(sum(usage[k] for k in TOKEN_KINDS if k != "output"), total_input),
@@ -512,7 +795,7 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
                          "weighted_cost_units": round(weighted(entry["all"]))})
     result = {
         "date_range": {"first": first, "last": last, "since": window.since and window.since.isoformat(),
-                       "until": window.until and window.until.isoformat(), "timezone_for_by_day": str(window.tz)},
+                       "until": window.until and window.until.isoformat(), "timezone_for_by_day": window.label},
         "totals": {
             "sessions": len(by_session), "api_calls": total["calls"], **{k: total[k] for k in TOKEN_KINDS},
             "input_plus_cache": total_input, "weighted_cost_units": round(total_weighted),
@@ -574,7 +857,7 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
     """One record per subagent run that started inside the window."""
     spawn_inputs = {}
     for transcript in transcripts:
-        for tool_id, (name, tool_input, _timestamp) in transcript["tools"].items():
+        for tool_id, (name, tool_input, _timestamp, _round) in transcript["tools"].items():
             if name in SPAWN_TOOLS:
                 spawn_inputs.setdefault(tool_id, tool_input)
     project_cwds: dict = collections.defaultdict(collections.Counter)
@@ -591,10 +874,16 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
         meta = transcript["meta"]
         calls = list(transcript["calls"].values())
         cost = sum(weighted(call["u"]) for call in calls)
-        tool_counts = collections.Counter(name for name, _input, _ts in transcript["tools"].values())
+        tool_counts = collections.Counter(name for name, _input, _ts, _round in transcript["tools"].values())
         files: list[str] = []
         full = targeted = verification = bash = 0
-        for name, tool_input, _timestamp in transcript["tools"].values():
+        per_round: dict = collections.defaultdict(lambda: {
+            "api_calls": 0, "weighted_cost": 0, "bash_calls": 0, "verification_bash_calls": 0,
+            "full_gate_calls": 0, "targeted_test_calls": 0})
+        for call in calls:
+            per_round[call["round"]]["api_calls"] += 1
+            per_round[call["round"]]["weighted_cost"] += round(weighted(call["u"]))
+        for name, tool_input, _timestamp, round_number in transcript["tools"].values():
             if name in EDIT_TOOLS:
                 path = tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path")
                 if path and path not in files:
@@ -603,12 +892,18 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
                 command = tool_input.get("command") or ""
                 bash += 1
                 kind = classifier.classify(command)
+                is_verification = classifier.is_verification(command)
                 full += kind == "full"
                 targeted += kind == "targeted"
-                verification += classifier.is_verification(command)
+                verification += is_verification
+                counts = per_round[round_number]
+                counts["bash_calls"] += 1
+                counts["full_gate_calls"] += kind == "full"
+                counts["targeted_test_calls"] += kind == "targeted"
+                counts["verification_bash_calls"] += is_verification
         top_dirs = {top_level_dir(path, transcript["cwds"]) for path in files}
         spawn_input = spawn_inputs.get(meta.get("toolUseId"))
-        handback = [i.get("message") for n, i, _ in transcript["tools"].values()
+        handback = [i.get("message") for n, i, _ts, _round in transcript["tools"].values()
                     if n == "SubagentHandback" and isinstance(i.get("message"), str)]
         texts = transcript["texts"]
         report = handback[-1] if handback else (texts[-1] if texts else None)
@@ -628,6 +923,8 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
             "top_level_dirs_edited": sorted(top_dirs),
             "bash_calls": bash, "verification_bash_calls": verification,
             "full_gate_calls": full, "targeted_test_calls": targeted,
+            "rounds": max(transcript["prompts"], 1),
+            "by_round": [{"round": number, **per_round[number]} for number in range(1, max(transcript["prompts"], 1) + 1)],
             "final_report": truncate(report, MAX_REPORT_CHARS),
             "final_report_source": "SubagentHandback" if handback else ("text" if texts else None),
             "finished_flag": meta.get("finished"),
@@ -672,6 +969,13 @@ def run_stats(runs: list[dict], prices: PriceTable) -> dict:
                                 "total": sum(r["full_gate_calls"] for r in group)},
             "targeted_test_calls": {"median": median([r["targeted_test_calls"] for r in group]),
                                     "total": sum(r["targeted_test_calls"] for r in group)},
+            "rounds": {"continued_runs": sum(1 for r in group if r["rounds"] > 1),
+                       "max": max(r["rounds"] for r in group), "total": sum(r["rounds"] for r in group)},
+            "per_round": {
+                key: {"median": median([b[key] for r in group for b in r["by_round"]]),
+                      "p90": percentile([b[key] for r in group for b in r["by_round"]], 0.9)}
+                for key in ("verification_bash_calls", "full_gate_calls", "targeted_test_calls")
+            },
             "models_by_api_calls": dict(models.most_common()),
             "runs_with_prompt_matched": sum(r["prompt_matched"] for r in group),
         }
@@ -693,8 +997,15 @@ def headline(usage: dict, runs: list[dict], stats: dict, implementation_agents) 
         "implementation_runs": counts,
         "worker_complex_share_of_implementation_runs": share(complex_runs, len(implementation)),
         "median_verification_bash_calls_per_implementation_run": median([r["verification_bash_calls"] for r in implementation]),
+        "mean_verification_bash_calls_per_implementation_run": (
+            round(statistics.mean([r["verification_bash_calls"] for r in implementation]), 1) if implementation else None),
+        "mean_full_gate_calls_per_implementation_run": (
+            round(statistics.mean([r["full_gate_calls"] for r in implementation]), 1) if implementation else None),
         "median_full_gate_calls_per_implementation_run": median([r["full_gate_calls"] for r in implementation]),
         "median_targeted_test_calls_per_implementation_run": median([r["targeted_test_calls"] for r in implementation]),
+        "median_verification_bash_calls_per_implementation_round": median(
+            [b["verification_bash_calls"] for r in implementation for b in r["by_round"]]),
+        "continued_implementation_runs": sum(1 for r in implementation if r["rounds"] > 1),
         "validator_runs": (stats.get("validator") or {}).get("count", 0),
         "general_purpose_spawns": spawns.get("general-purpose", 0),
         "unspecified_spawns": spawns.get(UNSPECIFIED, 0),
@@ -794,7 +1105,7 @@ def run(argv: list[str] | None = None) -> int:
         raise AuditError("--since is after --until")
     if args.batches < 0:
         raise AuditError("--batches must not be negative")
-    window = Window(since, until, resolve_timezone(args.tz))
+    window = Window(since, until, resolve_timezone(args.tz), zone_label(args.tz))
     config = load_config(args.config)
     classifier = classifier_from(config, args.full_gate, args.targeted)
     prices = PriceTable(config.get("prices"))
@@ -803,6 +1114,10 @@ def run(argv: list[str] | None = None) -> int:
         raise AuditError("--implementation-agents names no agent type")
     today = datetime.datetime.now(window.tz).strftime("%Y-%m-%d")
     out = Path(os.path.expanduser(args.out)) if args.out else Path(os.path.expanduser(DEFAULT_OUT_ROOT)) / today
+    resolved = out.resolve()
+    if resolved == REPO_ROOT or REPO_ROOT in resolved.parents:
+        raise AuditError(f"--out {out} is inside the repository ({REPO_ROOT}); the output holds prompts and "
+                         "paths and must not be committed. Choose a directory outside it.")
 
     transcripts = load_transcripts(Path(os.path.expanduser(args.projects_dir)), window.modified_floor())
     usage = aggregate_usage(transcripts, window, prices)
