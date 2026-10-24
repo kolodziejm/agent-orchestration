@@ -19,15 +19,15 @@
 - Unneeded `worker-complex`: repetitive series that follow an established idiom (an i18n PR series), plan-driven UI slices, copy, theme, and CRUD work, explicit review-fix lists, docs and specs.
 - Justified: auth and security, bugs with an unknown root cause, merges that keep both sides' intent, algorithms, concurrency, state machines.
 - The choice tracked brief length and file count, not difficulty.
-- The main cost driver is verification: 70 to 300 test and build Bash calls per run, full gates re-run repeatedly.
+- The main cost driver is verification: up to 70 to 300 test and build Bash calls in the costliest runs, full gates re-run repeatedly.
 - The built-in `general-purpose` agent was started 53 times although the policy prefers roles.
 
 ## Decisions (owner, 2026-10-23)
 
 1. Agent bodies stay empty. The rules live only in `policy/orchestration.md` and the `policy/routing.toml` descriptions.
-2. `validator` always runs the full gates. Implementers (`worker`, `worker-complex`) run only targeted checks while working: the affected tests and the package typecheck.
-3. When `validator` reports FAIL, the primary agent continues the same implementer with the validator's report, which keeps its context. At most 2 implement → validate rounds; then it stops and asks the user.
-4. A bug with an unknown root cause goes straight to `worker-complex`.
+2. `validator` always runs the full gates, once per deliverable (a PR, or a batch that lands together), whoever made the change. Full gates are the project's complete documented checks: the full test suite, lint, typecheck, and build. Implementers (`worker`, `worker-complex`) run only targeted checks while working: the affected tests and the package typecheck.
+3. When `validator` reports FAIL, the primary agent continues the same implementer with the validator's report, which keeps its context. If the harness cannot continue it, a new run of the same role gets the original brief, the current diff, and the report, and counts as the next round. At most 2 implement → validate rounds: the first implementation and its validation are round 1, and if `validator` still reports a failure in round 2 the primary agent stops and asks the user. It moves to another role (for example `worker` to `worker-complex`) only after asking.
+4. A bug with an unknown root cause goes straight to `worker-complex`. `worker` is the default implementer for everything else, including large changes; when the approach is not settled, the primary agent settles it first, itself or with `planner`, and puts it in the brief.
 5. `worker-complex` effort drops from `xhigh` to `high` now, in its own commit.
 6. The audit tooling lives in this repository. Code, tests, and the rubric are committed; audit outputs stay outside it.
 7. No hooks and no enforcement.
@@ -52,13 +52,13 @@ Re-audit on or about 2026-11-06 with `./scripts/usage-audit --since 2026-10-24 -
 
 Baseline measured with `./scripts/usage-audit --since 2026-10-10 --until 2026-10-23`: 63% of weighted cost, 41% of 320 implementation runs (131 `worker-complex`, 189 `worker`; the hand review covered 129 of those `worker-complex` runs), 53 `general-purpose` spawns, none unspecified. Per implementation run the median is 34 test, lint, and build Bash calls, of which 4 are full gates and 2 are targeted test runs.
 
-Quality guardrails, which must not get worse: the `validator` FAIL rate, review-fix rounds per series, and re-delegations from `worker` to `worker-complex`.
+Quality guardrails, which must not get worse: the `validator` FAIL rate, review-fix rounds per series, and escalations approved by the user after a stop. The audit tool does not compute them: `validator` reports are free-form, so a FAIL cannot be detected reliably. Read the validator reports and the continued runs (`rounds` in `runs.jsonl`) by hand at the re-audit.
 
 The rules (C) and the effort change (D) land together, so compare per task category rather than in total. Tasks that moved to `worker` show the rules effect. The per-run cost of auth, bug, and merge tasks that stay on `worker-complex` shows the effort effect.
 
 ## Risks
 
-- A task the primary agent files under "settled approach" turns out hard: `worker` fails, and the re-delegation counter shows it.
+- A task the primary agent files under "settled approach" turns out hard: `worker` fails validation twice, and the escalation the user approves shows it.
 - Sonnet at high effort is slower on a large settled change; run time is not a metric here.
 - Moving full gates to `validator` adds a handoff; the 2-round cap and the targeted checks keep it bounded.
 

@@ -1,19 +1,19 @@
 version = 1
 
 [roles.worker]
-description = "Implements code, test, configuration, or documentation changes whose approach is settled: a plan, an existing pattern, or an explicit list. The default for implementation, including large changes."
+description = "Implements code, test, configuration, or documentation changes once the approach is settled by a plan, an existing pattern, or an explicit list. The default implementer for everything not assigned to worker-complex, including large changes."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.worker-complex]
-description = "Implements changes whose approach needs hard reasoning: auth and security, bugs with an unknown root cause, merges that must keep both sides' intent, algorithms, concurrency, or state machines. Not for following an established pattern, however large."
+description = "Implements changes whose approach needs hard reasoning: auth and security, bugs with an unknown root cause, merges that must keep both sides' intent, algorithms, concurrency, or state machines. Not for following an established pattern, however large, and not for open design: settle that first."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.validator]
-description = "Runs the full gates (tests, lint, typecheck, builds, and browser or device checks) after an implementer finishes and reports the results without changing files. Use to verify a change independently of its author."
+description = "Runs the full gates (the complete tests, lint, typecheck, and build, and browser or device checks) once a deliverable is implemented and reports the results without changing files. Use to verify a change independently of its author."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
