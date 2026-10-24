@@ -29,7 +29,7 @@ variant = "high"
 
 [models.worker-complex]
 model = "opus"
-variant = "xhigh"
+variant = "high"
 
 [models.validator]
 model = "sonnet"

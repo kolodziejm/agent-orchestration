@@ -34,7 +34,7 @@
 
 ## Units (status; dependencies)
 
-**A — This plan:** completed; deps: none. **B — Audit tool (`audit/`, `scripts/usage-audit`, `tests/test_usage_audit.py`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: A. **C — Routing descriptions and verification policy (`policy/routing.toml`, `policy/orchestration.md`, `profiles/claude.md`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: none. **D — `worker-complex` effort `xhigh` → `high` (`profiles/claude.toml`):** pending; deps: none.
+**A — This plan:** completed; deps: none. **B — Audit tool (`audit/`, `scripts/usage-audit`, `tests/test_usage_audit.py`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: A. **C — Routing descriptions and verification policy (`policy/routing.toml`, `policy/orchestration.md`, `profiles/claude.md`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: none. **D — `worker-complex` effort `xhigh` → `high` (`profiles/claude.toml`):** completed (`PYTHON=.venv/bin/python ./scripts/check` PASS); deps: none.
 
 Each unit ends with `uv run --locked ./scripts/check`, one `CHANGELOG.md` "## Unreleased" bullet, and the README updated where it applies. The final check also runs `./scripts/install-claude-code --dry-run`; installing happens after merge.
 
