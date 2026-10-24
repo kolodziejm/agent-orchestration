@@ -1,25 +1,25 @@
 version = 1
 
 [roles.worker]
-description = "Implements well-defined code, test, configuration, or documentation changes. Use for routine implementation work with clear requirements."
+description = "Implements code, test, configuration, or documentation changes whose approach is settled: a plan, an existing pattern, or an explicit list. The default for implementation, including large changes."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.worker-complex]
-description = "Implements changes that need difficult reasoning, such as algorithms, state machines, concurrency, or coordinated multi-layer changes. Use when the requirements are clear but the implementation is hard."
+description = "Implements changes whose approach needs hard reasoning: auth and security, bugs with an unknown root cause, merges that must keep both sides' intent, algorithms, concurrency, or state machines. Not for following an established pattern, however large."
 mode = "subagent"
 edit = "allow"
 bash = "allow"
 
 [roles.validator]
-description = "Runs tests, lint, typecheck, builds, and browser or device checks and reports the results without changing files. Use to verify a change independently of its author."
+description = "Runs the full gates (tests, lint, typecheck, builds, and browser or device checks) after an implementer finishes and reports the results without changing files. Use to verify a change independently of its author."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
 
 [roles.debugger]
-description = "Reproduces a failure and finds its root cause without changing files. Use when a test, build, or runtime behavior fails and the cause is unknown."
+description = "Reproduces a failure and finds its root cause without changing files. Use when only a diagnosis is wanted: a test, build, or runtime failure with an unknown cause and no fix requested."
 mode = "subagent"
 edit = "deny"
 bash = "ask"
