@@ -474,10 +474,13 @@ class RoundsAndWindowTests(AuditTestCase):
         self.fixture.subagent("r1", "worker", "t-continued", [
             {"type": "user", "timestamp": "2026-10-10T12:00:00.000Z", "message": {"content": "Implement the thing"}},
             {"type": "user", "isMeta": True, "timestamp": "2026-10-10T12:00:01.000Z", "message": {"content": "reminder"}},
+            {"type": "user", "isMeta": True, "origin": {"kind": "task-notification"}, "timestamp": "2026-10-10T12:00:02.000Z",
+             "message": {"content": "<task-notification>done</task-notification>"}},
             assistant("2026-10-10T12:00:10.000Z", SONNET, "r-1", usage(output=5), [
                 bash("rb1", "pnpm web:check"), bash("rb2", "pnpm exec vitest run src/a.test.ts"), bash("rb3", "ls")]),
             tool_result,
-            {"type": "user", "timestamp": "2026-10-10T12:05:00.000Z", "message": {"content": "web:check failed: fix the types"}},
+            {"type": "user", "isMeta": True, "origin": {"kind": "coordinator"}, "timestamp": "2026-10-10T12:05:00.000Z",
+             "message": {"content": [{"type": "text", "text": "The coordinator sent a message: web:check failed, fix the types"}]}},
             {"type": "user", "timestamp": "2026-10-10T12:05:30.000Z",
              "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}},
             assistant("2026-10-10T12:06:00.000Z", SONNET, "r-2", usage(output=6), [

@@ -54,10 +54,12 @@ with no type and no meta file, and a subagent transcript whose meta file names n
 ### Rounds
 
 A continued subagent appends to the same `agent-*.jsonl`. A user record that carries
-text (not a tool result, a meta record, a compaction summary, or an interruption
-notice) starts a round, so a run's `rounds` is 1 plus its continuations, and each
-API call and Bash command is counted in the round it happened in (`by_round`). Round
-1 is the brief and the work it triggered, the same convention as the policy's
+text starts a round: the brief, and each message the coordinator sends later (stored
+as a meta record with `origin.kind` `coordinator`). Tool results, other meta records
+(system reminders), compaction summaries, interruption notices, background-task
+notifications (`origin.kind` `task-notification`), and peer messages do not. A run's
+`rounds` is 1 plus its continuations, and each API call and Bash command is counted
+in the round it happened in (`by_round`). Round 1 is the brief and the work it triggered, the same convention as the policy's
 implement and validate rounds.
 
 ### Verification commands

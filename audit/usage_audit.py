@@ -532,8 +532,15 @@ def discover(projects_dir: Path):
 
 def is_prompt(record: dict) -> bool:
     """True for a user record that starts a round: the brief, or a message that continues the run.
-    Tool results, meta records, compaction summaries, and interruption notices are not prompts."""
-    if record.get("type") != "user" or record.get("isMeta") or record.get("isCompactSummary"):
+    A continuation sent by the coordinator (`SendMessage`) is stored as a meta record with
+    `origin.kind` "coordinator", so it counts although other meta records (system reminders) do not.
+    Tool results, compaction summaries, interruption notices, background-task notifications
+    (`origin.kind` "task-notification"), and peer messages are not prompts."""
+    if record.get("type") != "user" or record.get("isCompactSummary"):
+        return False
+    origin = record.get("origin")
+    coordinator = isinstance(origin, dict) and origin.get("kind") == "coordinator"
+    if record.get("isMeta") and not coordinator:
         return False
     content = (record.get("message") or {}).get("content")
     if isinstance(content, list):
