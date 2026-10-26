@@ -196,6 +196,39 @@ class CommandClassifierTests(AuditTestCase):
             with self.subTest(command=command):
                 self.assertEqual(classifier.classify(command), "full")
 
+    def test_go_test_all_packages_is_a_full_gate_and_a_package_is_targeted(self):
+        """This test will fail when ./... is read as a path, or a named package as the whole module."""
+        classifier = audit.CommandClassifier()
+        for command in ("go test ./...", "go test ...", "go test -race -count=1 ./...", "cd svc && go test ./..."):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "full")
+        for command in ("go test ./pkg/foo", "go test ./pkg/...", "go test ./cmd/api ./internal/...", "go test -run TestLogin ./...",
+                        "go test ./... ./pkg/foo"):
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "targeted")
+
+    def test_make_just_playwright_and_turbo_runs_are_recognised(self):
+        """This test will fail when make, just, Playwright, or Turborepo test runs are missed or mistaken for targeted."""
+        classifier = audit.CommandClassifier()
+        full = ["make test", "make check", "make lint", "make test-unit", "just test", "just check", "just lint",
+                "cd app && make test", "playwright test", "npx playwright test", "pnpm exec playwright test",
+                "yarn playwright test --project=chromium", "turbo run test", "turbo test", "pnpm turbo run test",
+                "npx turbo run lint", "pnpm turbo run test:unit"]
+        targeted = ["make test TEST=tests/test_a.py", "make test FILTER=login", "just test tests/unit", "npx playwright test e2e/login.spec.ts",
+                    "playwright test --grep login", "playwright test -g login", "turbo run test --filter=web",
+                    "pnpm turbo run test --filter web", "turbo run test --filter=web...", "make test ONLY=a"]
+        none = ["make build", "make", "just --list", "make install", "playwright install", "turbo run dev", "just deploy"]
+        for command in full:
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "full")
+                self.assertTrue(classifier.is_verification(command))
+        for command in targeted:
+            with self.subTest(command=command):
+                self.assertEqual(classifier.classify(command), "targeted")
+        for command in none:
+            with self.subTest(command=command):
+                self.assertIsNone(classifier.classify(command))
+
     def test_a_package_scoped_test_script_is_targeted(self):
         """This test will fail when pnpm --filter or -F runs are not counted, or counted as full."""
         classifier = audit.CommandClassifier()
@@ -362,25 +395,87 @@ class UsageAggregationTests(AuditTestCase):
         self.assertEqual(result["agent_spawns_by_caller"], {"main": 5})
         self.assertEqual(result["agent_model_overrides"], {"general-purpose:haiku": 1})
 
-    def test_prices_are_off_without_a_config_and_applied_with_one(self):
-        """This test will fail when costs appear without a price table or ignore the table's values."""
-        plain = self.aggregate()
-        self.assertNotIn("cost_usd", plain["totals"])
-        self.assertNotIn("cost_usd", plain["by_agent"]["worker"])
+    def test_cost_is_priced_by_default_per_model(self):
+        """This test will fail when the cost ignores the model or the default price table changes."""
+        result = self.aggregate()
+        opus_calls = [(50, 100), (7, 100), (40, 1000)]  # (output, cache_read) of the three Opus calls
+        opus = sum((1 * 4 + out * 20 + read * 0.20 + 20 * 5) / 1e6 for out, read in opus_calls)
+        sonnet = sum((1 * 2 + out * 10 + 100 * 0.10 + 20 * 2.50) / 1e6 for out in (30, 4, 2))
+        self.assertAlmostEqual(result["by_model"][OPUS]["cost_usd"], opus, places=6)
+        self.assertAlmostEqual(result["by_model"][SONNET]["cost_usd"], sonnet, places=6)
+        self.assertAlmostEqual(result["totals"]["cost_usd"], opus + sonnet, places=6)
+        self.assertEqual(result["unpriced_models"], {})
+        self.assertEqual(result["prices"]["fetched"], "2026-10-26")
+        self.assertIn("platform.claude.com", result["prices"]["url"])
+        self.assertEqual(result["prices"]["overridden_by_config"], [])
+
+    def test_the_priced_share_differs_from_the_token_weighted_share(self):
+        """This test will fail when the headline share stays token-weighted and blind to the model."""
+        result = self.aggregate()
+        entry = result["by_agent"]["worker-complex"]
+        self.assertAlmostEqual(entry["share_cost"], entry["cost_usd"] / result["totals"]["cost_usd"], places=3)
+        self.assertNotAlmostEqual(entry["share_cost"], entry["share_weighted_cost"], places=2)
+        self.assertEqual(list(result["by_agent"]), sorted(result["by_agent"], key=lambda a: -result["by_agent"][a]["cost_usd"]))
+        runs = self.runs()
+        stats = audit.run_stats(runs, audit.PriceTable())
+        head = audit.headline(result, runs, stats, ("worker", "worker-complex"))
+        self.assertEqual(head["worker_complex_share_of_cost"], entry["share_cost"])
+        self.assertEqual(head["worker_complex_share_of_weighted_cost"], entry["share_weighted_cost"])
+        self.assertAlmostEqual(sum(a["share_cost"] for a in result["by_agent"].values()), 1.0, places=2)
+
+    def test_a_config_price_replaces_the_default_for_that_model(self):
+        """This test will fail when the config file cannot override the shipped table."""
         prices = audit.PriceTable({OPUS: {"input": 10, "output": 100, "cache_read": 1, "cache_creation": 12.5}})
         priced = self.aggregate(prices=prices)
-        opus_calls = [(50, 100), (7, 100), (40, 1000)]  # (output, cache_read) of the three Opus calls
+        opus_calls = [(50, 100), (7, 100), (40, 1000)]
         expected = sum((1 * 10 + out * 100 + read * 1 + 20 * 12.5) / 1e6 for out, read in opus_calls)
         self.assertAlmostEqual(priced["by_model"][OPUS]["cost_usd"], expected, places=6)
-        self.assertAlmostEqual(priced["totals"]["cost_usd"], expected, places=6)
-        self.assertEqual(priced["unpriced_models"], [SONNET])
-        self.assertEqual(priced["by_model"][SONNET]["cost_usd"], 0)
+        self.assertEqual(priced["prices"]["overridden_by_config"], [OPUS])
+        self.assertGreater(priced["by_model"][SONNET]["cost_usd"], 0)
+
+    def test_an_unknown_model_is_unpriced_but_its_tokens_are_counted(self):
+        """This test will fail when an unknown model gets a guessed price or drops out of the token counts."""
+        self.fixture.subagent("m1", "worker", "t-mystery", [
+            {"type": "user", "timestamp": "2026-10-10T14:00:00.000Z", "message": {"content": "go"}},
+            assistant("2026-10-10T14:00:10.000Z", "claude-mystery-9", "x-1", usage(output=77)),
+        ])
+        result = self.aggregate()
+        self.assertEqual(result["unpriced_models"], {"claude-mystery-9": 1})
+        self.assertEqual(result["by_model"]["claude-mystery-9"]["output"], 77)
+        self.assertEqual(result["by_model"]["claude-mystery-9"]["cost_usd"], 0)
+        runs = {run["id"]: run for run in self.runs()}
+        self.assertEqual(runs["agent-m1"]["cost_usd"], 0)
+        self.assertGreater(runs["agent-m1"]["weighted_cost"], 0)
+
+    def test_haiku_5_5_is_priced_by_prompt_length(self):
+        """This test will fail when the Haiku 5.5 tier boundary at 100k prompt tokens moves."""
+        table = audit.PriceTable()
+        small = {"input": 40_000, "output": 1000, "cache_read": 60_000, "cache_creation": 0}  # prompt 100,000
+        large = {"input": 40_001, "output": 1000, "cache_read": 60_000, "cache_creation": 0}  # prompt 100,001
+        self.assertAlmostEqual(table.cost("claude-haiku-5-5", small), (40_000 * 0.10 + 1000 * 0.50 + 60_000 * 0.01) / 1e6)
+        self.assertAlmostEqual(table.cost("claude-haiku-5-5", large), (40_001 * 0.50 + 1000 * 2.50 + 60_000 * 0.05) / 1e6)
+        written = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 90_000, "cache_5m": 50_000, "cache_1h": 40_000}
+        self.assertAlmostEqual(table.cost("claude-haiku-5-5", written), (50_000 * 0.125 + 40_000 * 0.20) / 1e6)
+
+    def test_haiku_4_5_matches_dated_ids_and_cache_writes_split_by_ttl(self):
+        """This test will fail when a dated Haiku 4.5 id is unpriced or one-hour cache writes use the 5-minute rate."""
+        table = audit.PriceTable()
+        counts = audit.token_counts({"input_tokens": 10, "output_tokens": 20, "cache_read_input_tokens": 30,
+                                     "cache_creation_input_tokens": 100,
+                                     "cache_creation": {"ephemeral_5m_input_tokens": 60, "ephemeral_1h_input_tokens": 40}})
+        self.assertEqual((counts["cache_5m"], counts["cache_1h"]), (60, 40))
+        self.assertAlmostEqual(table.cost("claude-haiku-4-5-20251001", counts),
+                               (10 * 1 + 20 * 5 + 30 * 0.10 + 60 * 1.25 + 40 * 2) / 1e6)
+        plain = audit.token_counts({"cache_creation_input_tokens": 100})
+        self.assertNotIn("cache_5m", plain)
+        self.assertEqual(audit.cache_split(plain), (100, 0))
+        self.assertIsNone(table.lookup("claude-opus-4-1"))
 
     def test_a_price_key_matches_a_dated_model_id_by_prefix(self):
         """This test will fail when a price for a model family no longer matches its dated ids."""
-        prices = audit.PriceTable({"claude-opus-5": {"input": 1}, "claude-opus-5-5": {"input": 2}})
-        self.assertEqual(prices.lookup("claude-opus-5-5-20261001"), {"input": 2.0})
-        self.assertEqual(prices.lookup("claude-opus-5-1"), {"input": 1.0})
+        prices = audit.PriceTable({"claude-opus-5": {"input": 1}, "claude-opus-5-5": {"input": 2}}, defaults={})
+        self.assertEqual(prices.lookup("claude-opus-5-5-20261001"), [(None, {"input": 2.0})])
+        self.assertEqual(prices.lookup("claude-opus-5-1"), [(None, {"input": 1.0})])
         self.assertIsNone(prices.lookup("claude-sonnet-5"))
 
 
@@ -458,13 +553,16 @@ class RunStatisticsTests(AuditTestCase):
         self.assertEqual(headline["worker_complex_share_of_weighted_cost"],
                          usage_result["by_agent"]["worker-complex"]["share_weighted_cost"])
 
-    def test_run_costs_appear_only_with_prices(self):
-        """This test will fail when per-run costs appear without a price table."""
-        self.assertNotIn("cost_usd", self.runs()[0])
-        prices = audit.PriceTable({SONNET: {"output": 10}, OPUS: {"output": 100}})
-        priced = self.by_id(self.runs(prices=prices))
-        self.assertAlmostEqual(priced["agent-c1"]["cost_usd"], 40 * 100 / 1e6, places=8)
-        self.assertAlmostEqual(priced["agent-w1"]["cost_usd"], (30 + 4) * 10 / 1e6, places=8)
+    def test_run_and_round_costs_use_the_runs_models(self):
+        """This test will fail when a run's cost ignores its model or the rounds' costs stop adding up."""
+        priced = self.by_id(self.runs())
+        self.assertAlmostEqual(priced["agent-c1"]["cost_usd"], (1 * 4 + 40 * 20 + 1000 * 0.20 + 20 * 5) / 1e6, places=6)
+        self.assertAlmostEqual(priced["agent-w1"]["cost_usd"], sum((1 * 2 + o * 10 + 100 * 0.10 + 20 * 2.50) / 1e6 for o in (30, 4)), places=6)
+        stats = audit.run_stats(self.runs(), audit.PriceTable())
+        self.assertAlmostEqual(sum(e["cost_usd"]["share_of_subagent_runs"] for e in stats.values()), 1.0, places=2)
+        self.assertEqual(stats["worker"]["cost_usd"]["total"], round(priced["agent-w1"]["cost_usd"], 6))
+        override = self.by_id(self.runs(prices=audit.PriceTable({SONNET: {"output": 10}, OPUS: {"output": 100}})))
+        self.assertAlmostEqual(override["agent-c1"]["cost_usd"], 40 * 100 / 1e6, places=8)
 
 
 class RoundsAndWindowTests(AuditTestCase):
@@ -493,9 +591,11 @@ class RoundsAndWindowTests(AuditTestCase):
         run = self.continued_run()
         self.assertEqual(run["rounds"], 2)
         self.assertEqual(run["by_round"], [
-            {"round": 1, "api_calls": 1, "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 5), "bash_calls": 3,
+            {"round": 1, "api_calls": 1, "cost_usd": round((1 * 2 + 5 * 10 + 100 * 0.10 + 20 * 2.50) / 1e6, 6),
+             "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 5), "bash_calls": 3,
              "verification_bash_calls": 2, "full_gate_calls": 1, "targeted_test_calls": 1},
-            {"round": 2, "api_calls": 1, "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 6), "bash_calls": 2,
+            {"round": 2, "api_calls": 1, "cost_usd": round((1 * 2 + 6 * 10 + 100 * 0.10 + 20 * 2.50) / 1e6, 6),
+             "weighted_cost": round(1 + 1.25 * 20 + 0.1 * 100 + 5 * 6), "bash_calls": 2,
              "verification_bash_calls": 2, "full_gate_calls": 1, "targeted_test_calls": 0},
         ])
         self.assertEqual((run["bash_calls"], run["full_gate_calls"], run["targeted_test_calls"]), (5, 2, 1))
@@ -629,17 +729,21 @@ class CommandLineTests(AuditTestCase):
                 self.assertTrue(err.startswith("usage-audit: "), err)
                 self.assertNotIn("Traceback", err)
 
-    def test_prices_come_only_from_the_config_file(self):
-        """This test will fail when the CLI invents prices or ignores the config's price table."""
+    def test_prices_are_default_and_the_config_file_overrides_them(self):
+        """This test will fail when the CLI stops pricing by default or ignores the config's price table."""
         config = self.root / "audit.toml"
         config.write_text(f'[prices."{OPUS}"]\ninput = 15\noutput = 75\n')
         plain, priced = self.root / "plain", self.root / "priced"
         self.run_cli("--projects-dir", str(self.fixture.projects), "--out", str(plain), "--quiet")
         self.run_cli("--projects-dir", str(self.fixture.projects), "--out", str(priced), "--quiet", "--config", str(config))
-        self.assertNotIn("cost_usd", json.loads((plain / "usage.json").read_text())["totals"])
+        plain_usage = json.loads((plain / "usage.json").read_text())
         priced_usage = json.loads((priced / "usage.json").read_text())
-        self.assertGreater(priced_usage["totals"]["cost_usd"], 0)
-        self.assertEqual(priced_usage["unpriced_models"], [SONNET])
+        self.assertGreater(plain_usage["totals"]["cost_usd"], 0)
+        self.assertEqual(plain_usage["unpriced_models"], {})
+        self.assertEqual(priced_usage["prices"]["overridden_by_config"], [OPUS])
+        self.assertGreater(priced_usage["by_model"][OPUS]["cost_usd"], plain_usage["by_model"][OPUS]["cost_usd"])
+        self.assertIn("worker_complex_share_of_cost", json.loads((plain / "headline.json").read_text()))
+        self.assertIn("$", self.run_cli("--projects-dir", str(self.fixture.projects), "--out", str(plain))[1])
 
     def test_output_inside_the_repository_is_refused(self):
         """This test will fail when --out can point into the repository, where prompts and paths could be committed."""

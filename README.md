@@ -312,10 +312,10 @@ Nothing in this repository rewrites those files for you.
   `scripts/check`.
 - `scripts/` — `generate`, `check`, `check-browser`, `check-runtime`, `usage-audit`, and the per-harness installers.
 - `audit/` — `usage_audit.py`, run through `scripts/usage-audit`: reads the Claude Code
-  transcripts on the machine and reports token usage and weighted cost by agent type,
+  transcripts on the machine and reports token usage and priced cost by agent type,
   the model each agent type ran on each day, spawns by `subagent_type`, and per
   subagent run (and per round, for a continued one) the files edited and the full-gate and targeted test commands run. It
-  writes outside the repository, applies a price table only from a user config file,
+  writes outside the repository, prices every call from a default per-model table that a user config file can override,
   and its `README.md` holds the verdict rubric for reviewing whether a
   `worker-complex` run needed it. Covered by `tests/test_usage_audit.py`. Transcripts
   hold prompts and paths, so its output is never committed.

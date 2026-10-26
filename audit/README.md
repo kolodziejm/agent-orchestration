@@ -37,14 +37,15 @@ id) count once with the largest output.
 
 | File | Content |
 | --- | --- |
-| `usage.json` | Tokens and weighted cost by agent type, model, day, project, and session; the model each agent type ran on each day; tool usage; spawns by `subagent_type`; model overrides. |
-| `runs.jsonl` | One line per subagent run: type, duration, models, API calls, weighted cost, edited files, Bash calls, full-gate and targeted test calls, `rounds` and the same counts `by_round`, the delegation prompt, and the final report. |
+| `usage.json` | Tokens, priced cost (`cost_usd`, `share_cost`), and token-weighted cost by agent type, model, day, project, and session; the model each agent type ran on each day; tool usage; spawns by `subagent_type`; model overrides. |
+| `runs.jsonl` | One line per subagent run: type, duration, models, API calls, weighted cost, edited files, Bash calls, `cost_usd`, full-gate and targeted test calls, `rounds` and the same counts `by_round`, the delegation prompt, and the final report. |
 | `run_stats.json` | Per agent type: run count, share of subagent cost, median and 90th percentile of calls, cost, files, and verification commands, per run and per round, and how many runs were continued. |
 | `headline.json` | The numbers the plan tracks: the `worker-complex` share of cost and of implementation runs, median and mean verification calls per implementation run, `general-purpose` and unspecified spawns. |
 | `review/batch_N.jsonl` | The review agent's runs for the verdict pass. |
 
-Weighted cost is relative and model-agnostic: input 1, cache write 1.25, cache read
-0.1, output 5. It does not tell Opus from Sonnet; use a price table for that.
+Cost is priced per call from the model's rates (see Prices) and is the headline:
+`cost_usd` and `share_cost`. Weighted cost is the secondary, model-agnostic figure: input 1,
+cache write 1.25, cache read 0.1, output 5. It does not tell Opus from Sonnet.
 
 An `Agent` call without `subagent_type` is counted under the type the subagent's
 `.meta.json` records, else as `unspecified`. It is never counted as `general-purpose`
@@ -98,17 +99,37 @@ verification = '^(\S*/)?(tsc|eslint)(\s|$)'
 
 ### Prices
 
-Costs in USD appear only when the config file has a `[prices.<model>]` table, in USD
-per million tokens. The tool ships no prices. A key also matches longer model ids that
-start with it, and models without a price are listed under `unpriced_models`.
+Cost is priced by default from a table in `audit/usage_audit.py` (USD per million
+tokens, from <https://platform.claude.com/docs/en/about-claude/pricing>, fetched
+2026-10-26; `usage.json` records the source). A call is priced from its own tokens:
+input, output, cache reads, and cache writes, split into 5-minute and 1-hour writes
+when the transcript says so (`usage.cache_creation`), else all 5-minute. Rates of a
+model id also apply to its dated ids (`claude-haiku-4-5-20251001`). Haiku 5.5 has two
+tiers by the request's prompt (input, cache read, and cache write tokens): up to 100k
+and above. Batch and fast-mode pricing are not modelled, so an audit of such usage
+overstates it.
+
+| Model | Input | Cache write 5m | Cache write 1h | Cache read | Output |
+| --- | --- | --- | --- | --- | --- |
+| `claude-opus-5-5` | 4 | 5 | 8 | 0.20 | 20 |
+| `claude-sonnet-5-5` | 2 | 2.50 | 4 | 0.10 | 10 |
+| `claude-haiku-5-5`, prompt up to 100k | 0.10 | 0.125 | 0.20 | 0.01 | 0.50 |
+| `claude-haiku-5-5`, prompt over 100k | 0.50 | 0.625 | 1 | 0.05 | 2.50 |
+| `claude-haiku-4-5` | 1 | 1.25 | 2 | 0.10 | 5 |
+
+A model that is not in the table is reported under `unpriced_models` (calls per model):
+its tokens are counted, its cost is 0, and nothing is guessed. Rates change; check the
+table against the pricing page before an audit, and replace or add a model in the
+config file. An entry there replaces the default for that model id (it has no tiers;
+`cache_creation` sets both cache-write rates):
 
 ```toml
-# Fill in from your own price list.
-# [prices."claude-opus-5-5"]
-# input = 0
-# output = 0
-# cache_read = 0
-# cache_creation = 0
+[prices."claude-sonnet-5-5"]
+input = 2
+output = 10
+cache_read = 0.10
+cache_write_5m = 2.50
+cache_write_1h = 4
 ```
 
 ## Verdict rubric

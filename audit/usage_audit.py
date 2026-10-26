@@ -29,8 +29,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROJECTS_DIR = "~/.claude/projects"
 DEFAULT_OUT_ROOT = "~/.local/state/agent-orchestration/audits"
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_creation")
-# Relative cost units, model-agnostic: input 1, cache write 1.25, cache read 0.1, output 5.
+# Relative cost units, model-agnostic: input 1, cache write 1.25, cache read 0.1, output 5. A secondary
+# figure next to the priced cost, which tells Opus from Sonnet from Haiku.
 WEIGHTS = {"input": 1.0, "cache_creation": 1.25, "cache_read": 0.1, "output": 5.0}
+PRICES_SOURCE = {"url": "https://platform.claude.com/docs/en/about-claude/pricing", "fetched": "2026-10-26",
+                 "unit": "USD per million tokens", "not_modelled": "batch and fast-mode pricing"}
+# Rates by model id prefix. A model with several tiers lists them by the largest prompt (input + cache read
+# + cache write tokens of one request) each covers; None is no limit.
+DEFAULT_PRICES = {
+    "claude-opus-5-5": [(None, {"input": 4.0, "cache_write_5m": 5.0, "cache_write_1h": 8.0, "cache_read": 0.20, "output": 20.0})],
+    "claude-sonnet-5-5": [(None, {"input": 2.0, "cache_write_5m": 2.50, "cache_write_1h": 4.0, "cache_read": 0.10, "output": 10.0})],
+    "claude-haiku-5-5": [
+        (100_000, {"input": 0.10, "cache_write_5m": 0.125, "cache_write_1h": 0.20, "cache_read": 0.01, "output": 0.50}),
+        (None, {"input": 0.50, "cache_write_5m": 0.625, "cache_write_1h": 1.0, "cache_read": 0.05, "output": 2.50}),
+    ],
+    "claude-haiku-4-5": [(None, {"input": 1.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.10, "output": 5.0})],
+}
+RATE_KEYS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
+# A config price table may also use `cache_creation`, the price of every cache write.
+PRICE_CONFIG_KEYS = (*RATE_KEYS, "cache_creation")
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 SPAWN_TOOLS = frozenset({"Agent", "Task"})
 DEFAULT_IMPLEMENTATION_AGENTS = ("worker", "worker-complex")
@@ -74,6 +91,9 @@ DEFAULT_RUNNERS = (
     r"^cargo (test|nextest)(\s|$)",
     r"^unittest(\s|$)",
     r"^go test(\s|$)",
+    r"^(\S*/)?playwright test(\s|$)",
+    r"^(\S*/)?turbo (run )?(test|check|lint)\S*(\s|$)",
+    r"^(make|just) (test|tests|check|lint)([-:_]\S*)?(\s|$)",
     r"^(npm|pnpm|yarn|bun) run test(:\S*)?(\s|$)",
 )
 # A runner segment matching one of these names a test, a pattern, or a package, so it is targeted.
@@ -81,7 +101,10 @@ DEFAULT_RUNNERS = (
 # targeted; that part is in code (`has_path_argument`, `normalize_segment`).
 DEFAULT_TARGETED = (
     r"(^|\s)(--filter|--testNamePattern|--testPathPattern|--findRelatedTests|--related|--changedSince)(=|\s|$)",
-    r"(^|\s)-[tk]\s",
+    r"(^|\s)-[tkg]\s",
+    r"(^|\s)--grep(=|\s|$)",
+    r"^go test\b.*\s-run\s",
+    r"^(make|just) .*\b[A-Z_]*(FILTER|TEST|TESTS|ONLY|PATTERN|SPEC|FILE|PATH)=",
     r"^cargo (test|nextest)\b.*(\s-p\s|\s--package\b|\s--lib\b|\s--test\s|\s--bin\s|\s--\s+\w)",
 )
 
@@ -94,7 +117,7 @@ PATH_LIKE = re.compile(
 REDIRECTION = re.compile(r"^\d*[<>]+&?\d*$")
 SHELL_WRAPPERS = frozenset({"env", "time", "command", "nohup", "exec", "sudo", "nice", "caffeinate", "corepack"})
 PACKAGE_MANAGERS = frozenset({"npm", "pnpm", "yarn", "bun"})
-BINARY_NAMES = frozenset({"jest", "vitest", "pest", "phpunit", "pytest", "tsc", "eslint", "prettier", "biome"})
+BINARY_NAMES = frozenset({"jest", "vitest", "pest", "phpunit", "pytest", "tsc", "eslint", "prettier", "biome", "turbo", "playwright"})
 # A `*.sh` wrapper script followed by one of these is looked through (`notify-work/sail.sh php artisan test`).
 WRAPPED_COMMANDS = PACKAGE_MANAGERS | frozenset({
     "php", "node", "npx", "bunx", "pnpx", "python", "python3", "cargo", "pest", "pint", "phpunit", "vitest", "jest",
@@ -106,7 +129,7 @@ PYTHON_RUNNER_VALUE_FLAGS = frozenset({"--project", "--with", "--python", "-p", 
 VALUE_FLAGS = frozenset({
     "--config", "-c", "--reporter", "--reporters", "--maxWorkers", "--max-workers", "--project", "--projects",
     "--root", "--rootdir", "--outputFile", "--testTimeout", "--env", "--setupFiles", "--shard", "--pool",
-    "--environment", "--testEnvironment", "--junitxml", "--cov", "--ignore", "--deselect", "-o", "-n", "-w",
+    "--environment", "--testEnvironment", "--junitxml", "--cov", "--ignore", "--deselect", "-o", "-n", "-w", "--workers",
     "-p", "--coverage-reporters", "--color", "--log-level",
 })
 DOCKER_VALUE_FLAGS = frozenset({"-w", "--workdir", "-e", "--env", "-u", "--user", "--name", "-v", "--volume"})
@@ -307,7 +330,7 @@ def has_path_argument(words: list[str]) -> bool:
         elif word.startswith("-"):
             if "=" not in word and word in VALUE_FLAGS:
                 index += 1
-        elif word not in (".", "./") and ("/" in word or PATH_LIKE.search(word)):
+        elif word not in (".", "./", "...", "./...") and ("/" in word or PATH_LIKE.search(word)):
             return True
     return False
 
@@ -380,8 +403,8 @@ def load_config(path: str | None) -> dict:
     if not isinstance(prices, dict):
         raise AuditError("config: [prices] must be a table")
     for model, table in prices.items():
-        if not isinstance(table, dict) or not set(table) <= set(TOKEN_KINDS):
-            raise AuditError(f"config: prices.{model} must be a table with keys from {', '.join(TOKEN_KINDS)}")
+        if not isinstance(table, dict) or not set(table) <= set(PRICE_CONFIG_KEYS):
+            raise AuditError(f"config: prices.{model} must be a table with keys from {', '.join(PRICE_CONFIG_KEYS)}")
         if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 for v in table.values()):
             raise AuditError(f"config: prices.{model} values must be non-negative numbers")
     return config
@@ -404,28 +427,49 @@ def classifier_from(config: dict, cli_full: list[str], cli_targeted: list[str]) 
     )
 
 
+def cache_split(usage: dict) -> tuple[int, int]:
+    """(5-minute, 1-hour) cache-write tokens of one call; the transcripts that do not say are all 5-minute."""
+    five, hour = usage.get("cache_5m"), usage.get("cache_1h")
+    if five is None and hour is None:
+        return usage["cache_creation"], 0
+    return five or 0, hour or 0
+
+
 class PriceTable:
-    """USD per million tokens by model id; absent unless the user supplies a config file."""
+    """USD per million tokens by model id: the default table, with the entries a user config replaces.
+    A call's cost is its tokens times the rates of the tier its prompt falls in; a model without a
+    price costs 0 here and is reported as unpriced, never guessed."""
 
-    def __init__(self, prices: dict | None):
-        self.prices = {model: {k: float(v) for k, v in table.items()} for model, table in (prices or {}).items()}
-        self.unpriced: set[str] = set()
+    def __init__(self, overrides: dict | None = None, defaults: dict | None = None):
+        defaults = DEFAULT_PRICES if defaults is None else defaults
+        self.tiers = {model: [(limit, dict(rates)) for limit, rates in tiers] for model, tiers in defaults.items()}
+        for model, table in (overrides or {}).items():
+            rates = {key: float(value) for key, value in table.items() if key != "cache_creation"}
+            if "cache_creation" in table:
+                rates.setdefault("cache_write_5m", float(table["cache_creation"]))
+                rates.setdefault("cache_write_1h", float(table["cache_creation"]))
+            self.tiers[model] = [(None, rates)]
+        self.overridden = sorted(overrides or {})
 
-    def __bool__(self):
-        return bool(self.prices)
-
-    def lookup(self, model: str) -> dict | None:
-        if model in self.prices:
-            return self.prices[model]
-        matches = [key for key in self.prices if model.startswith(key)]
-        return self.prices[max(matches, key=len)] if matches else None
+    def lookup(self, model: str) -> list | None:
+        if model in self.tiers:
+            return self.tiers[model]
+        matches = [key for key in self.tiers if model.startswith(key)]
+        return self.tiers[max(matches, key=len)] if matches else None
 
     def cost(self, model: str, usage: dict) -> float:
-        table = self.lookup(model)
-        if table is None:
-            self.unpriced.add(model)
+        tiers = self.lookup(model)
+        if tiers is None:
             return 0.0
-        return sum(usage[kind] * table.get(kind, 0.0) for kind in TOKEN_KINDS) / 1_000_000
+        five, hour = cache_split(usage)
+        prompt = usage["input"] + usage["cache_read"] + five + hour
+        rates = next(rates for limit, rates in tiers if limit is None or prompt <= limit)
+        return (usage["input"] * rates.get("input", 0.0) + usage["output"] * rates.get("output", 0.0)
+                + usage["cache_read"] * rates.get("cache_read", 0.0) + five * rates.get("cache_write_5m", 0.0)
+                + hour * rates.get("cache_write_1h", 0.0)) / 1_000_000
+
+    def source(self) -> dict:
+        return {**PRICES_SOURCE, "overridden_by_config": self.overridden}
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +574,21 @@ def discover(projects_dir: Path):
         yield path, path.parents[2].name, path.parents[1].name, True
 
 
+def token_counts(usage: dict) -> dict:
+    """One call's tokens. The cache writes are split into 5-minute and 1-hour when the transcript
+    says so (`usage.cache_creation`); otherwise they are all 5-minute."""
+    total = usage.get("cache_creation_input_tokens") or 0
+    counts = {
+        "input": usage.get("input_tokens") or 0, "output": usage.get("output_tokens") or 0,
+        "cache_read": usage.get("cache_read_input_tokens") or 0, "cache_creation": total,
+    }
+    split = usage.get("cache_creation")
+    if isinstance(split, dict) and ("ephemeral_1h_input_tokens" in split or "ephemeral_5m_input_tokens" in split):
+        hour = min(split.get("ephemeral_1h_input_tokens") or 0, total)
+        counts["cache_1h"], counts["cache_5m"] = hour, total - hour
+    return counts
+
+
 def is_prompt(record: dict) -> bool:
     """True for a user record that starts a round: the brief, or a message that continues the run.
     A continuation sent by the coordinator (`SendMessage`) is stored as a meta record with
@@ -600,11 +659,7 @@ def read_transcript(path: Path, project: str, session: str, is_subagent: bool) -
                 key = (message_id, record.get("requestId")) if message_id else ("uuid", record.get("uuid"))
                 call = {
                     "model": model, "ts": record.get("timestamp"), "round": round_number,
-                    "u": {
-                        "input": usage.get("input_tokens") or 0, "output": usage.get("output_tokens") or 0,
-                        "cache_read": usage.get("cache_read_input_tokens") or 0,
-                        "cache_creation": usage.get("cache_creation_input_tokens") or 0,
-                    },
+                    "u": token_counts(usage),
                 }
                 old = transcript["calls"].get(key)
                 if old is None or call["u"]["output"] >= old["u"]["output"]:
@@ -745,10 +800,9 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
             (record["project"], record["session"]), {"all": zero(), "main": zero(), "sub": zero()})
         add(session["all"], usage)
         add(session["sub" if record["sub"] else "main"], usage)
-        if prices:
-            cost = prices.cost(record["model"], usage)
-            cost_by_agent[record["agent"]] += cost
-            cost_by_model[record["model"]] += cost
+        cost = prices.cost(record["model"], usage)
+        cost_by_agent[record["agent"]] += cost
+        cost_by_model[record["model"]] += cost
         if record["ts"]:
             first = record["ts"] if first is None or record["ts"] < first else first
             last = record["ts"] if last is None or record["ts"] > last else last
@@ -759,29 +813,27 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
             day_models[record["model"]] += 1
 
     total_weighted = sum(weighted(d) for d in by_agent.values())
+    total_cost = sum(cost_by_agent.values())
     total_output = total["output"]
     total_input = sum(total[k] for k in TOKEN_KINDS if k != "output")
     started = [t for t in transcripts if t["timestamps"] and window.contains(min(t["timestamps"]))]
     run_counts = collections.Counter(t["agent"] for t in started if t["is_subagent"])
     agents = {}
-    for name, usage in sorted(by_agent.items(), key=lambda item: -weighted(item[1])):
+    for name, usage in sorted(by_agent.items(), key=lambda item: -cost_by_agent[item[0]]):
         entry = {
-            **usage, "weighted_cost_units": round(weighted(usage)),
+            **usage, "cost_usd": round(cost_by_agent[name], 6), "share_cost": share(cost_by_agent[name], total_cost),
+            "weighted_cost_units": round(weighted(usage)),
             "transcripts": run_counts.get(name, 0) if name != "main" else sum(1 for t in started if not t["is_subagent"]),
             "models": dict(agent_models[name].most_common()),
             "share_output": share(usage["output"], total_output),
             "share_input_plus_cache": share(sum(usage[k] for k in TOKEN_KINDS if k != "output"), total_input),
             "share_weighted_cost": share(weighted(usage), total_weighted),
         }
-        if prices:
-            entry["cost_usd"] = round(cost_by_agent[name], 6)
         agents[name] = entry
     models = {}
-    for name, usage in sorted(by_model.items(), key=lambda item: -weighted(item[1])):
+    for name, usage in sorted(by_model.items(), key=lambda item: -cost_by_model[item[0]]):
         models[name] = {**usage, "total_tokens": sum(usage[k] for k in TOKEN_KINDS),
-                        "weighted_cost_units": round(weighted(usage))}
-        if prices:
-            models[name]["cost_usd"] = round(cost_by_model[name], 6)
+                        "cost_usd": round(cost_by_model[name], 6), "weighted_cost_units": round(weighted(usage))}
 
     spawns = [s for s in resolve_spawns(transcripts) if window.contains(s["ts"])]
     spawn_types = collections.Counter(s["type"] for s in spawns)
@@ -805,7 +857,8 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
                        "until": window.until and window.until.isoformat(), "timezone_for_by_day": window.label},
         "totals": {
             "sessions": len(by_session), "api_calls": total["calls"], **{k: total[k] for k in TOKEN_KINDS},
-            "input_plus_cache": total_input, "weighted_cost_units": round(total_weighted),
+            "input_plus_cache": total_input, "cost_usd": round(total_cost, 6),
+            "weighted_cost_units": round(total_weighted),
             "weighted_cost_units_note": "input=1, cache_creation=1.25, cache_read=0.1, output=5 (relative, model-agnostic)",
         },
         "by_agent": agents,
@@ -833,9 +886,8 @@ def aggregate_usage(transcripts: list[dict], window: Window, prices: PriceTable)
         "agent_spawns_by_caller": dict(collections.Counter(s["caller"] for s in spawns)),
         "agent_model_overrides": dict(overrides.most_common()),
     }
-    if prices:
-        result["totals"]["cost_usd"] = round(sum(cost_by_model.values()), 6)
-        result["unpriced_models"] = sorted(prices.unpriced)
+    result["prices"] = prices.source()
+    result["unpriced_models"] = {name: by_model[name]["calls"] for name in by_model if prices.lookup(name) is None}
     return result
 
 
@@ -885,11 +937,13 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
         files: list[str] = []
         full = targeted = verification = bash = 0
         per_round: dict = collections.defaultdict(lambda: {
-            "api_calls": 0, "weighted_cost": 0, "bash_calls": 0, "verification_bash_calls": 0,
+            "api_calls": 0, "cost_usd": 0.0, "weighted_cost": 0, "bash_calls": 0, "verification_bash_calls": 0,
             "full_gate_calls": 0, "targeted_test_calls": 0})
         for call in calls:
             per_round[call["round"]]["api_calls"] += 1
             per_round[call["round"]]["weighted_cost"] += round(weighted(call["u"]))
+            per_round[call["round"]]["cost_usd"] = round(
+                per_round[call["round"]]["cost_usd"] + prices.cost(call["model"], call["u"]), 6)
         for name, tool_input, _timestamp, round_number in transcript["tools"].values():
             if name in EDIT_TOOLS:
                 path = tool_input.get("file_path") or tool_input.get("notebook_path") or tool_input.get("path")
@@ -923,7 +977,8 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
             "prompt_matched": spawn_input is not None,
             "parent_subagent_type_in_call": (spawn_input or {}).get("subagent_type"),
             "models": dict(collections.Counter(call["model"] for call in calls)),
-            "api_calls": len(calls), "weighted_cost": round(cost),
+            "api_calls": len(calls), "cost_usd": round(sum(prices.cost(c["model"], c["u"]) for c in calls), 6),
+            "weighted_cost": round(cost),
             "output_tokens": sum(call["u"]["output"] for call in calls),
             "tool_counts": dict(tool_counts.most_common()),
             "files_edited": files[:40], "files_edited_total": len(files),
@@ -941,16 +996,15 @@ def build_runs(transcripts: list[dict], window: Window, classifier: CommandClass
             if isinstance(prompt, str) and len(prompt) > MAX_PROMPT_CHARS:
                 prompt = prompt[:4500] + "…" + prompt[-1500:]
             run["prompt"] = prompt
-        if prices:
-            run["cost_usd"] = round(sum(prices.cost(call["model"], call["u"]) for call in calls), 6)
         runs.append(run)
     runs.sort(key=lambda run: run["start"])
     return runs
 
 
 def run_stats(runs: list[dict], prices: PriceTable) -> dict:
-    """Per-agent-type statistics over the runs; shares are of all subagent runs' weighted cost."""
-    total_cost = sum(run["weighted_cost"] for run in runs)
+    """Per-agent-type statistics over the runs; shares are of all subagent runs' cost."""
+    total_cost = sum(run["cost_usd"] for run in runs)
+    total_weighted = sum(run["weighted_cost"] for run in runs)
     stats: dict = {}
     for agent in sorted({run["agent"] for run in runs}):
         group = [run for run in runs if run["agent"] == agent]
@@ -958,13 +1012,17 @@ def run_stats(runs: list[dict], prices: PriceTable) -> dict:
         for run in group:
             models.update(run["models"])
         costs = [run["weighted_cost"] for run in group]
+        dollars = [run["cost_usd"] for run in group]
         entry = {
             "count": len(group),
             "api_calls": {"median": median([r["api_calls"] for r in group]),
                           "p90": percentile([r["api_calls"] for r in group], 0.9)},
+            "cost_usd": {"median": median(dollars), "p90": percentile(dollars, 0.9),
+                         "mean": round(statistics.mean(dollars), 4), "total": round(sum(dollars), 6),
+                         "share_of_subagent_runs": share(sum(dollars), total_cost)},
             "weighted_cost": {"median": median(costs), "p90": percentile(costs, 0.9),
                               "mean": round(statistics.mean(costs)), "total": sum(costs),
-                              "share_of_subagent_runs": share(sum(costs), total_cost)},
+                              "share_of_subagent_runs": share(sum(costs), total_weighted)},
             "files_edited_median": median([r["files_edited_total"] for r in group]),
             "duration_min_median": median([r["duration_min"] for r in group]),
             "bash_calls": {"median": median([r["bash_calls"] for r in group]), "total": sum(r["bash_calls"] for r in group)},
@@ -986,8 +1044,6 @@ def run_stats(runs: list[dict], prices: PriceTable) -> dict:
             "models_by_api_calls": dict(models.most_common()),
             "runs_with_prompt_matched": sum(r["prompt_matched"] for r in group),
         }
-        if prices:
-            entry["cost_usd_total"] = round(sum(r.get("cost_usd", 0.0) for r in group), 6)
         stats[agent] = entry
     return stats
 
@@ -999,7 +1055,10 @@ def headline(usage: dict, runs: list[dict], stats: dict, implementation_agents) 
     spawns = usage["agent_spawns_by_subagent_type"]
     complex_runs = counts.get("worker-complex", 0)
     return {
+        "worker_complex_share_of_cost": (usage["by_agent"].get("worker-complex") or {}).get("share_cost"),
         "worker_complex_share_of_weighted_cost": (usage["by_agent"].get("worker-complex") or {}).get("share_weighted_cost"),
+        "total_cost_usd": usage["totals"]["cost_usd"],
+        "unpriced_models": usage["unpriced_models"],
         "implementation_agents": list(implementation_agents),
         "implementation_runs": counts,
         "worker_complex_share_of_implementation_runs": share(complex_runs, len(implementation)),
@@ -1056,21 +1115,24 @@ def write_outputs(out: Path, usage: dict, runs: list[dict], stats: dict, head: d
 
 
 def format_summary(usage: dict, stats: dict, head: dict) -> str:
+    totals = usage["totals"]
     lines = [
-        f"calls {usage['totals']['api_calls']}  sessions {usage['totals']['sessions']}  "
-        f"weighted cost {usage['totals']['weighted_cost_units']:,}",
+        f"calls {totals['api_calls']}  sessions {totals['sessions']}  cost ${totals['cost_usd']:,.2f}  "
+        f"(weighted units {totals['weighted_cost_units']:,})",
         "",
-        f"{'agent':<18}{'runs':>6}{'cost share':>12}{'cost/run':>14}{'verif med':>11}{'full med':>10}{'tgt med':>9}",
+        f"{'agent':<18}{'runs':>6}{'cost share':>12}{'$ / run':>10}{'verif med':>11}{'full med':>10}{'tgt med':>9}",
     ]
     for agent, entry in usage["by_agent"].items():
         stat = stats.get(agent)
-        share_text = f"{entry['share_weighted_cost']:.1%}" if entry["share_weighted_cost"] is not None else "-"
+        share_text = f"{entry['share_cost']:.1%}" if entry["share_cost"] is not None else "-"
         if stat:
-            lines.append(f"{agent:<18}{stat['count']:>6}{share_text:>12}{stat['weighted_cost']['mean']:>14,}"
+            lines.append(f"{agent:<18}{stat['count']:>6}{share_text:>12}{stat['cost_usd']['mean']:>10.2f}"
                          f"{stat['verification_bash_calls']['median']:>11}{stat['full_gate_calls']['median']:>10}"
                          f"{stat['targeted_test_calls']['median']:>9}")
         else:
             lines.append(f"{agent:<18}{'-':>6}{share_text:>12}")
+    if usage["unpriced_models"]:
+        lines += ["", f"unpriced models (tokens counted, cost 0): {usage['unpriced_models']}"]
     lines += ["", "headline"]
     lines += [f"  {key}: {value}" for key, value in head.items() if key != "note"]
     return "\n".join(lines)

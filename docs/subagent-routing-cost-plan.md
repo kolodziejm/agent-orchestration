@@ -1,12 +1,12 @@
 # Subagent routing and cost — approved goal: implementation goes to the cheaper `worker` unless the work needs hard reasoning, and full verification gates run once, in `validator`.
 
-**Trigger:** a usage audit of 2026-10-10 → 2026-10-23 (aggregate numbers only; no project names, prompts, or session ids are kept here). `worker-complex` (Opus, xhigh) carried about 63% of the weighted cost, and most of that went to work `worker` could have done.
+**Trigger:** a usage audit of 2026-10-10 → 2026-10-23 (aggregate numbers only; no project names, prompts, or session ids are kept here). `worker-complex` (Opus, xhigh) carried about 65% of the priced cost (63% by token weight), and most of that went to work `worker` could have done.
 
 **Non-goals:** no hooks or other enforcement (text policy only); no role body or prompt text in agent definitions (the bodies stay empty, enforced by `tests/test_agent_definition_contract.py`); no change to the other roles' models.
 
 ## Audit summary
 
-- `worker-complex` = about 63% of weighted cost (input 1, cache write 1.25, cache read 0.1, output 5; model-agnostic) and about 41% of implementation runs (`worker` plus `worker-complex`).
+- `worker-complex` = about 65% of priced cost and about 41% of implementation runs (`worker` plus `worker-complex`). Priced cost multiplies each call's tokens by its model's published rate (input, 5-minute and 1-hour cache writes, cache reads, output; USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing, fetched 2026-10-26). The first analysis weighted tokens without regard to the model (input 1, cache write 1.25, cache read 0.1, output 5), which gave 63% and cannot show work moving from Opus to Sonnet.
 - 129 `worker-complex` runs reviewed by hand against a rubric (see `audit/README.md`):
 
 | Verdict | Runs | Share of the cost of those runs |
@@ -44,17 +44,23 @@ Re-audit on or about 2026-11-06 with `./scripts/usage-audit --since 2026-10-24 -
 
 | Metric | Baseline | Target |
 | --- | --- | --- |
-| `worker-complex` share of weighted cost | 63% | ≤ 35% |
+| `worker-complex` share of priced cost | 65% | ≤ 33% |
 | `worker-complex` share of implementation runs | 41% | ≤ 20% |
 | WORKER_ENOUGH share of `worker-complex` runs | 36% | < 10% |
 | Median test and build Bash calls per implementation run | 6 | −50% (≤ 3) |
 | `general-purpose` spawns | 53 | ≤ 5 |
 
-Baseline measured with `./scripts/usage-audit --since 2026-10-10 --until 2026-10-23`, using the segment-based command classifier of `audit/usage_audit.py` as committed in this PR (a later change to the classifier needs a re-run of the baseline): 63% of weighted cost, 41% of 320 implementation runs (131 `worker-complex`, 189 `worker`; the hand review covered 129 of those `worker-complex` runs), 53 `general-purpose` spawns, none unspecified. Per implementation run the median is 6 test, lint, and build Bash calls (mean 12.0), of which the median is 2 full gates (mean 2.4) and 2 targeted test runs. 64 of the 320 implementation runs (19 `worker`, 45 `worker-complex`) were continued, 85 of 758 subagent runs in all; per round the median is 5 verification calls for an implementation run (2 for `worker`, 12 for `worker-complex`). A continuation is a coordinator message (`origin.kind` `coordinator`) in the run's own transcript. A call counts as verification only when a command segment starts with a test runner, a lint, typecheck, or build tool, or a gate, so reading a test file or a directory named `tests` does not count; calls through wrapper scripts the tool does not know go uncounted.
+The target keeps the original intent of roughly halving the share: the runs the hand review judged JUSTIFIED are 45% of `worker-complex` cost, about 29% of the total, so 33% leaves room only for a few borderline runs. The token-weighted share (63% at baseline) stays in the output as a secondary figure.
+
+Baseline measured with `./scripts/usage-audit --since 2026-10-10 --until 2026-10-23`, using the segment-based command classifier of `audit/usage_audit.py` as committed in this PR (a later change to the classifier needs a re-run of the baseline): of priced cost, `worker-complex` takes 65% (a run costs about 26 times a `worker` run), the main agent 16%, `general-purpose` 6.6%, and `worker` 3.6%; Opus is 95% of the cost; no model was unpriced (batch and fast-mode pricing are not modelled). 41% of 320 implementation runs (131 `worker-complex`, 189 `worker`; the hand review covered 129 of those `worker-complex` runs), 53 `general-purpose` spawns, none unspecified. Per implementation run the median is 6 test, lint, and build Bash calls (mean 12.0), of which the median is 2 full gates (mean 2.4) and 2 targeted test runs. 64 of the 320 implementation runs (19 `worker`, 45 `worker-complex`) were continued, 85 of 758 subagent runs in all; per round the median is 5 verification calls for an implementation run (2 for `worker`, 12 for `worker-complex`). A continuation is a coordinator message (`origin.kind` `coordinator`) in the run's own transcript. A call counts as verification only when a command segment starts with a test runner, a lint, typecheck, or build tool, or a gate, so reading a test file or a directory named `tests` does not count; calls through wrapper scripts the tool does not know go uncounted.
 
 Quality guardrails, which must not get worse: the `validator` FAIL rate, review-fix rounds per series, and escalations approved by the user after a stop. The audit tool does not compute them: `validator` reports are free-form, so a FAIL cannot be detected reliably. Read the validator reports and the continued runs (`rounds` in `runs.jsonl`) by hand at the re-audit.
 
 The rules (C) and the effort change (D) land together, so compare per task category rather than in total. Tasks that moved to `worker` show the rules effect. The per-run cost of auth, bug, and merge tasks that stay on `worker-complex` shows the effort effect.
+
+## Follow-ups after the 2026-11-06 re-audit
+
+From the review of the PR, deliberately not in this change: revisit the "delegate by default" stance, a single-writer rule for the files an implementer changes, and a counter for duplicate reads.
 
 ## Risks
 
