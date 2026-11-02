@@ -96,7 +96,6 @@ module.exports = {
 
     /* ---------- Map ---------- */
     await B.ev(`T.pick('${gas}')`);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(300);
     const mp = await B.ev(`(function(){
       var hubs=T.hubs(),nd=[].slice.call(document.querySelectorAll('#g-canvas g.nd')),band=document.querySelector('#g-canvas rect.hbb');
       function y(g){return +g.getAttribute('transform').match(/,([\\d.]+)\\)/)[1];}
@@ -111,7 +110,6 @@ module.exports = {
     t.check('map: shared dependencies sit in their own band above the graph', mp.band && mp.hubs === HUBS.length && mp.hubMaxY < mp.otherMinY && mp.bandBottom <= mp.otherMinY, mp);
     t.check('map: edges into the band are hidden except the selected file\'s (blue)', mp.into > 10 && mp.intoShown.length === usesHubs.length && mp.intoShown.every((s) => s.startsWith(gas + '>') && /\bdep\b/.test(s)), mp);
     t.check('map: links between shared dependencies stay drawn', mp.hubHub.length >= 2 && mp.hubHub.every(Boolean), mp.hubHub);
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
     t.noErrors('map: no page errors');
 
     /* ---------- Group by folder ---------- */
@@ -213,8 +211,6 @@ module.exports = {
     rows.forEach((r) => { nb2[r.id] = r.no; });
     t.check('grouping + "from dependencies": hub group first, sections by first step', secs[0].hub && secs.every((s, i) => i === 0 || nb2[secs[i - 1].ids[0]] < nb2[s.ids[0]]) && secs.every((s) => s.ids.every((id, i) => i === 0 || nb2[s.ids[i - 1]] < nb2[id])));
     await B.ev(`document.querySelector('[data-o=top]').click()`);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(200);
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
     t.noErrors('grouping: no page errors');
 
     /* ---------- Stack: a cross-PR chip into a collapsed section ---------- */
@@ -269,7 +265,6 @@ module.exports = {
         await t.shot(`${w}-${th}-grouped`, '.g-side', 1500);
         t.check(`hub ${w}px ${th} grouped: no horizontal page scroll`, await B.ev('T.hscroll()') <= 0);
         await B.ev(`document.getElementById('g-group').click()`);
-        await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(300);
         await t.shot(`${w}-${th}-map`, '#g-canvas', 900);
         t.check(`hub ${w}px ${th} map: no horizontal page scroll`, await B.ev('T.hscroll()') <= 0);
         t.noErrors(`hub ${w}px ${th}: no page errors`);

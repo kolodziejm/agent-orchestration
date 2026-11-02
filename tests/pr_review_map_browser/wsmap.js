@@ -12,7 +12,7 @@ const LAYOUT = `(function(){function q(s){var e=document.querySelector(s);if(!e|
   var s1=document.getElementById('g-sep1');
   return {lmap:document.getElementById('graph').classList.contains('ws-lmap'),side:q('.g-side'),cv:q('#g-canvas'),dv:q('#dv'),det:q('#g-detail'),rph:q('#g-rph'),sep2:q('#g-sep2'),dinfo:q('#g-dinfo'),sw:q('.g-wsl'),
     pressed:[].map.call(document.querySelectorAll('[data-wl]'),function(b){return b.dataset.wl+':'+b.getAttribute('aria-pressed');}).join(),sep1:[s1.getAttribute('aria-label'),+s1.getAttribute('aria-valuenow'),+s1.getAttribute('aria-valuemin')],
-    vw:innerWidth,stored:localStorage.getItem(T.key()+'wsleft'),active:document.activeElement&&(document.activeElement.closest('#g-canvas')?'map':document.activeElement.closest('#g-order')?'list':document.activeElement.id||document.activeElement.tagName)};})()`;
+    vw:innerWidth,stored:localStorage.getItem(T.key()+'steps'),active:document.activeElement&&(document.activeElement.closest('#g-canvas')?'map':document.activeElement.closest('#g-order')?'list':document.activeElement.id||document.activeElement.tagName)};})()`;
 // The selected node on the map against the middle of the map's view: offsets, the flat map's scroll and its limits, the overview's transform.
 const AT = `(function(){var cv=document.getElementById('g-canvas'),s=cv.querySelector('.g-ovs'),n=cv.querySelector('.nd.on');if(!n)return null;var r=n.getBoundingClientRect(),c=(s||cv).getBoundingClientRect(),num=n.querySelector('.num');
   return {path:n.querySelector('title').textContent.split('\\n')[0],dx:Math.round(r.left+r.width/2-(c.left+c.width/2)),dy:Math.round(r.top+r.height/2-(c.top+c.height/2)),
@@ -28,7 +28,7 @@ const DIFF = `({tbl:[].map.call(document.querySelectorAll('#dv-files table.dt'),
   title:(document.querySelector('[data-m][aria-pressed=true]')||{}).title||'',stored:localStorage.getItem(T.key()+'diffmode'),dv:document.getElementById('dv').offsetWidth,
   cols:(function(){var t=document.querySelector('#dv-files table.dt'),r=t&&t.querySelector('tr:not(.hk)');return r?r.children.length:0;})(),
   code:(function(){var c=document.querySelector('#dv-files table.dt td.cd');var t=c&&c.closest('table');return c?Math.round(c.getBoundingClientRect().width/t.getBoundingClientRect().width*100):0;})()})`;
-const CONF = `({chips:document.querySelectorAll('#g-order .g-cfb').length,marks:document.querySelectorAll('#g-canvas .cfm').length,note:(document.querySelector('#g-planb .g-cfn')||{}).textContent||null,
+const CONF = `({chips:document.querySelectorAll('#g-order .g-cfb').length,marks:document.querySelectorAll('#g-canvas .cfm').length,note:(function(){var e=document.getElementById('g-cfn');return e&&!e.hidden?e.textContent:null;})(),
   box:document.getElementById('g-cfmarks').checked,label:document.getElementById('g-cfl').hidden?null:document.getElementById('g-cfl').textContent.trim(),stored:localStorage.getItem(T.key()+'cfmarks'),
   detail:document.querySelectorAll('#g-detail .g-cf').length})`;
 
@@ -54,7 +54,7 @@ module.exports = {
       t.check(`wsmap ${th}: "List | Map" is no part of the page outside the workspace`, !s.sw, s);
       await B.ev(`document.activeElement.blur()`);
       await B.key('m');
-      t.check(`wsmap ${th}: m outside the workspace does nothing`, (await lay()).stored === null && !(await B.ev(`document.getElementById('graph').classList.contains('ws')`)));
+      t.check(`wsmap ${th}: m outside the workspace does nothing`, (await lay()).stored === '1' && !(await B.ev(`document.getElementById('graph').classList.contains('ws')`)));
       await B.ev(`document.getElementById('g-wsb').click()`); await sleep(200);
       s = await lay();
       t.check(`wsmap ${th}: in the workspace the top bar has "List | Map", the list picked`, !!s.sw && s.sw.b < 50 && s.pressed === 'list:true,map:false' && !!s.side && !s.lmap
@@ -63,7 +63,7 @@ module.exports = {
       s = await lay();
       t.check(`wsmap ${th}: "Map" puts the map in the left column (45% of the window), folds the right pane away, and gives the diff the rest`,
         s.lmap && !s.side && !!s.cv && s.cv.l <= 12 && Math.abs(s.cv.r - Math.round(s.vw * 0.45)) <= 2 && !s.det && !s.rph && !s.sep2 && s.dv.l >= s.cv.r && s.dv.l - s.cv.r <= 12 && s.dv.r === s.vw
-        && s.pressed === 'list:false,map:true' && s.stored === 'map', s);
+        && s.pressed === 'list:false,map:true' && s.stored === '0', s);
       t.check(`wsmap ${th}: the separator now sizes the map`, s.sep1[0] === strings.wsSepM && s.sep1[1] === Math.round(s.vw * 0.45) && s.sep1[2] === 300, s.sep1);
       t.check(`wsmap ${th}: the map shows the selection`, (await at()).path === 'src/auth/session.ts' && await B.ev(`document.querySelectorAll('#g-canvas .nd').length`) === (await B.ev('T.rows()')).length);
       t.check(`wsmap ${th}: the switch is announced`, await B.ev(`new Promise(function(r){setTimeout(function(){r(document.getElementById('nt-live').textContent);},80);})`) === `${strings.wsLeft}: ${strings.wsLeftMap}`);
@@ -79,7 +79,7 @@ module.exports = {
       t.check(`wsmap ${th}: m switches to the map, and the focus moves from the list to the selected file's box`, s.lmap && s.active === 'map' && await B.ev(`document.activeElement.classList.contains('on')`), s);
       await B.key('m'); await sleep(200);
       s = await lay();
-      t.check(`wsmap ${th}: m again brings the list back, the focus on the selected step, the list's width as it was`, !s.lmap && !!s.side && s.side.w === 340 && s.active === 'list' && s.stored === 'list' && !!s.det, s);
+      t.check(`wsmap ${th}: m again brings the list back, the focus on the selected step, the list's width as it was`, !s.lmap && !!s.side && s.side.w === 340 && s.active === 'list' && s.stored === '1' && !!s.det, s);
       await B.ev(`document.getElementById('nt-pr-add').click()`); await sleep(50);
       await B.key('m');
       t.check(`wsmap ${th}: m while typing a note does nothing`, !(await lay()).lmap && await B.ev(`document.activeElement.tagName`) === 'TEXTAREA');
@@ -132,9 +132,8 @@ module.exports = {
     t.check('wsmap follow: with reduced motion the map jumps there at once', now[0] === a.sl && now[1] === a.st && centred(a), { now, a });
     await motion(false);
     await B.ev(`document.getElementById('g-wsx').click()`); await sleep(100);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(150);
     t.check('wsmap follow: the page\'s own map view keeps its plain dimming (no faded files outside the workspace)', await B.ev(`document.querySelectorAll('#g-canvas .nd').length>5&&!document.querySelector('#g-canvas .far')&&!!document.querySelector('#g-canvas .nd.on')`));
-    await B.ev(`document.querySelector('[data-v=list]').click();document.getElementById('g-wsb').click()`); await sleep(250);
+    await B.ev(`document.getElementById('g-wsb').click()`); await sleep(250);
     t.check('wsmap follow: back in the workspace the map column is still picked', (await lay()).lmap);
     t.noErrors('wsmap follow: no page errors');
 
@@ -261,7 +260,8 @@ module.exports = {
     /* ---------- The overview of a big PR in the map column ---------- */
     await t.fresh(BIG);
     const rows = await B.ev('T.rows()');
-    await B.ev(`T.pick(T.rows()[30].id);document.getElementById('g-wsb').click()`); await sleep(150);
+    await B.ev(`document.getElementById('g-wsb').click()`); await sleep(150);
+    await B.ev(`T.pick(T.rows()[30].id)`); await sleep(100);
     await B.key('m'); await sleep(400);
     const OV = `(function(){var c=document.getElementById('g-canvas');return {ov:!!c.querySelector('.g-ovs'),open:[].map.call(c.querySelectorAll('.cl.open'),function(g){return g.querySelector('.cll').textContent;}),
       mapx:localStorage.getItem(T.key()+'mapx'),mapz:localStorage.getItem(T.key()+'mapz')};})()`;
@@ -351,15 +351,14 @@ module.exports = {
     const noteText = (lang, n) => { const c = lang === 'pl' ? (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? 'few' : 'many') : 'other'; return strings.cfNoise[c].replace('{n}', n); };
     await t.fresh(fx('plan', 'noise11.html'));
     let c = await conf();
-    t.check('conflicts: all 11 files of a PR combined by hand (more than 10, more than a quarter): no chips, the plan says why in one line, the View toggle off', c.chips === 0 && c.note === noteText('en', 11)
+    t.check('conflicts: all 11 files of a PR combined by hand (more than 10, more than a quarter): no chips, one line above the toolbar says why, the View toggle off', c.chips === 0 && c.note === noteText('en', 11)
       && c.box === false && c.label === strings.cfMarks && c.stored === null, c);
     await B.ev(`T.pick(T.rows()[0].id)`); await sleep(60);
     t.check('conflicts: the detail panel still lists the file\'s merge', (await conf()).detail === 1);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(150);
     t.check('conflicts: no marks on the map either', (await conf()).marks === 0);
     await B.ev(`document.getElementById('g-mbtn').click();document.getElementById('g-cfmarks').click()`); await sleep(150);
     c = await conf();
-    t.check('conflicts: "Conflict marks" in View turns the chips and the map marks on, the plan\'s line goes, and it is stored', c.chips === 11 && c.marks === 11 && c.note === null && c.box === true && c.stored === '1', c);
+    t.check('conflicts: "Conflict marks" in View turns the chips and the map marks on, the line above the toolbar goes, and it is stored', c.chips === 11 && c.marks === 11 && c.note === null && c.box === true && c.stored === '1', c);
     await t.reload(fx('plan', 'noise11.html'));
     t.check('conflicts: the choice is kept', (await conf()).chips === 11);
     await B.ev(`T.tabTo('Q')`);
@@ -386,10 +385,10 @@ module.exports = {
     await t.fresh(fx('big', 'noise26-pl.html'));
     const plStrings = JSON.parse(await B.ev(`document.getElementById('review-config').textContent`)).strings;
     c = await conf();
-    t.check('conflicts pl: the plan\'s line and the toggle in Polish', c.note === '26 plików rozwiązanych ręcznie przy merge’ach — znaczniki ukryte, włącz w Widok' && c.label === 'Znaczniki konfliktów'
+    t.check('conflicts pl: the line above the toolbar and the toggle in Polish', c.note === '26 plików rozwiązanych ręcznie przy merge’ach — znaczniki ukryte, włącz w Widok' && c.label === 'Znaczniki konfliktów'
       && plStrings.cfNoise.few.startsWith('{n} pliki rozwiązane'), c);
     await B.ev(`document.querySelector('.g-tabs-row').scrollIntoView()`); await sleep(100);
-    await t.shot('plan-pl-noise');
+    await t.shot('conflicts-pl-noise');
     t.noErrors('conflicts: no page errors');
   },
 };

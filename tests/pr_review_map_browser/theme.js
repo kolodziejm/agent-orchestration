@@ -28,9 +28,9 @@ const HELPERS = `window.TH={
     if(r<4.5)out.push([s,e.textContent.trim().slice(0,30),Math.round(r*100)/100]);});});return out;}
 };true`;
 const LIGHT_BG = 'rgb(246, 247, 249)', DARK_BG = 'rgb(18, 22, 29)';
-const TEXT = ['body', 'header .sub', 'nav.toc a', '.pr-card .k', '.pr-card .meta', '.pr-card li', 'section>.lead', 'h4', '.tag', '.callout.warn', '.callout.risk', '.callout.ok',
+const TEXT = ['body', 'header .sub', 'nav.toc a', '.pr-card .k', '.pr-card .meta', '.pr-card li', 'ol.merge-order .meta', 'ul.changes ul', 'section>.lead', 'h4', '.tag', '.callout.warn', '.callout.risk', '.callout.ok',
   '.pill', '.risk-list li', 'th', 'td', 'footer', 'pre.code', 'code', '.files .role', '.g-row .nm', '.g-row .no', '.nmx .d', '.g-tabs button', '.g-tools button', '.g-tools label',
-  '.g-detail .p', '.g-detail h4', '.g-nbi', '.k-dep', '.k-use', '.g-kleg', '.g-plsum', '.g-pt td', '.g-pt th', '.g-dp', '.g-pa', '.df>summary', 'table.dt td.cd', 'table.dt td.ln',
+  '.g-detail .p', '.g-detail h4', '.g-nbi', '.k-dep', '.k-use', '.df>summary', 'table.dt td.cd', 'table.dt td.ln',
   'table.dt tr.hk td', '.nt-b', '.nt-hint', '.g-legend', '.g-morel li', '#g-mpop label', '#g-thm button', '#g-thl', '.hljs-keyword', '.hljs-string', '.hljs-comment', '.hljs-title'];
 // A mermaid stand-in: records each initialize() and run() with the theme and the source it was given, draws an <svg>
 // that names the theme, and rejects when window.__mmFail is set.
@@ -151,7 +151,7 @@ module.exports = {
 
     /* ---------- Colours follow the theme without a redraw: map, lane, legend; dark text contrast ---------- */
     await t.fresh(PAGE, { dark: false });
-    await B.ev(`T.tabTo('B');T.pick(T.id('web/app.tsx'));document.querySelector('[data-v=map]').click()`); await sleep(200);
+    await B.ev(`T.tabTo('B');T.pick(T.id('web/app.tsx'));`); await sleep(200);
     const MAPC = `(function(){var g=document.querySelector('#g-canvas .nd:not(.ext):not(.on)'),x=document.querySelector('#g-canvas .nd.ext'),cs=function(e,p){return getComputedStyle(e)[p];};
       var lc=g.style.getPropertyValue('--lc').match(/--l-[a-z0-9]+/)[0],dot=document.querySelector('#g-lane circle.dot');
       return {same:g===window.__nd,box:cs(g.querySelector('rect.box'),'fill'),line:cs(g.querySelector('rect.box'),'stroke'),lb:cs(g.querySelector('rect.lb'),'fill'),num:cs(g.querySelector('.num'),'fill'),
@@ -172,7 +172,7 @@ module.exports = {
     const layers = await B.ev(`['contract','domain','logic','infra','rest','wiring','ui','data','test','config','docs','i18n','other'].map(function(l){return [l,Math.round(TH.ratio(TH.col(TH.tok('--l-'+l)),TH.col(TH.tok('--surface')))*100)/100];})`);
     t.check('every layer colour reads at 4.5:1 or more on the dark surface', layers.every((x) => x[1] >= 4.5), layers);
     await t.shot('map-dark-1440', '#graph', 1400);
-    await B.ev(`document.querySelector('[data-v=list]').click();document.getElementById('g-plan').open=true;document.querySelector('#dv-files td.ln[data-s=new][data-l="1"]').click();if(document.getElementById('g-mpop').hidden)document.getElementById('g-mbtn').click()`); await sleep(400);
+    await B.ev(`document.querySelector('#dv-files td.ln[data-s=new][data-l="1"]').click();if(document.getElementById('g-mpop').hidden)document.getElementById('g-mbtn').click()`); await sleep(400);
     const low = await B.ev(`TH.lowContrast(${JSON.stringify(TEXT)})`);
     t.check('dark: the page\'s text reads at 4.5:1 or more against what is behind it', low.length === 0, low);
     await t.shot('list-dark-1440', 'main', 2400);
@@ -232,8 +232,8 @@ module.exports = {
     await onNew(host('light', false));
     await t.fresh(ART, { dark: false });
     await B.ev(`TH.pick('dark')`); await sleep(100);
-    const untouched = await B.ev(`[].map.call(document.querySelectorAll('pre.mermaid'),function(p){return p.innerHTML;}).join('|')`);
-    t.check('mermaid artifact: without window.mermaid nothing is touched', untouched === '<svg class="host"></svg>|<svg class="host"></svg>', untouched);
+    const untouched = await B.ev(`[].map.call(document.querySelectorAll('pre.mermaid'),function(p){return p.innerHTML.replace(/ style="[^"]*"/,'');}).join('|')`);
+    t.check('mermaid artifact: without window.mermaid nothing is touched (the host drawing keeps its markup; only its size is set for zoom)', untouched === '<svg class="host"></svg>|<svg class="host"></svg>', untouched);
     await clearNew();
     await t.noErrors('mermaid artifact (host): no page errors');
 

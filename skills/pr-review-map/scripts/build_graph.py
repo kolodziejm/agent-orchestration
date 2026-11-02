@@ -51,8 +51,6 @@ What the script resolves on its own:
     repository directory name
   * each PR's `base` and `tip`: short SHAs of the two versions its diff compares
     (the merge base for `A...B`), so copied review notes can name them
-  * each node's `bucket` for the viewer's review plan: "generated" (lockfiles, test snapshots, minified files, or the
-    overlay's `generated: true`), else test, i18n, docs, or config from its layer, else "logic"
   * each node's `conflict`: per merge commit of the PR (the newest 50) whose recorded result for its files differs from
     git's automatic re-merge (`git show --remerge-diff --numstat`, git 2.36+), {"sha", "kind", "lines"}: kind "picked"
     when the merge kept one parent's version byte for byte, else "merged" (combined by hand), and the lines the
@@ -62,12 +60,15 @@ What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files, areas) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
 
-Areas ("clusters"): the overlay's `clusters` ({id: {label, order, depth?, why?}}, depth one of
-read, skim, tool, passed on as given) and each node's
+Summaries: the overlay's `summaries` ({PR key: one or two sentences}, a split PR's parent key too) become each PR's
+`summary` (and the parent's), which the merge-order header shows under the PR's line. A PR without one has none, and a
+value that is not text, is empty, or has a control character is skipped with a warning.
+
+Areas ("clusters"): the overlay's `clusters` ({id: {label, order}}) and each node's
 `cluster` (a parent-key reference reaches every part) become each PR's `clusters`
 list (the areas its nodes use, by order) and the node's `cluster`. A hub keeps none,
 with a warning (the viewer puts it in its shared area). A docs/config/i18n node keeps
-its area (a catalog area the plan can mark "tool") and still reads last; without one
+its area and still reads last; without one
 the viewer puts it in its late area. The viewer groups core files without one by
 folder. A PR above 40 core files without areas gets a hint: its map opens on an
 overview of areas. The summary counts the files (tests aside) per area.
@@ -181,12 +182,6 @@ BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-onl
 # trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
 MODE_ENTRIES, MODE_RATIO = 3, 3
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
-# A node's `bucket`, the kind of change the viewer's review plan counts its lines under: "generated" for lockfiles, test
-# snapshots, and minified files (every file of a group) or the overlay's `generated: true`, else its layer's own bucket
-# (test, i18n, docs, config), else "logic".
-GENERATED = re.compile(LOCKFILES + r"|\.snap$|(^|/)__snapshots__/|\.min\.(?:[cm]?js|css)$")
-BUCKETS = {"test": "test", "i18n": "i18n", "docs": "docs", "config": "config"}
-DEPTHS = ("read", "skim", "tool")  # an area's `depth`: read closely, skim, or covered by a tool (`why` names the check)
 REMERGE_GIT = (2, 36)  # first git with `show --remerge-diff`
 MERGE_CAP = 50         # merge commits per PR checked for hand-resolved conflicts (the newest)
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1, "type": 0}
@@ -819,16 +814,6 @@ def is_core(node: dict) -> bool:
     return node["layer"] != "test" and node["layer"] not in LATE
 
 
-def bucket(node: dict) -> str:
-    """The node's `bucket`: "generated" when the overlay says so or every file is a lockfile, a test snapshot, or a
-    minified file (overlay `generated: false` keeps such a node in its layer's bucket), else test, i18n, docs, or
-    config from its layer, else logic."""
-    generated = node.get("generated")
-    if generated is None:
-        generated = all(GENERATED.search(path) for path in node["files"] or [node["path"]])
-    return "generated" if generated else BUCKETS.get(node["layer"], "logic")
-
-
 class Conflicts:
     """Files whose recorded merge result differs from git's automatic re-merge: per merge commit of a PR (`git rev-list
     --merges --parents`, the newest MERGE_CAP), the paths `git show --remerge-diff --numstat` lists (git 2.36+, one
@@ -944,9 +929,26 @@ def find_hubs(nodes: dict[str, dict], edges: list[tuple[str, str, str]], forced:
     return hubs
 
 
+SUMMARY_MAX = 600  # characters of a PR's `summary`
+
+
+def read_summaries(overlay: dict, warnings: list[str]) -> dict[str, str]:
+    """The overlay's `summaries`, {PR key: text}; a bad entry is skipped with a warning, never fatal."""
+    raw = overlay.get("summaries", {})
+    if not isinstance(raw, dict):
+        warnings.append('overlay "summaries" must be an object of {PR key: text}; ignored')
+        return {}
+    out = {}
+    for key, text in raw.items():
+        if not isinstance(text, str) or not text.strip() or chunks.CONTROL.search(text) or len(text.strip()) > SUMMARY_MAX:
+            warnings.append(f"overlay summaries[{key!r}] must be text of 1 to {SUMMARY_MAX} characters without control characters; skipped")
+        else:
+            out[key] = text.strip()
+    return out
+
+
 def read_clusters(overlay: dict) -> dict[str, dict]:
-    """The overlay's areas, {id: {"id", "label", "order", "depth"?, "why"?}}; `order` defaults to the area's place in the
-    overlay, `depth` (read, skim, tool) and `why` (what covers a "tool" area) are optional and passed on as given."""
+    """The overlay's areas, {id: {"id", "label", "order"}}; `order` defaults to the area's place in the overlay."""
     raw = overlay.get("clusters", {})
     if not isinstance(raw, dict):
         raise SystemExit('overlay "clusters" must be an object: {"auth": {"label": "Sign-in", "order": 1}}')
@@ -962,15 +964,6 @@ def read_clusters(overlay: dict) -> dict[str, dict]:
         if not isinstance(order, int) or isinstance(order, bool):
             raise SystemExit(f"overlay cluster {cid!r}: order must be an integer")
         out[cid] = {"id": cid, "label": label.strip(), "order": order}
-        if "depth" in fields:
-            if fields["depth"] not in DEPTHS:
-                raise SystemExit(f"overlay cluster {cid!r}: depth must be one of {', '.join(DEPTHS)}")
-            out[cid]["depth"] = fields["depth"]
-        if "why" in fields:
-            why = fields["why"]
-            if not isinstance(why, str) or not why.strip() or chunks.CONTROL.search(why):
-                raise SystemExit(f"overlay cluster {cid!r}: why must be non-empty text")
-            out[cid]["why"] = why
     return out
 
 
@@ -1329,6 +1322,8 @@ def main() -> int:
     overlay = json.loads(args.overlay.read_text(encoding="utf-8")) if args.overlay else {}
     clusters = read_clusters(overlay)
     tour_specs, tour_warnings = tours.read(overlay)
+    summary_warnings: list[str] = []
+    summaries = read_summaries(overlay, summary_warnings)
 
     keys = [key for key, _repo, _rng in args.pr]
     for key, repo, rng in args.pr:
@@ -1345,7 +1340,9 @@ def main() -> int:
     parent_of = {p["parent"]["key"]: p["parent"] for p in parents}
 
     prs = []          # per PR: key, nodes {nk: node}, owner {path: nk}
-    warnings: list[str] = list(tour_warnings)
+    warnings: list[str] = list(tour_warnings) + summary_warnings
+    warnings += [f"overlay summaries[{key!r}]: no such PR (or split PR); skipped" for key in summaries
+                 if key not in {e["key"] for e in entries} | set(parent_of)]
     previous_graph = None
     if args.previous and tour_specs:
         try:
@@ -1552,10 +1549,6 @@ def main() -> int:
                 if not isinstance(fields["hub"], bool):
                     raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
                 node["forced_hub"] = fields["hub"]
-            if "generated" in fields:
-                if not isinstance(fields["generated"], bool):
-                    raise SystemExit(f"overlay nodes {text!r}: generated must be true or false")
-                node["generated"] = fields["generated"]
             if "cluster" in fields:
                 if not isinstance(fields["cluster"], str) or fields["cluster"] not in clusters:
                     raise SystemExit(f"overlay nodes {text!r}: unknown cluster {fields['cluster']!r}; define it under clusters")
@@ -1635,6 +1628,8 @@ def main() -> int:
                  "repo": pr["label"], **range_commits(pr["repo"], pr["range"])}
         if pr["chunk"]:
             entry["chunk"] = pr["chunk"]
+        if pr["key"] in summaries:
+            entry["summary"] = summaries[pr["key"]]
         entry["readFrom"], entry["readFromWhy"] = pr["readFrom"]
         used = {node["cluster"] for node in nodes.values() if "cluster" in node}
         if used:
@@ -1645,7 +1640,7 @@ def main() -> int:
             label = node["label"]
             if not nk.startswith("#") and (counts[label] > 1 or GENERIC_NAMES.match(label)) and "/" in node["path"]:
                 label = "/".join(node["path"].split("/")[-2:])
-            item = {"id": ids[(index, nk)], "label": label, "path": node["path"], "layer": node["layer"], "bucket": bucket(node),
+            item = {"id": ids[(index, nk)], "label": label, "path": node["path"], "layer": node["layer"],
                     "role": node["role"], "added": node["added"], "removed": node["removed"], "order": node["order"]}
             if nk.startswith("#"):
                 item["files"] = node["files"]
@@ -1683,6 +1678,10 @@ def main() -> int:
                     "title": titles.get(parent["key"]) or parent.get("title") or "", "repo": by_key[keys[0]]["repo"]}
             item.update({k: v for k, v in (("base", by_key[keys[0]].get("base")), ("tip", by_key[keys[-1]].get("tip"))) if v})
             item["parts"] = keys
+            if parent["key"] in summaries:
+                item["summary"] = summaries[parent["key"]]
+            whole = numstat(parent["repo"], parent["range"])
+            item.update({"files": len(whole), "added": sum(v[0] for v in whole.values()), "removed": sum(v[1] for v in whole.values())})
             out["parents"].append(item)
     if tour_out:
         out["tours"] = tour_out

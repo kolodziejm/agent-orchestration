@@ -333,9 +333,9 @@ Nothing in this repository rewrites those files for you.
   area on request, tours that walk each flow step by step across tabs and parts with
   their path on the map, review notes on lines, files, or whole PRs that copy as
   Markdown for an agent (the report's `path:line` references open their lines and
-  each risk becomes a note in one click), a review plan per area with a reading-time
-  estimate and the files resolved by hand in merges marked, and a full-window
-  workspace, plus architecture, rules, risks, and verification;
+  each risk becomes a note in one click), the files resolved by hand in merges marked,
+  and a full-window workspace, plus a generated merge order, diagrams when they
+  matter, the changes per PR as short bullets, and what to check before merging;
   `chunks.py` splits a pull request too large for one map into parts cut from its
   commits, shown as tabs grouped under it with each shared file's whole-PR diff a
   toggle away; `refresh.py` rebuilds it after the branches move, flagging changed

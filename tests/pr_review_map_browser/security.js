@@ -15,8 +15,8 @@ const EXERCISE = `(async function(){
   var rows=[].slice.call(document.querySelectorAll('#g-order li.g-row'));
   for(var i=0;i<rows.length;i++){rows[i].querySelector('.nm').click();await sleep(30);
     var c=document.querySelector('#dv-files td.ln[data-l]');if(c){c.click();var a=document.querySelector('#dv-files [data-nt=add]');if(a){a.click();T.save(document.querySelector('#dv-files .nt-ed'),null,'n'+i);}}}
-  document.querySelector('[data-v=map]').click();await sleep(100);
-  document.querySelector('[data-v=list]').click();await sleep(50);
+  await sleep(100);
+  await sleep(50);
   return {pwn:window.__pwn||null,imgs:document.querySelectorAll('img').length,rows:rows.length};
 })()`;
 // Rows by path on the open tab, read marks, and the page's generation.

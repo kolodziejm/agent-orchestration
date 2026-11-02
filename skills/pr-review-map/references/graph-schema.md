@@ -21,13 +21,13 @@ from `review-map.json` (below).
       "color": "var(--pal-2)",
       "nodes": [
         {"id": "S1", "label": "services.schema.ts", "path": "libs/x/contract/services.schema.ts",
-         "layer": "contract", "bucket": "logic", "role": "Zod schema of the response", "added": 79,
+         "layer": "contract", "role": "Zod schema of the response", "added": 79,
          "removed": 0, "order": 1, "note": "Optional <code>doctorName</code>, so older callers keep working.",
          "conflict": [{"sha": "4d5e6f7", "kind": "merged", "lines": 12}]},
-        {"id": "S26", "label": "docs (4)", "path": "libs/x/docs/**", "layer": "docs", "bucket": "docs",
+        {"id": "S26", "label": "docs (4)", "path": "libs/x/docs/**", "layer": "docs",
          "role": "", "added": 601, "removed": 0, "order": 26, "files": ["libs/x/docs/a.md", "…"]},
         {"id": "S27", "label": "ApiController.php (unchanged)", "path": "src/ApiController.php",
-         "layer": "rest", "bucket": "logic", "role": "Base controller", "added": 0, "removed": 0,
+         "layer": "rest", "role": "Base controller", "added": 0, "removed": 0,
          "order": 27, "unchanged": true}
       ],
       "edges": [
@@ -48,6 +48,10 @@ PR fields:
   PR. `build_graph.py` takes `--repo KEY owner/name`, else reads it from the
   `origin` remote URL path (never its host, credentials, query, or fragment), else
   uses the directory name.
+- `summary` — optional: one or two sentences saying what the PR does and what changes for users or the
+  system, from the overlay's `summaries` (`{"A": "…"}`, keyed by PR key; a split PR's parent key
+  too, on its `parents` entry). The merge-order header shows it under the PR's line. Absent without
+  one; a bad value (not text, empty, over 600 characters) is skipped with a warning.
 - `base`, `tip` — short SHAs of the two versions the PR's diff compares (for
   `A...B` the base is the merge base), written by `build_graph.py` and left out
   when git cannot resolve them. Copied review notes name them per PR.
@@ -62,9 +66,8 @@ PR fields:
   `reason` is `"few"` below 3 entry points, else `"light"` or `"heavy"`). The viewer
   opens the PR in that mode until the reader picks one for it, and its note says why.
 - `clusters` — the areas the PR's nodes use, from the overlay (see Areas below):
-  `[{"id": "auth", "label": "Sign-in", "order": 1, "depth": "read"}, {"id": "copy",
-  "label": "Copy", "order": 2, "depth": "tool", "why": "i18n key parity test"}]`, by
-  order; absent without them. `depth` and `why` appear only where the overlay sets them.
+  `[{"id": "auth", "label": "Sign-in", "order": 1}, {"id": "copy",
+  "label": "Copy", "order": 2}]`, by order; absent without them.
 - `chunk` — only on a part of a PR split by its commits (`--chunks`,
   `references/chunks.md`): `{"of": "M", "index": 2, "count": 5, "from": "<sha>",
   "to": "<sha>", "commits": 4, "subjects": ["first five", "…"], "label": "web"}`, with
@@ -75,8 +78,10 @@ PR fields:
 
 With parts, the top level also holds `"parents": [{"key": "M", "name": "#251",
 "title": "…", "repo": "acme/web", "base": "1a2b3c4", "tip": "9f8e7d6", "parts": ["Ma",
-"Mb", …]}]`: the whole PR, whose key is no PR of the graph (overlay references and
-migrated notes use it), `base` the first part's start, `tip` the last part's end.
+"Mb", …], "files": 219, "added": 9100, "removed": 420}]`: the whole PR, whose key is no PR of the
+graph (overlay references and migrated notes use it), `base` the first part's start, `tip` the
+last part's end, and `files`, `added`, `removed` the totals of `git diff --numstat base..tip`
+(the merge-order header shows them).
 `assemble.py` and `validate.py` refuse a broken chain. A graph without `parents` and
 `chunk` renders exactly as before.
 
@@ -103,7 +108,6 @@ Node fields:
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
 | `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines and 1 MB, both versions with their imports and white space removed; `import.meta` and `import(` are code, and a PHP `use` counts only before the first class, interface, trait, enum, or function), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
-| `bucket` | The kind of change the review plan counts the node's lines under, on every node build_graph.py writes: `generated` when every file is a lockfile (the `#lockfiles` names), a test snapshot (`*.snap`, anything under `__snapshots__/`), or a minified file (`*.min.js`, `*.min.css`), or the overlay sets `generated: true`; else `test`, `i18n`, `docs`, or `config` for a node of that layer; else `logic` (every other layer). Overlay `generated: false` keeps a node in its layer's bucket. validate.py rejects any other value. |
 | `conflict` | One entry per merge commit of the PR whose recorded result for one of the node's files differs from what git merges on its own (`git show --remerge-diff`): a conflict resolved by hand, or an edit made in the merge. `{"sha": "4d5e6f7", "kind": "merged", "lines": 12}`: the merge's short (7-character) SHA; `kind` `"picked"` when the merge's version of every such file is byte-identical to one parent's (one side taken), else `"merged"` (combined by hand); `lines` the lines the re-merge diff changes for the node's files. Oldest first; absent when there is none (see Merge resolutions below). An older build wrote bare SHAs; validate.py and the viewer still take them (as merged). |
 
 Edge fields: `from` (a node of this PR), `to` (any node of this or an earlier PR),
@@ -320,10 +324,10 @@ but the PR's diff does not is no node and is not reported. The summary prints a 
 naming the merged files with each merge's lines and counting the picked ones. It needs
 git 2.36 or later; an older git, a shallow or partial (blobless) clone, or a failing call
 skips the check with one warning and never stops the build. The viewer marks only merged
-files (↯ on the row and the map box; the plan's conflicts column counts them). When the
+files (↯ on the row and the map box). When the
 merged files are more than 10 and more than a quarter of the PR's changed files (a long
-branch merged from main often), the row and map marks hide by default, a line in the plan
-says how many and that "Conflict marks" in the View menu shows them. The detail panel
+branch merged from main often), the row and map marks hide by default, a line above the
+toolbar says how many and that "Conflict marks" in the View menu shows them. The detail panel
 always lists every resolution with its lines, picked ones dimmed.
 
 ### Areas (clusters)
@@ -333,8 +337,8 @@ of areas instead of every file; at 40 or fewer the Map is the flat map as before
 8–12 areas by feature or flow in the overlay:
 
 ```json
-{"clusters": {"auth": {"label": "Sign-in", "order": 1, "depth": "read"},
-              "billing": {"label": "Billing", "order": 2, "depth": "skim", "why": "renames only"}},
+{"clusters": {"auth": {"label": "Sign-in", "order": 1},
+              "billing": {"label": "Billing", "order": 2}},
  "nodes": {"M:src/auth/service.ts": {"cluster": "auth"}, "M:src/auth/routes.ts": {"cluster": "auth"}}}
 ```
 
@@ -343,29 +347,12 @@ An id is up to 40 letters, digits, `_`, `.`, or `-`, starting with a letter or d
 overlay. A parent-key reference (`M:path`) puts the file in the area in every part, so
 an area spans the parts and each part tab shows its own. build_graph.py writes the
 node's `cluster` and each PR's `clusters` (the areas its nodes use); a shared
-dependency keeps none, with a warning; a docs/config/i18n node keeps its area (for the
-plan rows, "Group by area", and the overview) and still reads last; an unknown area,
+dependency keeps none, with a warning; a docs/config/i18n node keeps its area (for "Group by area"
+and the overview) and still reads last; an unknown area,
 a malformed id, or a non-integer order stops it. Its summary counts the files per area
 (tests aside) and names the core files without one. validate.py rejects a node whose
 area its PR does not list and warns about fewer than 4 or more than 15 areas, an area with
 no file of its own (only tests or hubs), and a PR above 40 core nodes without areas.
-An area of translation catalogs with `"depth": "tool"` and a `why` naming the parity
-check keeps them out of the plan's time.
-
-An area may also say how to review it, for the viewer's review plan: `depth` is
-`"read"` (follow it line by line), `"skim"` (look it over), or `"tool"` (a check covers
-it), and `why` a short phrase in the report language (for `"tool"` the check: `{"depth":
-"tool", "why": "i18n key parity test"}`). Both reach the PR's `clusters` as given
-(`prs[].clusters[].depth`, `.why`). build_graph.py stops on another depth or a `why`
-that is not text; validate.py rejects them too and warns about a `"tool"` area without
-a `why` and a `why` over 120 characters.
-
-The review plan times each area from its files' changed lines per `bucket`, in changed
-lines an hour when read closely: logic 400 added and 1500 removed, tests 1500, docs
-2000, i18n 3000, config 1000, generated not counted; a `"skim"` area 4× faster, a
-`"tool"` area 0; at least 1 minute, above 5 rounded up to the next 5, from 90 minutes
-shown in hours (the viewer's `PLAN_RATE`, the minutes column's tooltip says the same).
-
 The viewer completes the areas, so a graph without them still has some: the shared
 dependencies form one area, docs/config/i18n without an area another (an authored area
 of nothing but such files is listed and shelved with it), each test joins the file it
@@ -423,7 +410,7 @@ the whole file with "code changed". The overlay is never rewritten: change a ste
 `lines` there to anchor it afresh. A step whose file left the PR, or whose file a new
 commit deleted, degrades as above and never stops the refresh.
 
-The viewer puts a tour picker beside the view toggle. A chosen tour shows a bar at the
+The viewer puts a tour picker beside the Steps toggle. A chosen tour shows a bar at the
 foot of the graph, held at the bottom of the window: "Krok 3 z 8" / "Step 3 of 8", the
 note, the step's file and lines (and "moved from :12-30" or "code changed"), Previous and
 Next (keys `[` `]`), and Exit (Esc). Each step switches to its tab, selects its node,
@@ -441,6 +428,7 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 
 ```json
 {
+  "summaries": {"M": "Adds GET /services. An unknown facility now returns 404 instead of an empty list."},
   "nodes": {
     "M:src/Api/Controller/GetServicesController.php": {
       "role": "GET endpoint; 404 for an unknown facility",
@@ -464,10 +452,10 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 }
 ```
 
+`summaries` maps a PR key (or a split PR's parent key) to its summary, one or two sentences in the report
+language (see `summary` above).
 `nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
-Shared dependencies), `cluster` (an id from the overlay's `clusters`, see Areas), and
-`generated` (`true` for generated code the patterns miss, such as an API client built
-from a schema; `false` for a hand-kept file they catch; see `bucket`).
+Shared dependencies), and `cluster` (an id from the overlay's `clusters`, see Areas).
 `tours` are described under Tours.
 An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,

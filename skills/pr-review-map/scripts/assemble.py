@@ -8,10 +8,13 @@ Usage:
       [--template ../assets/viewer.html] [--previous previous.json]
 
 The narrative is HTML for <main>, split by one line `<!-- review-map:graph -->`:
-everything before it (header, PR stack) renders above the reading graph, everything
-after it (architecture, rules, per-PR sections, risks, verification, footer) below.
-The table of contents is built from each `<section id="…">` and its first <h2>
-(or its `data-toc` attribute).
+everything before it (the title header) renders above the reading graph, everything
+after it (architecture, request flow, changes per PR, before merging, footer) below.
+assemble.py itself adds the merge order to the end of the part above the line: one
+line per PR with its key, name, title, tip SHA, file count, and +/-, all taken from
+graphs.json (a PR split into parts gets one line with its parts under it), so the
+numbers are never typed by hand and stay right after refresh.py. The table of contents
+is built from each `<section id="…">` and its first <h2> (or its `data-toc` attribute).
 
 --target artifact (default) emits the fragment the Claude Artifact page contract
 expects: it starts with <title>, and diagrams in <pre class="mermaid"> are rendered
@@ -104,6 +107,71 @@ def toc_entries(fragment: str) -> list[tuple[str, str]]:
     return entries
 
 
+def stat_counts(nodes: list[dict]) -> tuple[int, int, int]:
+    """(files, added, removed) over the changed nodes of a PR; a group node stands for each of its files."""
+    changed = [n for n in nodes if not n.get("unchanged")]
+
+    def count(value: object) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+    return (sum(len(n.get("files") or [n.get("path")]) for n in changed),
+            sum(count(n.get("added")) for n in changed), sum(count(n.get("removed")) for n in changed))
+
+
+def merge_order_meta(strings: dict, tip: str, counts: tuple[int, int, int]) -> str:
+    files, added, removed = counts
+    bits = [f"<code>{html.escape(str(tip))}</code>" if tip else "",
+            html.escape(strings["mergeOrderFiles"].replace("{n}", str(files))),
+            f"+{added}/\u2212{removed}"]
+    return '<span class="meta">' + " · ".join(b for b in bits if b) + "</span>"
+
+
+def merge_order(graph: dict, strings: dict) -> str:
+    """The generated header section: one line per PR in merge order (key, name, title, tip, files, +/-), from graphs.json,
+    with the PR's authored `summary` (overlay `summaries`) under it when it has one. The name links to the PR's section,
+    `id="pr-KEY"` in the narrative (the whole row follows the link).
+
+    A PR split into parts is one line (its counts over the whole PR when build_graph.py wrote them, else the parts' sum)
+    with its parts under it, each with its open button, label, counts, and range."""
+    prs = {pr["key"]: pr for pr in graph["prs"]}
+    parents = {parent["key"]: parent for parent in graph.get("parents") or []}
+    part_of = {key: parent["key"] for parent in parents.values() for key in parent["parts"]}
+    rows, done = [], set()
+
+    def head(key: str, entry: dict, counts: tuple[int, int, int]) -> str:
+        title = f' <span class="t">{html.escape(str(entry["title"]))}</span>' if entry.get("title") else ""
+        summary = entry.get("summary")
+        text = f'\n<p class="sum">{html.escape(summary)}</p>' if isinstance(summary, str) and summary.strip() else ""
+        return (f'<span class="tag c-{key}">{html.escape(key)}</span> '
+                f'<a class="mo-link" href="#pr-{html.escape(key, quote=True)}"><strong>{html.escape(str(entry.get("name") or key))}</strong></a>{title} '
+                + merge_order_meta(strings, entry.get("tip", ""), counts) + text)
+
+    for pr in graph["prs"]:
+        key = pr["key"]
+        if key not in part_of:
+            rows.append(f'<li class="c-{key}">{head(key, pr, stat_counts(pr["nodes"]))}</li>')
+            continue
+        parent = parents[part_of[key]]
+        if parent["key"] in done:
+            continue
+        done.add(parent["key"])
+        members = [prs[k] for k in parent["parts"]]
+        sums = [stat_counts(m["nodes"]) for m in members]
+        whole = tuple(parent.get(f) for f in ("files", "added", "removed"))
+        counts = whole if all(isinstance(v, int) for v in whole) else tuple(sum(c[i] for c in sums) for i in range(3))
+        parts = []
+        for member, part_counts in zip(members, sums):
+            chunk = member.get("chunk") or {}
+            span = f"{str(chunk['from'])[:7]}..{str(chunk['to'])[:7]}" if chunk.get("from") and chunk.get("to") else ""
+            parts.append(f'<li><button type="button" class="tag c-{member["key"]}" data-gopen="{html.escape(member["key"])}">'
+                         f'{chunk.get("index", "")}/{chunk.get("count", "")}</button><span>{html.escape(chunk.get("label", ""))}</span>'
+                         + merge_order_meta(strings, span, part_counts) + "</li>")
+        rows.append(f'<li class="c-{parent["key"]}">{head(parent["key"], parent, counts)}\n<ol class="parts">\n'
+                    + "\n".join(parts) + "\n</ol></li>")
+    title = html.escape(strings["mergeOrderTitle"])
+    return f'<section id="stack" data-toc="{title}">\n<h2>{title}</h2>\n<ol class="merge-order">\n' + "\n".join(rows) + "\n</ol>\n</section>"
+
+
 def load_strings(lang: str, overrides: Path | None) -> dict:
     catalog = json.loads(STRINGS_FILE.read_text(encoding="utf-8"))
     base = dict(catalog.get(lang) or catalog["en"])
@@ -184,6 +252,7 @@ def main() -> int:
         raise SystemExit(f"the narrative must contain exactly one {MARKER} line")
     head, body = (part.strip("\n") for part in narrative.split(MARKER))
     strings = load_strings(args.lang, args.strings)
+    head = head + "\n\n" + merge_order(graph, strings)
 
     prs = []
     pr_css = []
