@@ -18,7 +18,7 @@ module.exports = {
     const order = ORDER(exp.order);
     await t.fresh(STACK);
     t.noErrors('stack: no page errors on load');
-    t.check('stack: default view is the list (map hidden)', await B.ev(`document.getElementById('g-canvas').hidden&&document.querySelector('[data-v=list]').getAttribute('aria-pressed')==='true'`));
+    t.check('stack: the shared setup opened the step list (the default, closed, is steps.js)', await B.ev(`!document.getElementById('g-canvas').hidden&&document.getElementById('g-steps').getAttribute('aria-expanded')==='true'`));
     // The order is picked per PR, so each tab gets the click.
     for (const mode of ['top', 'bottom']) {
       for (const k of ['A', 'B', 'C']) {
@@ -84,10 +84,8 @@ module.exports = {
     const tyDeps = exp.data.prs[0].edges.filter((e) => e.from === ty.from && e.kind === 'type').map((e) => e.to);
     t.check('neighbourhood: a type-only dependency is marked and its title says so', JSON.stringify(tyNb.map((x) => x.go).sort()) === JSON.stringify([...tyDeps].sort()) && tyNb.every((x) => x.title.includes(strings.nbType)), { tyNb, tyDeps });
     await B.ev(`document.getElementById('g-all').click()`);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(300);
     const mapEd = await B.ev(`[].map.call(document.querySelectorAll('#g-canvas path.ed'),function(p){return {f:p.dataset.f,t:p.dataset.t,type:p.classList.contains('type')};})`);
     t.check('map: an edge is dotted ("type") exactly when its edge is type-only', mapEd.some((e) => e.type) && mapEd.every((e) => !kindOf[e.f + '>' + e.t] || e.type === (kindOf[e.f + '>' + e.t] === 'type')), mapEd);
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
     t.noErrors('type edges: no page errors');
     await t.fresh(STACK);
     await B.ev(`T.tabTo('A')`);
@@ -171,20 +169,19 @@ module.exports = {
     const kPath = exp.data.prs[1].nodes.find((n) => n.id === kStart[0]).path;
     t.check('read checkbox marks the row and persists by PR and path', await B.ev(`T.row('${kStart[0]}').classList.contains('done')&&JSON.parse(localStorage.getItem('${key}read')).B[${JSON.stringify(kPath)}]===1`), await B.ev(`localStorage.getItem('${key}read')`));
     // Map toggle.
-    await B.ev(`document.querySelector('[data-v=map]').click()`);
     await sleep(150);
-    const m = await B.ev(`({hidden:document.getElementById('g-canvas').hidden,nodes:document.querySelectorAll('#g-canvas .nd').length,rows:T.rows().length,ext:document.querySelectorAll('.g-xr').length,stored:localStorage.getItem('${key}view'),path:!document.getElementById('g-pathl').hidden,font:Math.min.apply(null,[].map.call(document.querySelectorAll('#g-canvas text'),function(t){return t.getBoundingClientRect().height;}))})`);
-    t.check('map toggle shows every row and earlier-PR file as a node and stores the view', !m.hidden && m.nodes === m.rows + m.ext && m.stored === 'map' && m.path, m);
+    const m = await B.ev(`({hidden:document.getElementById('g-canvas').hidden,nodes:document.querySelectorAll('#g-canvas .nd').length,rows:T.rows().length,ext:document.querySelectorAll('.g-xr').length,stored:localStorage.getItem('${key}steps'),path:!document.getElementById('g-pathl').hidden,font:Math.min.apply(null,[].map.call(document.querySelectorAll('#g-canvas text'),function(t){return t.getBoundingClientRect().height;}))})`);
+    t.check('the map beside the open list shows every row and earlier-PR file as a node, and the open list is stored', !m.hidden && m.nodes === m.rows + m.ext && m.stored === '1' && m.path, m);
     t.check('map labels are not scaled down (text boxes at least 11px tall)', m.font >= 11, m);
     await B.ev(`document.querySelectorAll('#g-canvas .nd')[3].dispatchEvent(new MouseEvent('click',{bubbles:true}))`);
     const mapSel = await B.ev(`({sel:T.sel(),on:(document.querySelector('#g-canvas .nd.on title')||{}).textContent})`);
     t.check('clicking a map node selects it in the list and detail', !!mapSel.sel && mapSel.on && mapSel.on.startsWith(exp.data.prs[1].nodes.find((n) => n.id === mapSel.sel).path), mapSel);
     await t.reload(STACK);
-    t.check('the chosen view survives a reload', await B.ev(`!document.getElementById('g-canvas').hidden&&document.querySelector('[data-v=map]').getAttribute('aria-pressed')==='true'`));
+    t.check('the open list survives a reload', await B.ev(`!document.getElementById('g-canvas').hidden&&document.getElementById('g-steps').getAttribute('aria-expanded')==='true'`));
     await B.ev(`T.tabTo('B')`);
     t.check('read mark survives a reload', await B.ev(`T.row('${kStart[0]}').classList.contains('done')&&document.querySelector('#g-canvas .nd.done')!==null`));
     // Lane: only the selected file's arcs by default; hover hints; "All links" draws every arc and is remembered.
-    await B.ev(`document.querySelector('[data-v=list]').click();T.tabTo('A')`);
+    await B.ev(`T.tabTo('A')`);
     const aId = (p) => exp.data.prs[0].nodes.find((n) => n.path === p).id;
     const dom = aId('src/domain/item.ts'), svc = aId('src/logic/item.service.ts');
     const arcCount = `({all:document.querySelectorAll('#g-lane path.arc').length,dep:document.querySelectorAll('#g-lane path.arc.dep').length,use:document.querySelectorAll('#g-lane path.arc.use').length,pk:document.querySelectorAll('#g-lane path.arc.pk').length,dots:document.querySelectorAll('#g-lane circle').length,box:document.getElementById('g-all').checked})`;
@@ -205,7 +202,7 @@ module.exports = {
     t.check('lane: "All links" survives a reload and draws arcs with nothing selected', l3.box && l3.all === 3 && l3.dep === 0, l3);
     await B.ev(`document.getElementById('g-all').click()`);
     t.check('lane: turning "All links" off clears the arcs and is stored', await B.ev(`document.querySelectorAll('#g-lane path.arc').length===0&&localStorage.getItem('${key}arcs')==='sel'`));
-    await B.ev(`document.querySelector('[data-v=map]').click();T.tabTo('B')`);
+    await B.ev(`T.tabTo('B')`);
     // Map keyboard: one Tab stop, arrows move through the band then the steps, Enter opens.
     const mk0 = await B.ev(`(function(){var z=document.querySelectorAll('#g-canvas .nd[tabindex="0"]');return {zero:z.length,first:z[0]===document.querySelector('#g-canvas .nd')};})()`);
     t.check('with no selection the first map node is the only Tab stop', mk0.zero === 1 && mk0.first, mk0);
@@ -224,8 +221,8 @@ module.exports = {
     await B.key('Enter');
     const lastPath = seq[seq.length - 1];
     t.check('Enter on a map node opens it', await B.ev(`(document.querySelector('#g-detail .p')||{}).textContent`) === lastPath, lastPath);
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
-    t.check('switching back to the list hides the map', await B.ev(`document.getElementById('g-canvas').hidden&&localStorage.getItem('${key}view')==='list'`));
+    await B.ev(`document.getElementById('g-steps').click()`);
+    t.check('closing the steps hides the list and keeps the map', await B.ev(`!document.getElementById('g-canvas').hidden&&getComputedStyle(document.querySelector('.g-side')).display==='none'&&localStorage.getItem('${key}steps')==='0'`));
     t.noErrors('stack: no page errors after the interaction run');
 
     /* ---------- Read marks: keyed by PR and path, so a rebuild that renumbers ids keeps them on their files ---------- */
@@ -256,7 +253,7 @@ module.exports = {
     await sleep(250);
     await t.shot('stack-1440-dark-list');
     t.check('dark theme re-render keeps the selection and has no errors', await B.ev('T.sel()') === ctrl && B.errors.length === 0, B.errors);
-    await B.ev(`T.tabTo('C');document.querySelector('[data-v=map]').click();document.querySelector('.g-tabs-row').scrollIntoView()`);
+    await B.ev(`T.tabTo('C');document.querySelector('.g-tabs-row').scrollIntoView()`);
     await sleep(250);
     await t.shot('stack-1440-dark-map');
     await t.theme(false);
@@ -350,10 +347,8 @@ module.exports = {
         t.check(`${name} 800px ${th}: no horizontal page scroll, list above detail, lane narrowed`, n.h <= 0 && n.stack && n.lane <= 44, n);
         await B.ev(`document.querySelector('.g-tabs-row').scrollIntoView()`);
         await t.shot(`${name}-800-${th}`);
-        await B.ev(`document.querySelector('[data-v=map]').click()`);
         await sleep(200);
         t.check(`${name} 800px ${th} map: still no horizontal page scroll`, await B.ev('T.hscroll()') <= 0);
-        await B.ev(`document.querySelector('[data-v=list]').click()`);
         await B.ev(`document.querySelector('#g-detail').scrollIntoView()`);
         await t.shot(`${name}-800-${th}-detail`);
         t.noErrors(`${name} 800px ${th}: no page errors`);
@@ -389,7 +384,7 @@ module.exports = {
       await B.ev(`document.getElementById('g-detail').scrollIntoView()`);
       await sleep(200);
       await t.shot(`big-1440-${th}-list-detail`);
-      await B.ev(`document.querySelector('[data-v=map]').click();document.getElementById('g-canvas').scrollIntoView()`);
+      await B.ev(`document.getElementById('g-canvas').scrollIntoView()`);
       await sleep(300);
       await t.shot(`big-1440-${th}-map`);
       t.noErrors(`big ${th}: no page errors`);
@@ -402,7 +397,7 @@ module.exports = {
       await B.ev(`T.pick(T.rows()[3].id);document.getElementById('nt-panel').open=false;document.querySelector('.g-tabs-row').scrollIntoView()`);
       await sleep(300);
       await t.shot(`hub-1440-${th}-list`);
-      await B.ev(`document.querySelector('[data-v=map]').click();document.getElementById('g-canvas').scrollIntoView()`);
+      await B.ev(`document.getElementById('g-canvas').scrollIntoView()`);
       await sleep(300);
       await t.shot(`hub-1440-${th}-map`);
       t.noErrors(`hub ${th}: no page errors`);

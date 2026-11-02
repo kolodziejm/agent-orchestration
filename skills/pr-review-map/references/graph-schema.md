@@ -410,7 +410,7 @@ the whole file with "code changed". The overlay is never rewritten: change a ste
 `lines` there to anchor it afresh. A step whose file left the PR, or whose file a new
 commit deleted, degrades as above and never stops the refresh.
 
-The viewer puts a tour picker beside the view toggle. A chosen tour shows a bar at the
+The viewer puts a tour picker beside the Steps toggle. A chosen tour shows a bar at the
 foot of the graph, held at the bottom of the window: "Krok 3 z 8" / "Step 3 of 8", the
 note, the step's file and lines (and "moved from :12-30" or "code changed"), Previous and
 Next (keys `[` `]`), and Exit (Esc). Each step switches to its tab, selects its node,

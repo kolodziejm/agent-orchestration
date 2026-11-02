@@ -61,12 +61,10 @@ module.exports = {
     await t.fresh(PLAN);
     await B.ev(`T.pick('${pid('src/util/fmt.ts')}')`);
     t.check('conflict: a file without conflicts has no conflict line', await B.ev(`document.querySelectorAll('#g-detail .g-cf').length`) === 0);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(200);
     const mk = await B.ev(`[].map.call(document.querySelectorAll('#g-canvas .nd'),function(g){return {p:g.querySelector('title').textContent.split('\\n')[0],m:!!g.querySelector('.cfm'),a:g.getAttribute('aria-label')};}).filter(function(x){return x.m;})`);
     t.check('conflict: the map marks the same two files, and their names say why', JSON.stringify(mk.map((x) => x.p).sort()) === '["src/auth/session.ts","src/billing/invoice.ts"]' && mk.every((x) => /Resolved by hand in merge/.test(x.a)), mk);
     await B.ev(`document.getElementById('g-canvas').scrollIntoView()`); await sleep(100);
     await t.shot('plan-1440-light-map-conflicts', '#g-canvas');
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
     t.noErrors('conflicts: no page errors');
 
     /* ---------- The lead: one sentence, the rest folded under "Legend and shortcuts"; the colour hint in the legend ---------- */
@@ -86,7 +84,7 @@ module.exports = {
     m = await B.ev(menu);
     t.check('menu: the button opens it and says so', m.exp === 'true' && !m.hidden && m.shown, m);
     await B.key('Tab');
-    t.check('menu: Tab from the button walks into it ("Reading path" is hidden in the list view)', await B.ev(`document.activeElement.id`) === 'g-all' && await B.ev(`document.getElementById('g-pathl').hidden`));
+    t.check('menu: Tab from the button walks into it (the map is always shown, so "Reading path" is the first toggle)', await B.ev(`document.activeElement.id`) === 'g-path' && !(await B.ev(`document.getElementById('g-pathl').hidden`)));
     const before = (await B.ev('T.rows()')).length;
     await B.ev(`document.getElementById('g-tests').click()`);
     const after = (await B.ev('T.rows()')).length;
@@ -101,11 +99,11 @@ module.exports = {
     t.check('menu: a click outside closes it', (await B.ev(menu)).hidden);
     await B.ev(`document.getElementById('g-mbtn').click();document.getElementById('g-ext').focus();document.getElementById('g-prev').focus()`);
     t.check('menu: the focus leaving it closes it', (await B.ev(menu)).hidden);
-    await B.ev(`document.querySelector('[data-v=map]').click();document.getElementById('g-mbtn').click()`);
+    await B.ev(`document.getElementById('g-mbtn').click()`);
     t.check('menu: "Reading path" shows with the map', !(await B.ev(`document.getElementById('g-pathl').hidden`)) && await B.ev(`!!document.getElementById('g-pathl').offsetParent`));
     await B.ev(`document.getElementById('g-path').click()`); await sleep(100);
     t.check('menu: "Reading path" still draws the path', await B.ev(`!!document.querySelector('#g-canvas path.rp')`));
-    await B.ev(`document.getElementById('g-path').click();document.querySelector('[data-v=list]').click();document.getElementById('g-mbtn').click()`);
+    await B.ev(`document.getElementById('g-path').click();document.getElementById('g-mbtn').click()`);
     t.noErrors('menu: no page errors');
 
     /* ---------- Code references in the narrative ---------- */
@@ -175,8 +173,6 @@ module.exports = {
     /* ---------- Markup in the new fields stays text ---------- */
     await t.fresh(t.url(t.fixtures, 'sec', 'xss.html'));
     await B.ev(`T.pick(T.rows()[0].id)`);
-    await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(100);
-    await B.ev(`document.querySelector('[data-v=list]').click()`);
     const x = await B.ev(`({pwn:window.__pwn||null,imgs:document.querySelectorAll('img').length,cf:[].map.call(document.querySelectorAll('#g-detail .g-cf code'),function(c){return c.textContent;}),
       chips:[].map.call(document.querySelectorAll('.g-cfb'),function(c){return c.title;}),ref:(document.querySelector('#risks button.g-ref')||{}).title||null})`);
     t.check('markup: a bogus merge is dropped and the valid one shows as text',

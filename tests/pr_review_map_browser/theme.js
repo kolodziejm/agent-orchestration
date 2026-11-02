@@ -151,7 +151,7 @@ module.exports = {
 
     /* ---------- Colours follow the theme without a redraw: map, lane, legend; dark text contrast ---------- */
     await t.fresh(PAGE, { dark: false });
-    await B.ev(`T.tabTo('B');T.pick(T.id('web/app.tsx'));document.querySelector('[data-v=map]').click()`); await sleep(200);
+    await B.ev(`T.tabTo('B');T.pick(T.id('web/app.tsx'));`); await sleep(200);
     const MAPC = `(function(){var g=document.querySelector('#g-canvas .nd:not(.ext):not(.on)'),x=document.querySelector('#g-canvas .nd.ext'),cs=function(e,p){return getComputedStyle(e)[p];};
       var lc=g.style.getPropertyValue('--lc').match(/--l-[a-z0-9]+/)[0],dot=document.querySelector('#g-lane circle.dot');
       return {same:g===window.__nd,box:cs(g.querySelector('rect.box'),'fill'),line:cs(g.querySelector('rect.box'),'stroke'),lb:cs(g.querySelector('rect.lb'),'fill'),num:cs(g.querySelector('.num'),'fill'),
@@ -172,7 +172,7 @@ module.exports = {
     const layers = await B.ev(`['contract','domain','logic','infra','rest','wiring','ui','data','test','config','docs','i18n','other'].map(function(l){return [l,Math.round(TH.ratio(TH.col(TH.tok('--l-'+l)),TH.col(TH.tok('--surface')))*100)/100];})`);
     t.check('every layer colour reads at 4.5:1 or more on the dark surface', layers.every((x) => x[1] >= 4.5), layers);
     await t.shot('map-dark-1440', '#graph', 1400);
-    await B.ev(`document.querySelector('[data-v=list]').click();document.querySelector('#dv-files td.ln[data-s=new][data-l="1"]').click();if(document.getElementById('g-mpop').hidden)document.getElementById('g-mbtn').click()`); await sleep(400);
+    await B.ev(`document.querySelector('#dv-files td.ln[data-s=new][data-l="1"]').click();if(document.getElementById('g-mpop').hidden)document.getElementById('g-mbtn').click()`); await sleep(400);
     const low = await B.ev(`TH.lowContrast(${JSON.stringify(TEXT)})`);
     t.check('dark: the page\'s text reads at 4.5:1 or more against what is behind it', low.length === 0, low);
     await t.shot('list-dark-1440', 'main', 2400);

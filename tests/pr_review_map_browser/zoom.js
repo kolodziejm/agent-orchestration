@@ -107,7 +107,6 @@ module.exports = {
 
       // The flat map.
       await t.fresh(t.url(FILE), { dark });
-      await B.ev(`document.querySelector('[data-v=map]').click()`); await sleep(250);
       await B.ev(`document.getElementById('g-canvas').scrollIntoView({block:'start'})`); await sleep(100);
       const flat = await B.ev(`(function(){var c=document.getElementById('g-canvas');return {flat:c.classList.contains('flat'),ov:c.classList.contains('ov'),btns:[].map.call(c.querySelectorAll('.g-ovt [data-z]'),function(x){return x.dataset.z;}),pzv:!!c.querySelector('.g-pzv'),n:document.querySelectorAll('#g-canvas .nd').length};})()`);
       t.check(`zoom ${th} flat map: the map of 40 files or fewer has zoom out, zoom in, and fit buttons`, flat.flat && !flat.ov && flat.pzv && JSON.stringify(flat.btns) === '["out","in","fit"]' && flat.n > 3, flat);

@@ -259,6 +259,9 @@ ul.changes ul{margin:4px 0 0;padding-left:20px;display:grid;gap:3px;color:var(--
 .g-lane .dot.on{stroke:var(--fg);stroke-width:2}
 .g-lane .dot.hu{stroke:var(--dep);stroke-width:2.2}
 .g-lane .more{font-family:var(--f-mono);font-size:10px;font-weight:700;fill:var(--fg);paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+/* The step list closed (the default): the detail panel and diff take the whole width. The workspace has its own left column. */
+#graph:not(.ws).no-steps .g-work{grid-template-columns:minmax(0,1fr)}
+#graph:not(.ws).no-steps .g-side{display:none}
 /* Narrow: the list stacks above the detail panel with its own scroll; the lane narrows, then hides */
 @container graph (max-width:880px){.g-work{grid-template-columns:minmax(0,1fr)}.g-side{position:static;max-height:none}.g-order{max-height:46vh;--lw:44px}}
 @container graph (max-width:480px){.g-order{--lw:0px}.g-lane{display:none}}
@@ -391,7 +394,7 @@ svg.has-sel .nd.far{opacity:.25} svg.has-sel .ed.far{opacity:.12}
 .dv-head .m{font-size:13px;color:var(--muted)}
 .dv-mode{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .dv-mode button{font:inherit;font-size:13px;padding:5px 12px;border:0;border-radius:0;background:var(--surface);color:var(--fg);cursor:pointer}
-.dv-mode button[aria-pressed="true"]{background:var(--fg);color:var(--surface)}
+.dv-mode button[aria-pressed="true"],.dv-mode button[aria-expanded="true"]{background:var(--fg);color:var(--surface)}
 .dv-mode button.rec::after{content:'\2022';margin-left:5px;color:var(--accent)}
 .dv-mode .dv-am{font-size:11px;font-weight:700;opacity:.8}
 .dv-mode .dv-am[hidden]{display:none}
@@ -695,7 +698,7 @@ html.g-wsroot{overflow:hidden}
   <div class="nt-pred" id="nt-pred" hidden></div>
   <p class="g-cfn" id="g-cfn" hidden></p>
   <div class="g-tools">
-    <span class="dv-mode g-vw" role="group" aria-label="{{S:viewLabel}}"><button type="button" data-v="list">{{S:viewList}}</button><button type="button" data-v="map">{{S:viewMap}}</button></span>
+    <span class="dv-mode g-vw"><button type="button" id="g-steps" aria-expanded="false" aria-controls="g-orderbox" title="{{S:stepsTitle}}">{{S:stepsToggle}}</button></span>
     <span class="dv-mode g-wsonly g-wsl" role="group" aria-label="{{S:wsLeft}}" title="{{S:wsLeftTitle}}"><button type="button" data-wl="list">{{S:wsLeftList}}</button><button type="button" data-wl="map">{{S:wsLeftMap}}</button></span>
     <label id="g-tourl" title="{{S:tourKeys}}" hidden>{{S:tours}} <select id="g-tour"><option value="">{{S:tourPick}}</option></select></label>
     <span class="dv-mode" role="group" aria-label="{{S:orderLabel}}"><button type="button" data-o="top">{{S:fromEntry}}</button><button type="button" data-o="bottom">{{S:fromDeps}}</button></span>
@@ -1825,7 +1828,7 @@ html.g-wsroot{overflow:hidden}
   var omodes=obj('omodes'),otemp=Object.create(null);
   function recMode(k){var p=data.prs.find(function(x){return x.key===k;});return p&&p.readFrom==='dependencies'?'bottom':'top';}
   function modeOf(k){var t=own(otemp,k),v=own(omodes,k);return t==='top'||t==='bottom'?t:v==='top'||v==='bottom'?v:recMode(k);}
-  var omode=cur?modeOf(cur):'top',view=load('view','list')==='map'?'map':'list',selBy={},peek=null,nbAll={};
+  var omode=cur?modeOf(cur):'top',steps=load('steps','0')==='1',selBy={},peek=null,nbAll={};
   var NS='http://www.w3.org/2000/svg';
   function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;}
   function trunc(s,n){return s.length>n?s.slice(0,Math.max(1,n-1))+'…':s;}
@@ -1878,11 +1881,20 @@ html.g-wsroot{overflow:hidden}
   var grpBox=document.getElementById('g-group'),areaBox=document.getElementById('g-area');grpBox.checked=byFolder;areaBox.checked=byArea;
   grpBox.addEventListener('change',function(){byFolder=grpBox.checked;save('folders',byFolder?'1':'0');if(byFolder&&byArea){byArea=false;areaBox.checked=false;save('lgroup','');}renderList();select(sel);});
   areaBox.addEventListener('change',function(){byArea=areaBox.checked;save('lgroup',byArea?'area':'');if(byArea&&byFolder){byFolder=false;grpBox.checked=false;save('folders','0');}renderList();select(sel);});
-  var obtns=document.querySelectorAll('[data-o]'),vbtns=document.querySelectorAll('[data-v]');
+  var obtns=document.querySelectorAll('[data-o]'),stepsBtn=document.getElementById('g-steps');
   [].forEach.call(obtns,function(b){b.addEventListener('click',function(){
     var m=b.dataset.o;delete otemp[cur];if(m===recMode(cur))delete omodes[cur];else omodes[cur]=m;save('omodes',JSON.stringify(omodes));render();
   });});
-  [].forEach.call(vbtns,function(b){b.addEventListener('click',function(){view=b.dataset.v;save('view',view);render();if(sel)mapTo(sel);});});
+  /* "Steps" opens and closes the step list (closed by default: the page opens on the map). The state is kept under "steps"
+     (an older "view" or "wsleft" is ignored); the workspace's left column (List | Map, key m) is the same switch: List is
+     "Steps" open. Closed, nothing scrolls or focuses a row; opening it shows the selected step. */
+  function paintSteps(){stepsBtn.setAttribute('aria-expanded',steps?'true':'false');gEl.classList.toggle('no-steps',!steps);}
+  function listShown(){return steps;}
+  stepsBtn.addEventListener('click',function(){
+    steps=!steps;wsLeft=steps?'list':'map';save('steps',steps?'1':'0');paintSteps();
+    if(steps){drawLane();if(sel){roveRow(sel);listTo(sel);}}
+    say(steps?S.stepsOn:S.stepsOff);
+  });
   document.getElementById('g-prev').addEventListener('click',function(){step(-1);});
   document.getElementById('g-next').addEventListener('click',function(){step(1);});
   /* The View menu: the list's and the map's toggles behind one button (a disclosure: the button says whether it is
@@ -2413,7 +2425,7 @@ html.g-wsroot{overflow:hidden}
   });
   stepOl.addEventListener('focusin',function(ev){var li=ev.target.closest('li.g-row');peekAt(li?li.dataset.id:null);});
   stepOl.addEventListener('focusout',function(ev){if(!stepOl.contains(ev.relatedTarget))peekAt(null);});
-  function scrollList(e){var t=e.offsetTop,b=t+Math.min(e.offsetHeight,40);if(t<obox.scrollTop+4)obox.scrollTop=t-8;else if(b>obox.scrollTop+obox.clientHeight-4)obox.scrollTop=b-obox.clientHeight+8;}
+  function scrollList(e){if(!listShown())return;var t=e.offsetTop,b=t+Math.min(e.offsetHeight,40);if(t<obox.scrollTop+4)obox.scrollTop=t-8;else if(b>obox.scrollTop+obox.clientHeight-4)obox.scrollTop=b-obox.clientHeight+8;}
   function listTo(id){var r=rowEl[id];if(r)scrollList(visible(r.li)?r.li:secEl[SEC[id]].li);}
   function setDone(id,v){
     var n=all[id];if(!n)return;
@@ -2437,7 +2449,7 @@ html.g-wsroot{overflow:hidden}
     if(n.layer==='test'&&!showTests){showTests=true;document.getElementById('g-tests').checked=true;}
     if(onlyChg&&!CHG[id])setOnlyChg(false);
     var moved=n.pr!==cur;cur=n.pr;sel=id;nbAll={};render();select(id,'jump');
-    if(rowEl[id])rowEl[id].b.focus({preventScroll:true});
+    if(rowEl[id]&&listShown())rowEl[id].b.focus({preventScroll:true});
     var tb=tabFor(cur);if(moved&&tb)flash([tb]);
   }
 
@@ -3518,7 +3530,7 @@ html.g-wsroot{overflow:hidden}
      map in the left column instead of the list: the right pane folds away, the diff takes the rest, the map centres each
      selected file, and the file's header (path, role, note, tour step; its merges folded) sits above its diff. The separators resize the left column
      and the right pane by pointer or the arrow keys (Shift: farther; Home and End: narrowest and widest), kept under
-     "wscols" (the map column apart from the list; never set, it is 45% of the window), the left column under "wsleft",
+     "wscols" (the map column apart from the list; never set, it is 45% of the window), the left column (List = "Steps" open) under "steps",
      the pane and its fold under "wspane" and "wsrc". The notes panel becomes a drawer from the right. Esc closes the View menu, a note editor, a
      tour, and the drawer first (a form field only lets go of the focus), then the workspace, which gives the page back its scroll position; the rest of the page
      is inert meanwhile. Below 1100 pixels of window there is no workspace: the button hides, and leaving that width
@@ -3526,7 +3538,7 @@ html.g-wsroot{overflow:hidden}
   var gTop=document.getElementById('g-top'),wsBtn=document.getElementById('g-wsb'),wsXb=document.getElementById('g-wsx'),wsNb=document.getElementById('g-wsnotes');
   var sep1=document.getElementById('g-sep1'),sep2=document.getElementById('g-sep2'),rpc=document.getElementById('g-rpc'),ntPanel=document.getElementById('nt-panel');
   var WSQ=window.matchMedia?window.matchMedia('(min-width:1100px)'):null,wsOn=false,wsAt=null,wsHash=null,wsInert=[];
-  var wsPane=load('wspane','nb')==='map'?'map':'nb',wsRc=load('wsrc','0')==='1',wsCols=wsKept(),wsLeft=load('wsleft','list')==='map'?'map':'list',wsM=0;
+  var wsPane=load('wspane','nb')==='map'?'map':'nb',wsRc=load('wsrc','0')==='1',wsCols=wsKept(),wsLeft=steps?'list':'map',wsM=0;
   /* The widths the reader set (null for one never set: it follows the window, the list 24% of it within 260-340 pixels
      and the right pane 30% within 300-420). */
   function wsKept(){var v=obj('wscols');function n(x){return typeof x==='number'&&isFinite(x)?x:null;}return {l:n(v.l),r:n(v.r),m:n(v.m)};}
@@ -3597,7 +3609,7 @@ html.g-wsroot{overflow:hidden}
   function wsLeftSet(v){
     if(v===wsLeft)return;
     var a=document.activeElement,back=wsOn&&!!a&&(gEl.querySelector('.g-side').contains(a)||cv.contains(a));
-    wsLeft=v;save('wsleft',v);wsApply();if(!wsOn)return;
+    wsLeft=v;steps=v==='list';save('steps',steps?'1':'0');paintSteps();wsApply();if(!wsOn)return;
     dvMeasure();drawCanvas();select(sel);
     if(back)wsFocusLeft();
     say(S.wsLeft+': '+(v==='map'?S.wsLeftMap:S.wsLeftList));
@@ -3653,7 +3665,7 @@ html.g-wsroot{overflow:hidden}
   /* The map (or its overview of areas) where the reader shows it: under the toolbar with the Map view, in the
      workspace's left column with "Map" picked there, else in its right pane with "Map" picked there. In the left
      column it opens centred on the selected file, with that file's area open. */
-  function mapOn(){return wsOn?wsLeft==='map'||wsPane==='map'&&!wsRc:view==='map';}
+  function mapOn(){return wsOn?wsLeft==='map'||wsPane==='map'&&!wsRc:true;}
   function drawCanvas(){
     var on=mapOn(),ov=on&&coreCount(G.p)>OVN;cv.classList.toggle('ov',ov);cv.classList.toggle('flat',on&&!ov);document.getElementById('g-pathl').hidden=!on;
     cv.hidden=!on;MAP=null;
@@ -3677,7 +3689,7 @@ html.g-wsroot{overflow:hidden}
     wsPr.value=cur;
     omode=modeOf(cur);paintWhy();
     [].forEach.call(obtns,function(b){b.setAttribute('aria-pressed',b.dataset.o===omode?'true':'false');});
-    [].forEach.call(vbtns,function(b){b.setAttribute('aria-pressed',b.dataset.v===view?'true':'false');});
+    paintSteps();
     paintPr();
     G=graph();computeOrder(G.p);byId={};OUT={};INC={};
     cfNow=cfStats(G.p);cfShow=cfPref==='1'||cfPref!=='0'&&!cfNow.noisy;cfBox.checked=cfShow;cfLbl.hidden=!cfNow.m;

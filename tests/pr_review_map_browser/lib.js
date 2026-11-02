@@ -171,6 +171,8 @@ const PAGE_HELPERS = `window.T={
     return new Promise(function(r){var n=0;(function w(){if(window.__copied!==null||++n>20){var m=document.getElementById('nt-manual-text');r(window.__copied!==null?window.__copied:m?m.value:null);}else setTimeout(w,50);})();});}
 };true`;
 
+const OPEN_STEPS = `(function(){var b=document.getElementById('g-steps');if(b&&b.getAttribute('aria-expanded')==='false')b.click();return true;})()`;
+
 // The viewer's own computeOrder(), cut out of an assembled page and run on its embedded graph:
 // {order: {top|bottom: {prKey: {on: {id: step}, subj: {testId: subjectId}}}}, data}.
 function viewerOrder(file) {
@@ -206,18 +208,23 @@ class Suite {
   url(...parts) { return 'file://' + path.join(...parts); }
   // Register extra page-side helpers (a script string ending in `true`) injected after every load, beside window.T.
   use(script) { this.helpers.push(script); }
-  async inject() { await this.B.ev(PAGE_HELPERS); for (const h of this.helpers) await this.B.ev(h); }
+  // The page opens on the map with the step list closed; the list coverage here is about the list, so a load opens it
+  // (steps: false keeps the default; zoom.js and steps.js do).
+  async inject(steps = true) {
+    await this.B.ev(PAGE_HELPERS); for (const h of this.helpers) await this.B.ev(h);
+    if (steps) await this.B.ev(OPEN_STEPS);
+  }
   // Load url at a size and colour scheme with empty localStorage (then `seed`, a script run before the real load).
-  async fresh(url, { width = 1440, height = 900, dark = false, seed } = {}) {
+  async fresh(url, { width = 1440, height = 900, dark = false, seed, steps = true } = {}) {
     await this.B.viewport(width, height, dark);
     await this.B.open(url);
     await this.B.ev('localStorage.clear()');
     if (seed) await this.B.ev(seed);
     await this.B.open(url);
-    await this.inject();
+    await this.inject(steps);
   }
   // Load url keeping localStorage (a reload, or another page of the same report).
-  async reload(url) { await this.B.open(url); await this.inject(); }
+  async reload(url, { steps = true } = {}) { await this.B.open(url); await this.inject(steps); }
   // Switch the page's own theme attribute (light when dark is false).
   async theme(dark) { await this.B.ev(dark ? `document.documentElement.setAttribute('data-theme','dark')` : `document.documentElement.removeAttribute('data-theme')`); }
   async copy() { return this.B.ev('T.copy()'); }

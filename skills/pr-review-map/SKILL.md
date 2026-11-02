@@ -38,8 +38,8 @@ generates the merge order in section 1; you author the rest as `narrative.html`
    one node each. Edges are real dependencies: resolved imports (through barrels,
    changed or not, to the file that defines the name; type-only ones drawn dotted and lighter), PHP `use`, DI and
    routing bindings, test → subject, code → config it reads, HTTP calls across
-   services, and links to files of earlier PRs. The default view is a step list
-   pinned beside the detail panel and diff: one row per file in reading order
+   services, and links to files of earlier PRs. The page opens on the map; a **Steps** toggle
+   (closed by default, kept; an older saved view is ignored) opens the step list pinned beside the detail panel and diff: one row per file in reading order
    (read checkbox, step number, layer colour, note-kind chips, and "→A"/"←B"
    chips for files of PR A it uses or PR B files that use it, which open that
    file on its tab), each test indented under its subject, and a lane drawing the
@@ -75,12 +75,12 @@ generates the merge order in section 1; you author the rest as `narrative.html`
    counts the files changed since the previous version; their read marks clear (↻). **A PR split into parts** (step 1) shows its parts as
    tabs grouped under it; a file other parts change too carries an "also in parts"
    chip and a whole-PR diff toggle. **Tours** ("Trasy", step 3): a picker beside the
-   view toggle walks one flow (Prev/Next, `[` `]`, Esc), opening each step's lines on its tab. Files combined by
+   Steps toggle walks one flow (Prev/Next, `[` `]`, Esc), opening each step's lines on its tab. Files combined by
    hand in a merge (node `conflict` entries of kind `merged`) carry a ↯ mark on the row
    and the map box (hidden by default when they are more than 10 and more than a quarter
    of the PR's files, with one line above the toolbar saying so and "Conflict marks" in
    View to show them); the detail panel lists every resolution with its lines and a
-   copyable `git show --remerge-diff`. The list and map toggles sit in a **View** menu, with **Theme** (Auto: the host page's `data-theme`, else the system; Light; Dark; kept per browser, applied before the first paint, diagrams redrawn to match); ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider): "List | Map" (`m`) puts the map in the left column instead, centred on each selected file with far files faded, and the file's header above the diff; a diff column under 900 px draws unified until it is wide again.
+   copyable `git show --remerge-diff`. The **View** menu holds the list and map options, with **Theme** (Auto: the host page's `data-theme`, else the system; Light; Dark; kept per browser, applied before the first paint, diagrams redrawn to match); ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider): "List | Map" (`m`, the same switch as Steps) puts the map in the left column instead, centred on each selected file with far files faded, and the file's header above the diff; a diff column under 900 px draws unified until it is wide again.
 3. **Architecture**: a mermaid flowchart, only when the PRs change how layers
    connect. At most one line of text around it. Short labels and notes.
 4. **Request flow**: a mermaid sequence diagram, only when relevant. Failure paths
