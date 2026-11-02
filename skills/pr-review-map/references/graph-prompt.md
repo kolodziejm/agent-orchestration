@@ -54,17 +54,10 @@ Steps:
    flow: overlay `clusters` ({"auth": {"label": "...", "order": 1}}, labels in the
    report language, order as the flow reads) and `nodes.<ref>.cluster` on each core
    file. Shared dependencies and tests need none; docs/config/i18n need none either, but
-   a large set of them a check covers (translation catalogs with a key-parity test) can
-   get an area of its own with `"depth": "tool"`, so the plan does not time them (they
-   still read last). For parts use the
+   a large set of them (translation catalogs) can get an area of its own (they still
+   read last). For parts use the
    parent key, so an area spans the parts. A smaller PR may have areas too, when its
-   files split into parts a reviewer takes differently. Give every area a `depth` for
-   the viewer's review plan: `"read"` for logic to follow line by line, `"skim"` for
-   mechanical changes (renames, wiring, styles), `"tool"` when a check covers it; and a
-   `why` of a few words (report language) for skim and tool, for tool naming the check
-   ("i18n key parity test", "regenerated from openapi.yaml, CI diff check").
-   Mark generated files the defaults miss (lockfiles, snapshots, and minified files are
-   caught) with `nodes.<ref>.generated: true`, so the plan counts them apart.
+   files split into parts a reviewer takes differently.
    The summary's hint names the files a merge commit combined by hand (node `conflict`
    entries of kind `merged`, with the lines of each resolution) and counts those where a
    merge took one side's version (`picked`): look at each merged resolution (`git show
@@ -76,6 +69,10 @@ Steps:
    every step's lines with `git show <tip>:<path>` (`side: "old"` and the base for code
    the PR removes): they must show the code the note names. Leave `lines` out only when
    the whole file is the step.
+   Add `summaries` ({"A": "..."}, a parent key for a split PR): per PR one or two short
+   sentences in the report language saying what the PR does and what changes for users or
+   the system, taken from the change map's Purpose and Changes. The merge-order header
+   shows them; a PR without one just has no sentence.
 4. Re-run build_graph.py with the overlay until the summary shows no missing roles,
    no core files without an area where you authored areas, every tour with its step
    count, and no warnings you have not checked. If it reports an import cycle (type-only
@@ -91,7 +88,7 @@ Steps:
    whole file); move it onto changed lines unless the unchanged code is the point.
 
 Return only: node and edge counts per PR, cross-PR edge count, the areas per PR with
-their file counts and depth, the tours with their step counts, the files resolved by
+their file counts, the tours with their step counts, the files resolved by
 hand in merges with what each kept, the overlay path, and anything you could not
 resolve (unmatched files, edges you were unsure about).
 ```

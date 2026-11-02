@@ -57,7 +57,7 @@ module.exports = {
     /* ---------- move the branches, refresh, reload the same tab ---------- */
     const v2 = await t.fixture('demo-move', demo);
     const out = await t.skill('refresh.py', scratch);
-    t.check('refresh: prints old -> new tips, the change counts, and the narrative lines with old tips', out.includes(`PR A: ${v1.A} -> ${v2.A}`) && /changed since the previous version: 5 files \(1 new, 3 changed, 1 removed\)/.test(out) && out.includes(`still shows its old tip ${v1.A} at narrative.html:4`) && /OK/.test(out), out);
+    t.check('refresh: prints old -> new tips, the change counts, and the narrative lines with old tips', out.includes(`PR A: ${v1.A} -> ${v2.A}`) && /changed since the previous version: 5 files \(1 new, 3 changed, 1 removed\)/.test(out) && out.includes(`PR A: tip ${v1.A} -> ${v2.A}; the narrative still shows the old tip at narrative.html:4`) && /OK/.test(out), out);
     await t.reload(URL);
     const n2 = await B.ev(`R.notes()`);
     const by = Object.fromEntries(n2.map((x) => [x.text, x]));

@@ -35,8 +35,8 @@
 /* Theme tokens. Light below; dark when data-theme="dark", or when the system prefers dark and data-theme is not "light"
    (the reader's pick in View › Theme, else the host page's attribute, else the system). The two dark blocks stay
    identical. Every colour the page draws comes from these tokens: the rest of the CSS and the SVG the script draws
-   use var(--…) only, so switching the theme redraws nothing. Diff rows (--d-*), syntax (--hl-*), review-plan buckets
-   (--b-*), and layers (--l-*) live here too. */
+   use var(--…) only, so switching the theme redraws nothing. Diff rows (--d-*), syntax (--hl-*), and layers
+   (--l-*) live here too. */
 :root{
   color-scheme:light;
   --bg:#f6f7f9; --surface:#ffffff; --fg:#1b2230; --muted:#5b6577; --line:#dde2ea; --soft:#eef1f6;
@@ -47,7 +47,6 @@
   --code-bg:#f1f3f7; --shadow:rgba(0,0,0,.18);
   --d-add:#e6f7ec; --d-add-ln:#cdeedd; --d-del:#fdebec; --d-del-ln:#f8d4d7; --d-emp:#f3f4f7; --d-sel:rgba(245,185,0,.3);
   --hl-k:#a2338a; --hl-s:#1a7f37; --hl-n:#0550ae; --hl-c:#6e7781; --hl-t:#953800; --hl-f:#6639ba; --hl-a:#0a3069;
-  --b-logic:#4f6bd8; --b-test:#8a94a6; --b-i18n:#2f9e6e; --b-docs:#c08a2e; --b-config:#b5487e; --b-generated:#c3cad6;
   --l-contract:#1f7ae0; --l-domain:#7a4fd6; --l-logic:#0e9f9a; --l-infra:#d0731d; --l-rest:#c2410c; --l-wiring:#a3263a;
   --l-ui:#1a9b5a; --l-data:#8a6a2f; --l-test:#6b7280; --l-config:#8a5300; --l-docs:#5b6577; --l-i18n:#2f855a; --l-other:#888888;
   --f-body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
@@ -64,7 +63,6 @@
   --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
   --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
   --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
-  --b-logic:#7f9cf5; --b-test:#a3adbf; --b-i18n:#57c793; --b-docs:#e0b45e; --b-config:#e07fb0; --b-generated:#5d6778;
   --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
   --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
 }}
@@ -78,7 +76,6 @@
   --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
   --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
   --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
-  --b-logic:#7f9cf5; --b-test:#a3adbf; --b-i18n:#57c793; --b-docs:#e0b45e; --b-config:#e07fb0; --b-generated:#5d6778;
   --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
   --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
 }
@@ -149,6 +146,28 @@ ol.steps>li::before{content:counter(s);width:24px;height:24px;border-radius:50%;
 .risk-list li{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--sev);border-radius:8px;padding:10px 14px;font-size:15px;max-width:none}
 .sev-h{--sev:var(--risk-fg)} .sev-m{--sev:var(--warn-fg)} .sev-l{--sev:var(--muted)}
 .risk-list .who{font-size:12px;font-weight:700;margin-right:6px}
+/* Before merging: decision cards, the verification table, the checklist, and "Look closely" under a PR's bullets */
+ol.decisions{list-style:none;counter-reset:d;padding:0;margin:0;display:grid;gap:10px}
+ol.decisions>li{counter-increment:d;display:grid;gap:6px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:12px 14px;font-size:15px;max-width:none}
+ol.decisions .q{margin:0;font-weight:650}
+ol.decisions .q::before{content:counter(d) ". ";color:var(--muted)}
+ol.decisions .who{font-size:12px;font-weight:700;margin-right:6px}
+ol.decisions .rec{margin:0;padding:6px 10px;border-radius:6px;background:var(--ok-bg);color:var(--ok-fg);max-width:none}
+ol.decisions .rec.none{background:var(--warn-bg);color:var(--warn-fg)}
+ol.decisions .alts{margin:0;padding-left:20px;color:var(--muted);font-size:14px}
+ol.decisions .refs{margin:0;font-size:13px;color:var(--muted);max-width:none}
+table.verif{font-size:14px}
+table.verif td,table.verif th{text-align:center;white-space:nowrap}
+table.verif th:first-child,table.verif td:first-child{text-align:left}
+td.v-ran{background:var(--ok-bg);color:var(--ok-fg);font-weight:600}
+td.v-not{background:var(--risk-bg);color:var(--risk-fg);font-weight:700}
+td.v-na{color:var(--muted)}
+ul.gaps,ul.after{margin:8px 0;padding-left:20px;display:grid;gap:4px}
+ul.after{list-style:none;padding-left:0}
+ul.after>li::before{content:"\2610\00a0";color:var(--muted)}
+details.look{margin:8px 0 0}
+details.look>summary{padding:8px 14px;font-weight:600;font-size:14px}
+details.look>ol{margin:0;padding:0 16px 12px 36px;display:grid;gap:4px;font-size:14.5px}
 .diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
 pre.mermaid{margin:0;background:transparent;font-family:var(--f-body)}
 .cols-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
@@ -156,6 +175,22 @@ pre.mermaid{margin:0;background:transparent;font-family:var(--f-body)}
 .pill{font-size:12px;padding:2px 8px;border-radius:999px;font-weight:600}
 .pill.ok{background:var(--ok-bg);color:var(--ok-fg)} .pill.warn{background:var(--warn-bg);color:var(--warn-fg)} .pill.risk{background:var(--risk-bg);color:var(--risk-fg)}
 footer{color:var(--muted);font-size:13px}
+/* Merge order (generated by assemble.py) and the per-PR change bullets */
+ol.merge-order{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+ol.merge-order>li{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;max-width:none;padding:8px 14px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--c,var(--accent));border-radius:8px;font-size:15px}
+ol.merge-order>li{position:relative}
+ol.merge-order a.mo-link{color:inherit;text-decoration:none}
+ol.merge-order a.mo-link::after{content:'';position:absolute;inset:0;border-radius:8px}
+ol.merge-order a.mo-link:hover strong{text-decoration:underline}
+ol.merge-order a.mo-link:focus-visible{outline:none}
+ol.merge-order a.mo-link:focus-visible::after{outline:2px solid var(--accent);outline-offset:2px}
+ol.merge-order .parts button,ol.merge-order .parts a{position:relative;z-index:1}
+ol.merge-order p.sum{flex-basis:100%;margin:0;max-width:90ch;color:var(--muted);font-size:14px}
+ol.merge-order .meta{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+ol.merge-order ol.parts{flex-basis:100%;list-style:none;margin:2px 0 0;padding:0;display:grid;gap:4px;font-size:14px}
+ol.merge-order ol.parts>li{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;max-width:none}
+ul.changes{margin:8px 0 0;padding-left:20px;display:grid;gap:6px}
+ul.changes ul{margin:4px 0 0;padding-left:20px;display:grid;gap:3px;color:var(--muted);font-size:14.5px}
 
 /* Reading graph */
 .g-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
@@ -309,7 +344,16 @@ svg .nd.on rect.box{stroke:var(--fg);stroke-width:3}
 svg .nd.done rect.box{opacity:.55}
 svg.has-sel .nd.far{opacity:.25} svg.has-sel .ed.far{opacity:.12}
 /* Map overview of areas (above 40 core files): a toolbar, then the drawing, panned and zoomed by an SVG transform */
-.g-canvas.ov{overflow:hidden;max-height:none}
+.g-canvas.ov,.g-canvas.flat{overflow:hidden;max-height:none}
+/* Zoom and pan for the flat map and the narrative's diagrams (panZoom): the drawing sits in a clipped box and moves with a transform */
+.g-pzv{position:relative;overflow:hidden;touch-action:pan-x pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.g-pzv.drag,.diagram.pz.drag{cursor:grabbing}
+.g-pzv>svg{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none}
+.diagram.pz{position:relative;overflow:hidden;padding:0;touch-action:pan-x pan-y;cursor:grab;user-select:none;-webkit-user-select:none}
+.diagram.pz>pre.mermaid{position:absolute;left:0;top:0;transform-origin:0 0}
+.diagram.pz:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pz-bar{position:absolute;top:8px;right:10px;z-index:2;background:var(--surface)}
+.pz-bar button{padding:3px 10px;min-width:30px}
 .g-ovt{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
 .g-ovt strong{color:var(--fg);font-weight:650}
 .g-ovt .dv-mode button{padding:3px 10px;min-width:30px}
@@ -479,35 +523,6 @@ details.g-more{border:0;background:none;margin:-10px 0 14px}
 details.g-more>summary{padding:2px 0;font-size:14px;color:var(--accent-ink);display:inline-flex}
 .g-morel{margin:6px 0 0;padding-left:20px;display:grid;gap:5px;font-size:14px;color:var(--muted)}
 .g-morel li{max-width:92ch}
-/* Review plan: the PR's areas in reading order with an estimate, and its changed lines by kind (--b-* tokens at the top) */
-.b-logic{--bc:var(--b-logic)} .b-test{--bc:var(--b-test)} .b-i18n{--bc:var(--b-i18n)} .b-docs{--bc:var(--b-docs)} .b-config{--bc:var(--b-config)} .b-generated{--bc:var(--b-generated)}
-details.g-plan{margin:0 0 12px}
-details.g-plan>summary{padding:9px 14px;gap:8px;flex-wrap:wrap}
-.g-plsum{font-weight:400;font-size:13.5px;color:var(--muted);font-variant-numeric:tabular-nums}
-.g-plan>.body{display:grid;gap:10px;padding:0 14px 12px}
-.g-kbar{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden;background:var(--soft)}
-.g-kbar>span{background:var(--bc);min-width:3px}
-.g-kleg{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:3px 16px;font-size:12.5px;color:var(--muted)}
-.g-kleg li{display:inline-flex;gap:5px;align-items:center;max-width:none}
-.g-kleg i{width:10px;height:10px;border-radius:2px;background:var(--bc)}
-.g-kleg b{color:var(--fg);font-weight:650;font-variant-numeric:tabular-nums}
-.g-kleg .z{opacity:.55}
-.g-plan .tbl{border-radius:8px}
-table.g-pt{font-size:13.5px}
-.g-pt th,.g-pt td{padding:6px 10px}
-.g-pt th.num,.g-pt td.num{text-align:right}
-.g-pt tbody tr{cursor:pointer}
-.g-pt tbody tr:hover{background:color-mix(in srgb,var(--soft) 70%,transparent)}
-.g-pt tbody th{background:none;font-weight:600;white-space:normal;min-width:12ch}
-.g-pt tfoot th,.g-pt tfoot td{background:var(--soft);border-top:1px solid var(--line);border-bottom:0;font-weight:650}
-.g-pa{font:inherit;font-weight:inherit;background:none;border:0;padding:0;color:var(--accent-ink);cursor:pointer;text-align:left;overflow-wrap:anywhere}
-.g-pa:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
-.g-dp{display:inline-block;font-size:11.5px;font-weight:700;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
-.g-dp.d-read{color:var(--accent-ink)} .g-dp.d-skim{color:var(--warn-fg)} .g-dp.d-tool{color:var(--muted)}
-.g-dp.auto{border-style:dashed;font-weight:600}
-.g-pwhy{display:block;margin-top:2px;font-size:12.5px;color:var(--muted);max-width:52ch}
-.g-ptm{white-space:nowrap}
-.g-ptm i{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--bc);margin-right:6px;vertical-align:1px}
 /* Files resolved by hand in a merge: a chip on the row, a line in the detail panel, a mark on the map */
 .g-cfb{font-size:11px;font-weight:700;line-height:1.45;padding:0 5px;border-radius:999px;border:1px solid var(--warn-fg);color:var(--warn-fg);background:var(--warn-bg);white-space:nowrap}
 .g-cf{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--warn-bg);color:var(--warn-fg);font-size:13px}
@@ -519,7 +534,7 @@ table.g-pt{font-size:13.5px}
 @container (max-width:560px){.g-cf>span{flex:1 1 auto}.g-cf>button{order:1}.g-cf>code{order:2;flex-basis:100%}}
 svg .cfm rect{fill:var(--warn-bg);stroke:var(--warn-fg);stroke-width:1.2}
 svg .cfm text{fill:var(--warn-fg);font-family:var(--f-body);font-size:11px;font-weight:700}
-/* Many files combined by hand: the marks hide by default and the plan says so in one line */
+/* Many files combined by hand: the marks hide by default and one line above the toolbar says so */
 .g-cfn{margin:0;font-size:13px;color:var(--warn-fg);max-width:none}
 /* The selected file's header above the diff in the workspace's map column: path and lines, role, note (3 lines, then
    "more"), the tour step's note, the other parts; its merges fold under one line */
@@ -587,7 +602,7 @@ button.g-ref:hover code{text-decoration-style:solid}
 html.g-wsroot{overflow:hidden}
 #graph.ws{position:fixed;inset:0;z-index:100;margin:0;background:var(--bg);display:flex;flex-direction:column;overflow:hidden;
   padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
-#graph.ws>h2,#graph.ws>.lead,#graph.ws>.g-more,#graph.ws>.g-chg,#graph.ws>.g-why,#graph.ws>.g-legend,#graph.ws .g-plan,#graph.ws .g-vw,#graph.ws .g-tools .g-wsb{display:none}
+#graph.ws>h2,#graph.ws>.lead,#graph.ws>.g-more,#graph.ws>.g-chg,#graph.ws>.g-why,#graph.ws>.g-legend,#graph.ws .g-cfn,#graph.ws .g-vw,#graph.ws .g-tools .g-wsb{display:none}
 #graph.ws .g-wsonly{display:inline-flex;align-items:center;gap:6px}
 #graph.ws .g-top{flex:0 0 auto;position:relative;z-index:8;display:flex;align-items:center;gap:8px 16px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line)}
 #graph.ws .g-tabs-row{flex:1 1 auto;min-width:0;flex-wrap:nowrap;margin:0}
@@ -616,7 +631,8 @@ html.g-wsroot{overflow:hidden}
 #graph.ws .g-rph{grid-area:rh;display:flex;gap:8px;align-items:center;justify-content:space-between;min-width:0;padding:10px 10px 8px 0}
 #graph.ws .g-detail{grid-area:rb;min-height:0;overflow:auto;margin:0 10px 10px 0;overscroll-behavior:contain}
 #graph.ws .g-canvas{grid-area:rb;min-height:0;max-height:none;margin:0 10px 10px 0}
-#graph.ws .g-canvas.ov{display:flex;flex-direction:column}
+#graph.ws .g-canvas.ov,#graph.ws .g-canvas.flat{display:flex;flex-direction:column}
+#graph.ws .g-canvas.flat .g-pzv{flex:1 1 auto;min-height:0;height:auto!important}
 #graph.ws .g-ovs{flex:1 1 auto;height:auto;min-height:0;max-height:none}
 #graph.ws .g-ovh{display:none}
 #graph.ws.ws-map .g-detail{display:none}
@@ -665,7 +681,7 @@ html.g-wsroot{overflow:hidden}
       <li>{{S:graphMoreView}}</li>
       <li>{{S:graphMoreMap}}</li>
       <li>{{S:graphMoreAreas}}</li>
-      <li>{{S:graphMorePlan}}</li>
+      <li>{{S:graphMoreRefs}}</li>
       <li>{{S:graphMoreKeys}}</li>
     </ul>
   </details>
@@ -677,10 +693,7 @@ html.g-wsroot{overflow:hidden}
     <button type="button" class="nt-b lnk" id="nt-pr-add"></button>
   </div>
   <div class="nt-pred" id="nt-pred" hidden></div>
-  <details class="g-plan" id="g-plan" open>
-    <summary><span>{{S:planTitle}}</span> <span class="g-plsum" id="g-plsum"></span></summary>
-    <div class="body" id="g-planb"></div>
-  </details>
+  <p class="g-cfn" id="g-cfn" hidden></p>
   <div class="g-tools">
     <span class="dv-mode g-vw" role="group" aria-label="{{S:viewLabel}}"><button type="button" data-v="list">{{S:viewList}}</button><button type="button" data-v="map">{{S:viewMap}}</button></span>
     <span class="dv-mode g-wsonly g-wsl" role="group" aria-label="{{S:wsLeft}}" title="{{S:wsLeftTitle}}"><button type="button" data-wl="list">{{S:wsLeftList}}</button><button type="button" data-wl="map">{{S:wsLeftMap}}</button></span>
@@ -827,10 +840,6 @@ html.g-wsroot{overflow:hidden}
   /* Scrolling glides unless the reader asked for reduced motion (CSS drops the transitions then too). */
   var RM=window.matchMedia?window.matchMedia('(prefers-reduced-motion: reduce)'):null;
   function smooth(){return RM&&RM.matches?'auto':'smooth';}
-  /* A node's kind of change for the review plan's line counts: its `bucket` (build_graph.py) when it is one of
-     BUCKETS, else from its layer (test, i18n, docs, config; everything else is logic), so an older report still has one. */
-  var BUCKETS=['logic','test','i18n','docs','config','generated'];
-  function bucketOf(n){var b=n&&n.bucket,l=n&&n.layer;return typeof b==='string'&&BUCKETS.indexOf(b)>=0?b:l==='test'||l==='i18n'||l==='docs'||l==='config'?l:'logic';}
   /* The merges (oldest first) in which a node's files were resolved by hand (`conflict`), each {sha, kind, lines}: kind
      "merged" (the result differs from both parents: combined by hand) or "picked" (one side's version taken), lines the
      re-merge diff changes (null when unknown). A bare SHA (an older build) counts as merged; an entry whose SHA is not
@@ -845,7 +854,7 @@ html.g-wsroot{overflow:hidden}
     });
     return out;
   }
-  /* The SHAs of the merges that combined a node's files by hand: what the row chip, the map mark, and the plan count. */
+  /* The SHAs of the merges that combined a node's files by hand: what the row chip and the map mark count. */
   function mergedOf(n){return conflictsOf(n).filter(function(c){return c.kind==='merged';}).map(function(c){return c.sha;});}
   /* A line count from data: a non-negative integer, else 0. */
   function cnt(x){return typeof x==='number'&&isFinite(x)&&x>0?Math.round(x):0;}
@@ -1862,7 +1871,7 @@ html.g-wsroot{overflow:hidden}
   /* Conflict marks (the ↯ chip on a row, the mark on a map box) are hidden by default on a PR whose files combined by
      hand in a merge are more than a quarter of its changed files and more than 10 (they would mark most rows), shown
      otherwise; "Conflict marks" in the View menu (shown when the PR has any) turns them on or off for the report (kept
-     under "cfmarks"). The plan says when they are hidden; the detail panel always lists a file's merges. */
+     under "cfmarks"). One line above the toolbar says when they are hidden; the detail panel always lists a file's merges. */
   var cfPref=load('cfmarks',''),cfShow=true,cfNow={n:0,m:0,noisy:false},cfBox=document.getElementById('g-cfmarks'),cfLbl=document.getElementById('g-cfl');
   function cfStats(p){var n=0,m=0;p.nodes.forEach(function(x){var a=all[x.id];if(!a||a.unchanged)return;n++;if(mergedOf(a).length)m++;});return {n:n,m:m,noisy:m>10&&m>n*0.25};}
   cfBox.addEventListener('change',function(){cfPref=cfBox.checked?'1':'0';save('cfmarks',cfPref);render();});
@@ -2104,7 +2113,7 @@ html.g-wsroot{overflow:hidden}
      their order and first step, the folder ones by first step, the late authored ones by their order, late), each {id,
      label, kind (auth, dir, shared, late, ext), order, first (its first step), ids (its files in reading order), box
      (those drawn as boxes: not the tests of another file), tests ({subject: [its tests]}), inner (the links between its
-     boxes); an authored one also depth (read, skim, tool, or null) and why, from the overlay, for the review plan, and
+     boxes); and
      late (true when all its files are docs/config/i18n)}; by maps an id to its area and
      of a node id to its area's id; edges are the links between areas, {from, to, n, pairs: [[file, file]]}, without
      the tests' links. With vis ({id: 1}, the shown nodes) members and links are limited to those; which area a file
@@ -2116,8 +2125,7 @@ html.g-wsroot{overflow:hidden}
     function folded(n){return n.layer==='test'&&!!SUBJ[n.id];}
     function shown(id){return !vis||!!vis[id];}
     (Array.isArray(p.clusters)?p.clusters:[]).forEach(function(c,i){
-      if(c&&typeof c.id==='string'&&CLUSTER_ID.test(c.id)&&!defs[c.id])defs[c.id]={label:typeof c.label==='string'&&c.label.trim()?c.label:c.id,order:typeof c.order==='number'&&isFinite(c.order)?c.order:i+1,
-        depth:c.depth==='read'||c.depth==='skim'||c.depth==='tool'?c.depth:null,why:typeof c.why==='string'?c.why.trim():''};
+      if(c&&typeof c.id==='string'&&CLUSTER_ID.test(c.id)&&!defs[c.id])defs[c.id]={label:typeof c.label==='string'&&c.label.trim()?c.label:c.id,order:typeof c.order==='number'&&isFinite(c.order)?c.order:i+1};
     });
     nodes.forEach(function(n){
       if(folded(n))return;
@@ -2137,7 +2145,7 @@ html.g-wsroot{overflow:hidden}
       else if(id===':late'){c.kind='late';c.label=S.clusterLate;}
       else if(k==='x:'){c.kind='ext';c.label=prName(id.slice(2));c.order=prIdx(id.slice(2));c.first=-1;}
       else if(k==='d:'){c.kind='dir';c.label=id.length>2?id.slice(2)+'/':S.folderRoot;}
-      else{c.kind='auth';c.label=d.label;c.order=d.order;c.depth=d.depth;c.why=d.why;c.late=true;}
+      else{c.kind='auth';c.label=d.label;c.order=d.order;c.late=true;}
       return (by[id]=c);
     }
     var inBox=Object.create(null);
@@ -2707,7 +2715,10 @@ html.g-wsroot{overflow:hidden}
     var shY=placed?maxY+44:MP+24,W=MP*2+Math.max(C,Math.min(K,Math.max(rest.length,hubs.length)))*(MW+MG)-MG;
     rest.forEach(function(n,j){P[n.id]={x:MP+(j%K)*(MW+MG),y:shY+Math.floor(j/K)*(MH+MY),w:MW,h:MH};});
     var H=(rest.length?shY+Math.ceil(rest.length/K)*(MH+MY)-MY:maxY)+MP;
-    var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':S.graphAria+' '+prName(cur)},cv);MAP.svg=svg;
+    var bar=document.createElement('div'),vpEl=document.createElement('div');
+    bar.className='g-ovt';bar.title=S.zoomHint;vpEl.className='g-pzv';vpEl.setAttribute('tabindex','-1');
+    cv.appendChild(bar);cv.appendChild(vpEl);
+    var svg=el('svg',{width:W,height:H,viewBox:'0 0 '+W+' '+H,role:'group','aria-label':S.graphAria+' '+prName(cur)},vpEl);MAP.svg=svg;
     var defs=el('defs',{},svg);
     [['ar',''],['ar-dep',' mk-dep'],['ar-use',' mk-use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',class:'mk'+a[1]},m);});
     if(rest.length){el('line',{class:'shb',x1:MP,x2:W-MP,y1:shY-26,y2:shY-26},svg);el('text',{class:'shl',x:MP,y:shY-9},svg).textContent=S.shelf;}
@@ -2748,10 +2759,11 @@ html.g-wsroot{overflow:hidden}
       if(p.head)el('text',{class:'gl',x:0,y:-7},g).textContent=prName(n.pr);
       if(cft)cfMark(g);
       el('title',{},g).textContent=n.path+'\n'+(n.role||'')+(cft?'\n↯ '+cft:'');
-      function go(){if(ext)goto(n.id);else select(n.id,'map');}
+      function go(){if(MAP.drag)return;if(ext)goto(n.id);else select(n.id,'map');}
       g.addEventListener('click',go);
       g.addEventListener('keydown',function(ev){
         var k=ev.key,i=MAP.seq.indexOf(n.id),j;
+        if(ev.shiftKey&&/^Arrow/.test(k))return;
         if(k==='Enter'||k===' '){ev.preventDefault();go();return;}
         if(k==='ArrowDown'||k==='ArrowRight')j=i+1;else if(k==='ArrowUp'||k==='ArrowLeft')j=i-1;else if(k==='Home')j=0;else if(k==='End')j=MAP.seq.length-1;else return;
         ev.preventDefault();var to=MAP.seq[Math.max(0,Math.min(MAP.seq.length-1,j))];mapRove(to);MAP.nd[to].focus({preventScroll:true});mapTo(to);
@@ -2763,6 +2775,17 @@ html.g-wsroot{overflow:hidden}
     mapRove(sel&&MAP.nd[sel]?sel:MAP.seq[0]);
     if(showPath){var dd='';ordered().forEach(function(n){var p=P[n.id];dd+=(dd?' L':'M')+(p.x+p.w/2)+','+(p.y+p.h/2);});if(dd.indexOf('L')>0)el('path',{class:'rp',d:dd},pg);}
     if(TOUR)drawTour(function(id){return own(P,id);},pg,el('g',{},svg));
+    /* Zoom and pan: it opens at 1:1 from the top left, as the scrolled map did; the box is as tall as the drawing up to
+       most of the window (in the workspace's map column the stylesheet sizes it). */
+    var M=MAP;
+    M.drag=0;M.size={w:W,h:H};
+    M.pz=panZoom({box:vpEl,touch:'scroll',size:function(){return M.size;},drag:function(v){M.drag=v;},apply:function(t){svg.style.transform='translate('+t.x.toFixed(1)+'px,'+t.y.toFixed(1)+'px) scale('+t.z.toFixed(3)+')';}});
+    M.t=M.pz.t;M.pzv=vpEl;
+    if(!wsOn)vpEl.style.height=Math.round(Math.min(H,Math.max(260,window.innerHeight*0.68)))+'px';
+    M.pz.apply(true);
+    pzButtons(M.pz,bar);
+    var hint=document.createElement('span');hint.className='g-ovh';hint.textContent=S.zoomHint;bar.appendChild(hint);
+    M.pz.bind(vpEl);
   }
   /* The mark of a file resolved by hand in a merge, on its map box's top left corner (its title and name say which). */
   function cfMark(g){var m=el('g',{class:'cfm',transform:'translate(-7,-7)','aria-hidden':'true'},g);el('rect',{width:16,height:15,rx:4},m);el('text',{x:8,y:11.5,'text-anchor':'middle'},m).textContent='↯';}
@@ -2925,17 +2948,83 @@ html.g-wsroot{overflow:hidden}
   /* Where a file shows on the overview: its own box, else the box of the file it tests, else its closed area. */
   function ovBox(id){var L=MAP.L,c=ovArea(id);if(L.nodes[id])return L.nodes[id];if(SUBJ[id]&&L.nodes[SUBJ[id]])return L.nodes[SUBJ[id]];return c&&L.boxes[c]&&!L.boxes[c].open?L.boxes[c]:null;}
   function ovKey(id){var M=MAP,c=ovArea(id);if(!M||!M.ov||!id)return null;if(M.nd[id])return 'n:'+id;if(SUBJ[id]&&M.nd[SUBJ[id]])return 'n:'+SUBJ[id];return c&&M.foc['c:'+c]?'c:'+c:null;}
-  function ovApply(quiet){
-    var M=MAP,t=M.t;M.vp.setAttribute('transform','translate('+t.x.toFixed(1)+','+t.y.toFixed(1)+') scale('+t.z.toFixed(3)+')');
-    if(!quiet&&wsOn)wsOvZ[M.pr]=t.z;
-    if(quiet||wsOn)return;clearTimeout(ovTimer);
-    ovTimer=setTimeout(function(){OVZ[M.pr]={z:+t.z.toFixed(3),x:+t.x.toFixed(1),y:+t.y.toFixed(1)};save('mapz',JSON.stringify(OVZ));},250);
+  /* Pan and zoom for one drawing, shared by the area overview, the flat map, and the narrative's diagrams. The state t
+     ({z, x, y}: the drawing's scale and its top left corner in the box, in pixels) is changed in place, and o.apply(t,
+     quiet) draws it. o: box (the clipped element whose size is the view), size() (the drawing's width and height at
+     scale 1), apply, min/max (default ZMIN/ZMAX), fitMax (default 1), drag(on) (told when a drag or pinch starts and,
+     after the pointers are up, ends, so a click that ends a drag can be ignored), touch ("scroll": one finger scrolls
+     the page and only two fingers pinch, for drawings inside the page; the default draws with touch-action none).
+     bind(host) adds Ctrl+wheel (Cmd too), the keys + - 0 and Shift+arrows, pointer dragging (from 5 pixels on, so a
+     click stays a click), and the pinch. A plain wheel is left to the page. */
+  function panZoom(o){
+    var t={z:1,x:0,y:0},zmin=o.min||ZMIN,zmax=o.max||ZMAX,self={t:t};
+    function box(){var r=o.box.getBoundingClientRect();return {w:r.width||900,h:r.height||560};}
+    self.apply=function(quiet){o.apply(t,!!quiet);};
+    self.fit=function(quiet){var b=box(),s=o.size(),z=Math.max(zmin,Math.min(o.fitMax||1,(b.w-32)/s.w,(b.h-32)/s.h));t.z=z;t.x=Math.round((b.w-s.w*z)/2);t.y=16;self.apply(quiet);};
+    self.set=function(n,quiet){t.z=Math.max(zmin,Math.min(zmax,n.z));t.x=n.x;t.y=n.y;self.apply(quiet);};
+    self.zoom=function(f,cx,cy){
+      if(cx==null){var b=box();cx=b.w/2;cy=b.h/2;}
+      var z=Math.max(zmin,Math.min(zmax,t.z*f));t.x=cx-(cx-t.x)*z/t.z;t.y=cy-(cy-t.y)*z/t.z;t.z=z;self.apply();
+    };
+    /* Panning keeps at least 60 pixels of the drawing in view. */
+    self.clamp=function(){var b=box(),s=o.size(),m=60;t.x=Math.min(b.w-m,Math.max(m-s.w*t.z,t.x));t.y=Math.min(b.h-m,Math.max(m-s.h*t.z,t.y));};
+    self.pan=function(dx,dy){t.x+=dx;t.y+=dy;self.clamp();self.apply();};
+    self.bind=function(host){
+      var scroll=o.touch==='scroll';
+      host.addEventListener('wheel',function(ev){
+        if(!ev.ctrlKey&&!ev.metaKey)return;ev.preventDefault();
+        var r=o.box.getBoundingClientRect(),dy=Math.max(-30,Math.min(30,ev.deltaMode?ev.deltaY*16:ev.deltaY));self.zoom(Math.exp(-dy*0.01),ev.clientX-r.left,ev.clientY-r.top);
+      },{passive:false});
+      host.addEventListener('keydown',function(ev){
+        var k=ev.key,s=80;
+        if(k==='+'||k==='='){ev.preventDefault();self.zoom(1.25);}
+        else if(k==='-'||k==='_'){ev.preventDefault();self.zoom(0.8);}
+        else if(k==='0'){ev.preventDefault();self.fit();}
+        else if(ev.shiftKey&&/^Arrow(Up|Down|Left|Right)$/.test(k)){ev.preventDefault();self.pan(k==='ArrowLeft'?s:k==='ArrowRight'?-s:0,k==='ArrowUp'?s:k==='ArrowDown'?-s:0);}
+      });
+      var P=Object.create(null),drag=null,pinch=null;
+      function pts(){return Object.keys(P).map(function(k){return P[k];});}
+      function told(on){if(o.drag)o.drag(on?1:0);}
+      host.addEventListener('pointerdown',function(ev){
+        if(ev.pointerType==='mouse'&&ev.button!==0||scroll&&ev.pointerType==='touch')return;
+        P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
+        if(q.length===1)drag={x:ev.clientX,y:ev.clientY,tx:t.x,ty:t.y,on:false};
+        else if(q.length===2){drag=null;pinch={d:Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1,z:t.z};}
+      });
+      host.addEventListener('pointermove',function(ev){
+        if(!P[ev.pointerId])return;P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
+        if(pinch&&q.length===2){var r=o.box.getBoundingClientRect(),d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1;told(1);self.zoom(pinch.z*d/pinch.d/t.z,(q[0].x+q[1].x)/2-r.left,(q[0].y+q[1].y)/2-r.top);return;}
+        if(!drag)return;var dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
+        if(!drag.on){if(Math.abs(dx)+Math.abs(dy)<5)return;drag.on=true;told(1);host.classList.add('drag');try{host.setPointerCapture(ev.pointerId);}catch(e){}}
+        t.x=drag.tx+dx;t.y=drag.ty+dy;self.clamp();self.apply();
+      });
+      function end(ev){delete P[ev.pointerId];if(!pts().length){drag=null;pinch=null;host.classList.remove('drag');setTimeout(function(){told(0);},0);}}
+      host.addEventListener('pointerup',end);host.addEventListener('pointercancel',end);
+      if(scroll){
+        var T0=null;
+        function td(a){return Math.hypot(a[0].clientX-a[1].clientX,a[0].clientY-a[1].clientY)||1;}
+        host.addEventListener('touchstart',function(ev){T0=ev.touches.length===2?{d:td(ev.touches),z:t.z}:null;},{passive:true});
+        host.addEventListener('touchmove',function(ev){
+          if(!T0||ev.touches.length!==2)return;ev.preventDefault();
+          var r=o.box.getBoundingClientRect(),a=ev.touches;told(1);self.zoom(T0.z*td(a)/T0.d/t.z,(a[0].clientX+a[1].clientX)/2-r.left,(a[0].clientY+a[1].clientY)/2-r.top);
+        },{passive:false});
+        host.addEventListener('touchend',function(ev){if(ev.touches.length<2){T0=null;setTimeout(function(){told(0);},0);}});
+      }
+    };
+    return self;
   }
-  function ovFit(quiet){var M=MAP,r=M.svg.getBoundingClientRect(),w=r.width||900,h=r.height||560,z=Math.max(ZMIN,Math.min(1,(w-32)/M.L.W,(h-32)/M.L.H));M.t={z:z,x:Math.round((w-M.L.W*z)/2),y:16};ovApply(quiet);}
-  function ovZoom(f,cx,cy){var M=MAP,t=M.t;if(cx==null){var r=M.svg.getBoundingClientRect();cx=r.width/2;cy=r.height/2;}var z=Math.max(ZMIN,Math.min(ZMAX,t.z*f));t.x=cx-(cx-t.x)*z/t.z;t.y=cy-(cy-t.y)*z/t.z;t.z=z;ovApply();}
-  /* Panning keeps at least 60 pixels of the drawing in view. */
-  function ovClamp(){var M=MAP,t=M.t,r=M.svg.getBoundingClientRect(),m=60;t.x=Math.min(r.width-m,Math.max(m-M.L.W*t.z,t.x));t.y=Math.min(r.height-m,Math.max(m-M.L.H*t.z,t.y));}
-  function ovPan(dx,dy){MAP.t.x+=dx;MAP.t.y+=dy;ovClamp();ovApply();}
+  /* The zoom buttons (out, in, fit) as a group appended to parent. */
+  function pzButtons(pz,parent,cls){
+    var g=document.createElement('span');g.className='dv-mode'+(cls?' '+cls:'');g.setAttribute('role','group');g.setAttribute('aria-label',S.zoomLabel);
+    g.innerHTML=[['out','−',S.zoomOut],['in','+',S.zoomIn],['fit',S.zoomFit,S.zoomFit]].map(function(z){return '<button type="button" data-z="'+z[0]+'" title="'+esc(z[2])+'" aria-label="'+esc(z[2])+'">'+esc(z[1])+'</button>';}).join('');
+    g.addEventListener('click',function(ev){var b=ev.target.closest('button');if(!b)return;if(b.dataset.z==='fit')pz.fit();else pz.zoom(b.dataset.z==='in'?1.25:0.8);});
+    parent.appendChild(g);return g;
+  }
+  function ovApply(quiet){MAP.pz.apply(quiet);}
+  function ovFit(quiet){MAP.pz.fit(quiet);}
+  function ovZoom(f,cx,cy){MAP.pz.zoom(f,cx,cy);}
+  function ovClamp(){MAP.pz.clamp();}
+  function ovPan(dx,dy){MAP.pz.pan(dx,dy);}
   /* Brings a box into view (centred) when it is outside the visible part of the overview. */
   function ovTo(k){
     var M=MAP,e=M&&M.ov&&M.foc[k];if(!e)return;
@@ -3044,8 +3133,12 @@ html.g-wsroot{overflow:hidden}
       ovGlide(Math.round(x),Math.round(y),glide);return;
     }
     var g=MAP.nd[id];if(!g)return;
-    var q=g.getBoundingClientRect(),c=cv.getBoundingClientRect();
-    cv.scrollTo({left:cv.scrollLeft+(q.left-c.left)-c.width/2+q.width/2,top:cv.scrollTop+(q.top-c.top)-c.height/2+q.height/2,behavior:glide?smooth():'auto'});
+    flatCentre(g);
+  }
+  /* Moves the flat map so a node is in the middle of its box. */
+  function flatCentre(g){
+    var q=g.getBoundingClientRect(),c=MAP.pzv.getBoundingClientRect();
+    MAP.t.x+=c.left+c.width/2-(q.left+q.width/2);MAP.t.y+=c.top+c.height/2-(q.top+q.height/2);MAP.pz.clamp();MAP.pz.apply(true);
   }
   function ovAll(open){var X=Object.create(null);if(open)CG.list.forEach(function(c){X[c.id]=1;});ovSaveOpen(X);renderOverview();ovFit();say(open?S.expandAll:S.collapseAll);}
   function ovHopBtns(){[].forEach.call(cv.querySelectorAll('[data-h]'),function(b){b.setAttribute('aria-pressed',b.dataset.h===hopN?'true':'false');});}
@@ -3093,6 +3186,12 @@ html.g-wsroot{overflow:hidden}
     [['ov-ar',''],['ov-ar-dep',' mk-dep'],['ov-ar-use',' mk-use']].forEach(function(a){var m=el('marker',{id:a[0],viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:9,markerHeight:9,markerUnits:'userSpaceOnUse',orient:'auto-start-reverse'},defs);el('path',{d:'M0,0 L10,5 L0,10 z',class:'mk'+a[1]},m);});
     var vp=el('g',{class:'vp'},svg),ag=el('g',{},vp),cg=el('g',{},vp),ig=el('g',{},vp),ng=el('g',{},vp),sg=el('g',{},vp),pg=el('g',{},vp),adj=Object.create(null);
     var M=MAP={ov:1,pr:cur,svg:svg,vp:vp,L:L,nd:{},cl:Object.create(null),foc:Object.create(null),seq:[],ed:[],ag:[],sg:sg,pg:pg,inE:Object.create(null),t:null,adj:adj,drag:0};
+    M.pz=panZoom({box:svg,size:function(){return {w:L.W,h:L.H};},drag:function(v){M.drag=v;},apply:function(t,quiet){
+      M.vp.setAttribute('transform','translate('+t.x.toFixed(1)+','+t.y.toFixed(1)+') scale('+t.z.toFixed(3)+')');
+      if(!quiet&&wsOn)wsOvZ[M.pr]=t.z;
+      if(quiet||wsOn)return;clearTimeout(ovTimer);
+      ovTimer=setTimeout(function(){OVZ[M.pr]={z:+t.z.toFixed(3),x:+t.x.toFixed(1),y:+t.y.toFixed(1)};save('mapz',JSON.stringify(OVZ));},250);
+    }});M.t=M.pz.t;
     M.rp=function(x){var n=all[x];return n&&n.layer==='test'&&SUBJ[x]?SUBJ[x]:x;};
     G.edges.forEach(function(e){var a=M.rp(e.from),b=M.rp(e.to);if(a===b)return;(adj[a]=adj[a]||[]).push(b);(adj[b]=adj[b]||[]).push(a);});
     L.links.forEach(function(x){
@@ -3121,7 +3220,7 @@ html.g-wsroot{overflow:hidden}
     /* In the workspace the overview opens fitted, but no smaller than WSZ, centred on the selected file (the map column
        always centres it); its zoom there is kept for the page's session only (wsOvZ), its pan not at all. */
     var t=keep||(wsOn?null:ovView());
-    if(t){M.t={z:Math.max(ZMIN,Math.min(ZMAX,t.z)),x:t.x,y:t.y};ovApply(true);}else ovFit(true);
+    if(t)M.pz.set(t,true);else ovFit(true);
     var wz=!t&&wsOn?own(wsOvZ,cur):null;
     if(!t&&wsOn&&(wz||M.t.z<WSZ||wsLmap())){
       var r=svg.getBoundingClientRect(),b=(sel&&byId[sel]&&ovBox(sel))||L.boxes[L.seq[0]];M.t.z=wz||Math.max(M.t.z,WSZ);
@@ -3135,35 +3234,7 @@ html.g-wsroot{overflow:hidden}
       else if(b.dataset.h){hopN=b.dataset.h;save('hops',hopN);ovHopBtns();paintOv();}
     });
     ovHopBtns();
-    svg.addEventListener('wheel',function(ev){
-      if(!ev.ctrlKey&&!ev.metaKey)return;ev.preventDefault();
-      var r=svg.getBoundingClientRect(),dy=Math.max(-30,Math.min(30,ev.deltaMode?ev.deltaY*16:ev.deltaY));ovZoom(Math.exp(-dy*0.01),ev.clientX-r.left,ev.clientY-r.top);
-    },{passive:false});
-    svg.addEventListener('keydown',function(ev){
-      var k=ev.key,s=80;
-      if(k==='+'||k==='='){ev.preventDefault();ovZoom(1.25);}
-      else if(k==='-'||k==='_'){ev.preventDefault();ovZoom(0.8);}
-      else if(k==='0'){ev.preventDefault();ovFit();}
-      else if(ev.shiftKey&&/^Arrow(Up|Down|Left|Right)$/.test(k)){ev.preventDefault();ovPan(k==='ArrowLeft'?s:k==='ArrowRight'?-s:0,k==='ArrowUp'?s:k==='ArrowDown'?-s:0);}
-    });
-    /* Dragging pans (from 5 pixels on, so a click stays a click) and two pointers pinch to zoom. */
-    var P=Object.create(null),drag=null,pinch=null;
-    function pts(){return Object.keys(P).map(function(k){return P[k];});}
-    svg.addEventListener('pointerdown',function(ev){
-      if(ev.pointerType==='mouse'&&ev.button!==0)return;
-      P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
-      if(q.length===1)drag={x:ev.clientX,y:ev.clientY,tx:M.t.x,ty:M.t.y,on:false};
-      else if(q.length===2){drag=null;pinch={d:Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1,z:M.t.z};}
-    });
-    svg.addEventListener('pointermove',function(ev){
-      if(!P[ev.pointerId])return;P[ev.pointerId]={x:ev.clientX,y:ev.clientY};var q=pts();
-      if(pinch&&q.length===2){var r=svg.getBoundingClientRect(),d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y)||1;M.drag=1;ovZoom(pinch.z*d/pinch.d/M.t.z,(q[0].x+q[1].x)/2-r.left,(q[0].y+q[1].y)/2-r.top);return;}
-      if(!drag)return;var dx=ev.clientX-drag.x,dy=ev.clientY-drag.y;
-      if(!drag.on){if(Math.abs(dx)+Math.abs(dy)<5)return;drag.on=true;M.drag=1;svg.classList.add('drag');try{svg.setPointerCapture(ev.pointerId);}catch(e){}}
-      M.t.x=drag.tx+dx;M.t.y=drag.ty+dy;ovClamp();ovApply();
-    });
-    function end(ev){delete P[ev.pointerId];if(!pts().length){drag=null;pinch=null;svg.classList.remove('drag');setTimeout(function(){M.drag=0;},0);}}
-    svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
+    M.pz.bind(svg);
     mapRove(ovKey(sel)||M.seq[0]);paintOv();if(showPath)ovPath();
     if(TOUR)drawTour(ovBox,ig,M.pg);
   }
@@ -3192,8 +3263,8 @@ html.g-wsroot{overflow:hidden}
     if(wsLmap()){mapCentre(id,true);return;}
     if(MAP&&MAP.ov){ovTo(ovKey(id));return;}
     if(!MAP||!MAP.nd[id])return;
-    var r=MAP.nd[id].getBoundingClientRect(),c=cv.getBoundingClientRect();
-    if(r.left<c.left||r.right>c.right||r.top<c.top||r.bottom>c.bottom)cv.scrollTo({left:cv.scrollLeft+(r.left-c.left)-c.width/2+r.width/2,top:cv.scrollTop+(r.top-c.top)-c.height/2+r.height/2,behavior:smooth()});
+    var r=MAP.nd[id].getBoundingClientRect(),c=MAP.pzv.getBoundingClientRect();
+    if(r.left<c.left||r.right>c.right||r.top<c.top||r.bottom>c.bottom)flatCentre(MAP.nd[id]);
   }
   window.__gsel=function(id){select(id,'note');};
 
@@ -3330,107 +3401,20 @@ html.g-wsroot{overflow:hidden}
   }
 
   var gEl=document.getElementById('graph');
-  /* Review plan, per PR tab above the toolbar (open or folded per report under "plan"): one row per area of the PR
-     (clusterGraph over the whole PR; the areas of earlier PRs it uses are left out) in the order of the sections of "Group
-     by area" (shared dependencies, the authored areas, the folders, the late ones), with its files, changed lines, depth, an estimate of the time, and its files combined by hand in a merge (a "merged" resolution; one that took one side does not count).
-     Depth is the overlay's (`depth` on the area: read, skim, or tool, with its `why` under it), else "skim" when every
-     file of the area is a test, i18n, docs, config, or generated (bucketOf), else "read". Time: each file's changed lines
-     at its bucket's rate (PLAN_RATE, changed lines an hour when read closely: logic additions 400 and deletions 1500,
-     tests 1500, docs 2000, i18n 3000, config 1000, generated not counted), PLAN_SKIM times faster to skim, none for
-     tools; at least 1 minute, above 5 rounded up to the next 5, from PLAN_HOURS minutes on shown in hours (halves below
-     10). The cell's mark has the colour of the bucket that takes most of the time; its title splits the time by bucket.
-     A row's click selects the area's first step and scrolls its section (shared dependencies, or the area's own with
-     "Group by area") to the top of the list. Above the table one bar splits the PR's changed lines by kind, with a
-     legend that gives the numbers. */
-  /* The review plan's reading rates, the one place they are set: changed lines an hour per bucket for an area read
-     closely ("logic" is its added lines, "logicDel" its removed ones; 0: not counted), PLAN_SKIM times faster to skim,
-     and from PLAN_HOURS minutes on the time shows in hours. The minutes column's title is built from them. */
-  var PLAN_RATE={logic:400,logicDel:1500,test:1500,docs:2000,i18n:3000,config:1000,generated:0},PLAN_SKIM=4,PLAN_HOURS=90;
-  var LIGHTB={test:1,i18n:1,docs:1,config:1,generated:1};
-  var planEl=document.getElementById('g-plan'),planB=document.getElementById('g-planb'),planSum=document.getElementById('g-plsum'),planRows=[];
-  planEl.open=load('plan','1')!=='0';
-  planEl.addEventListener('toggle',function(){save('plan',planEl.open?'1':'0');});
-  /* Minutes per bucket of one area's files ({bucket: minutes, unrounded}) at its depth. */
-  function planBy(depth,ids){
-    var by=Object.create(null);if(depth==='tool')return by;
-    ids.forEach(function(id){
-      var n=all[id],b=bucketOf(n),a=cnt(n.added),d=cnt(n.removed),h=0;
-      if(b==='logic')h=(PLAN_RATE.logic?a/PLAN_RATE.logic:0)+(PLAN_RATE.logicDel?d/PLAN_RATE.logicDel:0);else if(PLAN_RATE[b])h=(a+d)/PLAN_RATE[b];
-      if(h>0)by[b]=(by[b]||0)+h*60/(depth==='skim'?PLAN_SKIM:1);
-    });
-    return by;
+  /* The note above the toolbar when the conflict marks are hidden by default (cfStats: more than 10 files combined by hand
+     and more than a quarter of the PR's changed files). */
+  var cfNote=document.getElementById('g-cfn');
+  function paintCfNote(){
+    var show=cfNow.noisy&&!cfShow;cfNote.hidden=!show;
+    cfNote.textContent=show?fmt(plw(S.cfNoise,cfNow.m),{n:cfNow.m}):'';
   }
-  /* An area's minutes from planBy(): none when nothing is timed, else at least 1, above 5 rounded up to the next 5. */
-  function planMin(by){var m=0;Object.keys(by).forEach(function(b){m+=by[b];});if(!(m>0))return 0;m=Math.ceil(m-1e-9);if(m<1)m=1;return m>5?Math.ceil(m/5)*5:m;}
-  /* A time for the plan: "35 min", or from PLAN_HOURS minutes on "1.5 h" (halves below 10 hours, whole hours above). */
-  var numFmt=null;try{numFmt=new Intl.NumberFormat(CFG.lang||'en');}catch(e){}
-  function planTime(m){
-    if(m<PLAN_HOURS)return fmt(S.timeMin,{n:m});
-    var h=m/60;h=h<10?Math.round(h*2)/2:Math.round(h);
-    return fmt(S.timeHours,{n:numFmt?numFmt.format(h):String(h)});
-  }
-  function planOf(p){
-    var rows=[];
-    clusterGraph(p).list.forEach(function(c){
-      if(c.kind==='ext')return;
-      var ids=c.ids.filter(function(id){return all[id]&&all[id].pr===p.key&&!all[id].unchanged;}),a=0,d=0,cf=0,light=true;if(!ids.length)return;
-      ids.forEach(function(id){var n=all[id];a+=cnt(n.added);d+=cnt(n.removed);if(mergedOf(n).length)cf++;if(!LIGHTB[bucketOf(n)])light=false;});
-      var dep=c.depth||(light?'skim':'read'),by=planBy(dep,ids),top=null;
-      Object.keys(by).forEach(function(b){if(top===null||by[b]>by[top])top=b;});
-      rows.push({c:c,ids:ids,a:a,d:d,cf:cf,depth:dep,auto:!c.depth,why:c.why||'',by:by,top:top,min:planMin(by)});
-    });
-    return rows;
-  }
-  function paintPlan(){
-    var p=G.p,rows=planRows=planOf(p),T={n:0,a:0,d:0,cf:0,min:0},by={},total=0;
-    BUCKETS.forEach(function(b){by[b]=0;});
-    p.nodes.forEach(function(x){var n=all[x.id];by[bucketOf(n)]+=cnt(n.added)+cnt(n.removed);});
-    BUCKETS.forEach(function(b){total+=by[b];});
-    rows.forEach(function(r){T.n+=r.ids.length;T.a+=r.a;T.d+=r.d;T.cf+=r.cf;T.min+=r.min;});
-    planSum.textContent=fmt(S.planSum,{time:planTime(T.min),n:T.n,files:filesWord(T.n),a:T.a,d:T.d});
-    function bn(b){return own(S.buckets,b)||b;}
-    function tip(b){return fmt(S.kindsItem,{kind:bn(b),n:by[b],pct:total?Math.round(by[b]*100/total):0});}
-    var kinds='<div class="g-kinds" role="group" aria-label="'+esc(S.kindsTitle)+'"><div class="g-kbar" aria-hidden="true">'
-      +BUCKETS.filter(function(b){return by[b];}).map(function(b){return '<span class="b-'+b+'" data-b="'+b+'" style="flex-grow:'+by[b]+'" title="'+esc(tip(b))+'"></span>';}).join('')+'</div>'
-      +'<ul class="g-kleg">'+BUCKETS.map(function(b){return '<li class="b-'+b+(by[b]?'':' z')+'" data-b="'+b+'" title="'+esc(tip(b))+'"><i aria-hidden="true"></i>'+esc(bn(b))+' <b>'+by[b]+'</b></li>';}).join('')+'</ul></div>';
-    function depthCell(r){
-      var t=r.depth==='read'?S.depthReadTitle:r.depth==='skim'?S.depthSkimTitle:S.depthToolTitle,w=r.depth==='read'?S.depthRead:r.depth==='skim'?S.depthSkim:S.depthTool;
-      return '<span class="g-dp d-'+r.depth+(r.auto?' auto':'')+'" title="'+esc(t+(r.auto?' · '+S.depthAutoTitle:''))+'">'+esc(w)+'</span>'+(r.why?'<span class="g-pwhy">'+esc(r.why)+'</span>':'');
-    }
-    function lines(a,d){return '<span class="st"><span class="a">+'+a+'</span> <span class="r">−'+d+'</span></span>';}
-    /* The time cell: the time, after a mark in the colour of the bucket that takes most of it; the title splits it. */
-    function timeCell(r){
-      if(!r.min)return '<td class="num">'+esc(planTime(0))+'</td>';
-      var parts=BUCKETS.filter(function(b){return r.by[b]>0;}).sort(function(x,y){return r.by[y]-r.by[x];}).map(function(b){return fmt(S.planTimeItem,{kind:bn(b),time:planTime(Math.max(1,Math.round(r.by[b])))});});
-      var t=fmt(S.planTimeTitle,{time:planTime(r.min),list:parts.join(', ')});
-      return '<td class="num g-ptm" title="'+esc(t)+'"><i class="b-'+r.top+'" aria-hidden="true"></i>'+esc(planTime(r.min))+'</td>';
-    }
-    var rateTitle=fmt(S.planMinTitle,{logic:PLAN_RATE.logic,logicDel:PLAN_RATE.logicDel,test:PLAN_RATE.test,docs:PLAN_RATE.docs,i18n:PLAN_RATE.i18n,config:PLAN_RATE.config,skim:PLAN_SKIM,hours:PLAN_HOURS});
-    var head='<thead><tr><th scope="col">'+esc(S.planArea)+'</th><th scope="col" class="num">'+esc(S.planFiles)+'</th><th scope="col" class="num">'+esc(S.planLines)+'</th><th scope="col">'+esc(S.planDepth)
-      +'</th><th scope="col" class="num" title="'+esc(rateTitle)+'">'+esc(S.planMin)+'</th><th scope="col" class="num" title="'+esc(S.planConfTitle)+'">'+esc(S.planConf)+'</th></tr></thead>';
-    var body=rows.map(function(r,i){
-      return '<tr data-i="'+i+'"><th scope="row"><button type="button" class="g-pa" title="'+esc(fmt(S.planGo,{name:r.c.label}))+'">'+esc((r.c.kind==='shared'?'◆ ':'')+r.c.label)+'</button></th><td class="num">'+r.ids.length
-        +'</td><td class="num">'+lines(r.a,r.d)+'</td><td>'+depthCell(r)+'</td>'+timeCell(r)+'<td class="num">'+r.cf+'</td></tr>';
-    }).join('');
-    var foot='<tfoot><tr><th scope="row">'+esc(S.planTotal)+'</th><td class="num">'+T.n+'</td><td class="num">'+lines(T.a,T.d)+'</td><td></td><td class="num">'+esc(planTime(T.min))+'</td><td class="num">'+T.cf+'</td></tr></tfoot>';
-    var cfn=cfNow.noisy&&!cfShow?'<p class="g-cfn">'+esc(fmt(plw(S.cfNoise,cfNow.m),{n:cfNow.m}))+'</p>':'';
-    planB.innerHTML=cfn+kinds+(rows.length?'<div class="tbl"><table class="g-pt">'+head+'<tbody>'+body+'</tbody>'+foot+'</table></div>':'');
-  }
-  function planGo(r){
-    if(!r)return;
-    var id=r.ids.find(function(x){return byId[x]&&!byId[x].ext;});
-    if(id)select(id,'list');else goto(r.ids[0]);
-    var k=r.c.kind==='shared'?'hub':'a:'+r.c.id,s=secEl[k];
-    if(s){if(isShut(k))setShut(k,false);obox.scrollTop=Math.max(0,s.li.offsetTop-6);}
-  }
-  planB.addEventListener('click',function(ev){var tr=ev.target.closest&&ev.target.closest('tbody tr[data-i]');if(tr)planGo(planRows[+tr.dataset.i]);});
 
   /* Code references in the narrative: a <code> outside the graph whose whole text is path:line or path:start-end
      becomes a button that opens that file's step and scrolls its diff to the line, flashing it (a line outside the diff's
      hunks opens the file and says so). The path is a changed file's whole path, or its tail after a "/" (a bare file name)
      when that names exactly one changed file; a ":12" or ":12-14" code right after a reference continues it. Among the
      PRs that change the file, the risk item's PR (its .who tag, or a part of it) goes first, else the last in the stack.
-     Each risk (.risk-list > li) gets "Add as note": an issue note with the item's text, on the lines of its reference
+     Each decision card (.decisions > li; also .risk-list > li of an older report) gets "Add as note": an issue note with the item's text, on the lines of its reference
      when it has exactly one (on the reference's file when those lines are outside the diff), else on the item's PR (the
      one its references share, else its .who tag's, else the open tab's); an item already noted is not added twice. */
   var PATHS=Object.create(null),REFS=[],REF_RE=/^(.+):(\d+)(?:\s*[-–]\s*(\d+))?$/,CONT_RE=/^:(\d+)(?:\s*[-–]\s*(\d+))?$/;
@@ -3456,17 +3440,55 @@ html.g-wsroot{overflow:hidden}
   }
   [].forEach.call(document.querySelectorAll('main code'),function(c){
     if(gEl.contains(c)||c.closest('pre,a,button,summary,.g-ref'))return;
-    var t=c.textContent.trim(),m=REF_RE.exec(t),path=null,a=0,b=0,pv=c.previousElementSibling;
-    if(m&&t[0]!==':'){path=refPath(m[1]);a=+m[2];b=m[3]?+m[3]:a;}
+    var t=c.textContent.trim(),m=REF_RE.exec(t),path=null,a=0,b=0,pv=c.previousElementSibling,named=false;
+    if(m&&t[0]!==':'){path=refPath(m[1]);a=+m[2];b=m[3]?+m[3]:a;named=true;}
     else if((m=CONT_RE.exec(t))&&pv&&pv.classList.contains('g-ref')){var r0=REFS.find(function(x){return x.el===pv;});path=r0&&r0.path;a=+m[1];b=m[2]?+m[2]:a;}
     if(!path||!(a>0)||b<a)return;
-    var bt=document.createElement('button'),r={el:bt,path:path,a:a,b:b,li:c.closest('.risk-list>li')};
+    var bt=document.createElement('button'),r={el:bt,path:path,a:a,b:b,li:c.closest('.decisions>li,.risk-list>li')};
     bt.type='button';bt.className='g-ref';bt.title=fmt(S.refGo,{ref:path+':'+(a===b?a:a+'-'+b)});bt.setAttribute('aria-label',bt.title);
+    /* A reference shows as its short name and line (session.php:182); the full path is on hover and in the label. */
+    if(named&&path.indexOf('/')>0){c.setAttribute('data-full',t);c.textContent=path.slice(path.lastIndexOf('/')+1)+':'+(a===b?a:a+'-'+b);}
+    c.title=path;
     c.parentNode.replaceChild(bt,c);bt.appendChild(c);REFS.push(r);
     bt.addEventListener('click',function(){refGo(r);});
   });
-  /* A risk's text for its note: without its PR tag (the note's place names the PR) and its own button. */
-  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who'),function(b){b.parentNode.removeChild(b);});return x.textContent.replace(/\s+/g,' ').trim();}
+  /* Diagrams in the narrative (<pre class="mermaid"> in a .diagram): once the diagram is drawn (by this page or by the
+     host, whenever that happens) its box gets zoom and pan. The box is as tall as the diagram at the width it opens at,
+     up to three quarters of the window; "Fit" shows all of it. The page scrolls normally over it (only Ctrl+wheel zooms). */
+  [].forEach.call(document.querySelectorAll('main .diagram'),function(d){
+    var pre=d.querySelector('pre.mermaid');if(!pre||gEl.contains(d))return;
+    var nat=null,pz=null,touched=false;
+    function svgOf(){return pre.querySelector('svg');}
+    function measure(s){
+      var vb=s.viewBox&&s.viewBox.baseVal,w=vb&&vb.width,h=vb&&vb.height;
+      if(!(w>0&&h>0)){w=parseFloat(s.getAttribute('width'))||s.getBoundingClientRect().width||300;h=parseFloat(s.getAttribute('height'))||s.getBoundingClientRect().height||150;}
+      return {w:w,h:h};
+    }
+    function home(){
+      var cw=d.clientWidth||d.parentNode.clientWidth||720,z=Math.min(1,(cw-32)/nat.w);if(!(z>0))z=1;
+      d.style.height=Math.round(Math.max(160,Math.min(nat.h*z+32,window.innerHeight*0.75)))+'px';
+      pz.t.z=z;pz.t.x=Math.round((cw-nat.w*z)/2);pz.t.y=16;pz.apply(true);
+    }
+    function ready(){
+      var s=svgOf();if(!s)return;
+      var n=measure(s);s.style.maxWidth='none';s.style.width=n.w+'px';s.style.height=n.h+'px';pre.style.width=n.w+'px';pre.style.height=n.h+'px';
+      var first=!pz,same=nat&&nat.w===n.w&&nat.h===n.h;nat=n;
+      if(first){
+        d.classList.add('pz');d.tabIndex=0;d.setAttribute('role','group');d.setAttribute('aria-label',S.diagramAria);
+        pz=panZoom({box:d,touch:'scroll',min:0.2,max:4,size:function(){return nat;},apply:function(t){pre.style.transform='translate('+t.x.toFixed(1)+'px,'+t.y.toFixed(1)+'px) scale('+t.z.toFixed(3)+')';}});
+        var bar=document.createElement('span');bar.className='pz-bar';bar.title=S.zoomHint;d.appendChild(bar);
+        var g=pzButtons(pz,bar);g.addEventListener('click',function(){touched=true;});
+        pz.bind(d);d.addEventListener('wheel',function(ev){if(ev.ctrlKey||ev.metaKey)touched=true;},{passive:true});
+        d.addEventListener('pointerdown',function(){touched=true;});
+        window.addEventListener('resize',function(){if(!touched)home();});
+        home();
+      }else if(!same&&!touched)home();
+    }
+    if(window.MutationObserver)new MutationObserver(ready).observe(pre,{childList:true,subtree:true});
+    ready();
+  });
+  /* A risk's text for its note: without its PR tag (the note's place names the PR) and its own button, references with their full path. */
+  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who'),function(b){b.parentNode.removeChild(b);});[].forEach.call(x.querySelectorAll('code[data-full]'),function(c){c.textContent=c.getAttribute('data-full');});return x.textContent.replace(/\s+/g,' ').trim();}
   function riskNote(li,btn){
     var text=itemText(li),who=whoOf(li),seen={},rs=[],n=null;
     REFS.forEach(function(r){var k=r.path+':'+r.a+'-'+r.b;if(r.li===li&&!seen[k]){seen[k]=1;rs.push(r);}});
@@ -3482,7 +3504,7 @@ html.g-wsroot{overflow:hidden}
     var msg=fmt(S.riskAdded,{kind:KIND.issue.l,loc:loc});status(msg);say(msg);
     btn.textContent=S.riskAddedBtn;setTimeout(function(){btn.textContent=S.riskAdd;},2000);
   }
-  [].forEach.call(document.querySelectorAll('main .risk-list>li'),function(li){
+  [].forEach.call(document.querySelectorAll('main .decisions>li,main .risk-list>li'),function(li){
     if(gEl.contains(li))return;
     var b=document.createElement('button');b.type='button';b.className='nt-b lnk g-radd';b.textContent=S.riskAdd;
     b.setAttribute('aria-label',S.riskAdd+': '+trunc(itemText(li),90));
@@ -3633,7 +3655,7 @@ html.g-wsroot{overflow:hidden}
      column it opens centred on the selected file, with that file's area open. */
   function mapOn(){return wsOn?wsLeft==='map'||wsPane==='map'&&!wsRc:view==='map';}
   function drawCanvas(){
-    var on=mapOn(),ov=on&&coreCount(G.p)>OVN;cv.classList.toggle('ov',ov);document.getElementById('g-pathl').hidden=!on;
+    var on=mapOn(),ov=on&&coreCount(G.p)>OVN;cv.classList.toggle('ov',ov);cv.classList.toggle('flat',on&&!ov);document.getElementById('g-pathl').hidden=!on;
     cv.hidden=!on;MAP=null;
     if(on){if(ov){if(wsLmap())ovAutoFor(sel);renderOverview();}else renderMap();if(wsLmap()&&sel&&byId[sel])mapCentre(sel,false);}else cv.textContent='';
   }
@@ -3661,7 +3683,7 @@ html.g-wsroot{overflow:hidden}
     cfNow=cfStats(G.p);cfShow=cfPref==='1'||cfPref!=='0'&&!cfNow.noisy;cfBox.checked=cfShow;cfLbl.hidden=!cfNow.m;
     G.nodes.concat(G.ext).forEach(function(n){byId[n.id]=n;OUT[n.id]=[];INC[n.id]=[];});
     G.edges.forEach(function(e){OUT[e.from].push(e.to);INC[e.to].push(e.from);});
-    columns();CG=clusterGraph(G.p,byId);renderList();paintPlan();
+    columns();CG=clusterGraph(G.p,byId);renderList();paintCfNote();
     drawCanvas();
     select(sel);
   }

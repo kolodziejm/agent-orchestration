@@ -15,17 +15,15 @@ Checks, each an error unless noted:
   * external <script src>/<link href> hosts are on the allowlist (default cdnjs)
   * no unfilled `{{…}}` template placeholder
   * graph/diff consistency: unique node ids, edges to known nodes, integer order,
-    a known `bucket` (logic, test, i18n, docs, config, generated) and a non-empty
-    `conflict` list where given, of {"sha", "kind": merged|picked, "lines": n >= 0}
+    a non-empty `conflict` list where given, of {"sha", "kind": merged|picked, "lines": n >= 0}
     entries (or bare SHAs, as older builds wrote), diff entries only for known nodes, string fingerprints,
     a whole-PR diff (`whole`) with a string diff; a node without a diff is a warning
+  * a PR's (or split PR's) `summary`, when present, non-empty text
   * parts of a PR split by its commits (`parents`, `chunk`): contiguous, numbered
     1..n, each starting where the one before ends, keys ending in a letter
-  * areas (`clusters` per PR, node `cluster`): well-formed, unique ids, a `depth` of
-    read, skim, or tool and a non-empty `why` where given, and every node's cluster
+  * areas (`clusters` per PR, node `cluster`): well-formed, unique ids, and every node's cluster
     listed by its PR; fewer than 4 or more than 15 areas, an area with no node of its
-    own (only tests or hubs), a PR above 40 core nodes without areas, a
-    "tool" area without a `why`, or a `why` over 120 characters is a warning
+    own (only tests or hubs), or a PR above 40 core nodes without areas is a warning
   * tours (graph "tours", scripts/tours.py): at most 8 of 3 to 15 steps with unique
     ids, each step's node known, its path a file of that node in the diff data, its
     side new or old, and its lines 1 <= a <= b or none; lines outside every hunk on
@@ -77,9 +75,6 @@ def reject_constant(name: str) -> None:
 
 LATE = {"docs", "config", "i18n"}
 OVERVIEW_CORE = 40  # build_graph.py and the viewer: above this many core nodes the map opens on its overview of areas
-BUCKETS = {"logic", "test", "i18n", "docs", "config", "generated"}  # build_graph.py: a node's `bucket`
-DEPTHS = ("read", "skim", "tool")  # build_graph.py: an area's `depth`
-WHY_MAX = 120  # an area's `why` is a short phrase in the review plan
 SHORT_SHA = re.compile(r"[0-9a-f]{7,40}")
 RESOLUTIONS = ("merged", "picked")  # build_graph.py: how a merge resolved a node's files
 
@@ -110,15 +105,6 @@ def cluster_problems(pr: dict) -> tuple[list[str], list[str]]:
                 errors.append(f"PR {key}: cluster id {item['id']!r} is listed twice")
             else:
                 ids[item["id"]] = 0
-                if "depth" in item and item["depth"] not in DEPTHS:
-                    errors.append(f"PR {key}: cluster {item['id']!r} depth {item['depth']!r} is not one of {', '.join(DEPTHS)}")
-                why = item.get("why")
-                if "why" in item and not (isinstance(why, str) and why.strip()):
-                    errors.append(f"PR {key}: cluster {item['id']!r} why must be non-empty text")
-                elif isinstance(why, str) and len(why) > WHY_MAX:
-                    warnings.append(f"PR {key}: cluster {item['id']!r} why has {len(why)} characters; keep it to {WHY_MAX} at most")
-                if item.get("depth") == "tool" and "why" not in item:
-                    warnings.append(f"PR {key}: cluster {item['id']!r} is covered by a tool but has no why naming the check")
     nodes = [node for node in pr.get("nodes", []) if isinstance(node, dict)]
     core = [node for node in nodes if node.get("layer") != "test" and node.get("layer") not in LATE]
     for node in nodes:
@@ -220,6 +206,9 @@ def main() -> int:
     diffs = data.get("diff-data")
     if isinstance(graph, dict) and isinstance(graph.get("prs"), list):
         nodes = {}
+        for pr in [*graph["prs"], *(graph.get("parents") or [])]:
+            if "summary" in pr and not (isinstance(pr["summary"], str) and pr["summary"].strip()):
+                errors.append(f"PR {pr.get('key')}: summary must be non-empty text (it is shown under the PR in the merge order)")
         for pr in graph["prs"]:
             for node in pr.get("nodes", []):
                 if node.get("id") in nodes:
@@ -227,8 +216,6 @@ def main() -> int:
                 nodes[node.get("id")] = (pr.get("key"), node)
                 if not isinstance(node.get("order"), int):
                     errors.append(f"node {node.get('id')} has no integer order")
-                if "bucket" in node and not (isinstance(node["bucket"], str) and node["bucket"] in BUCKETS):
-                    errors.append(f"node {node.get('id')} has bucket {node['bucket']!r}, not one of {', '.join(sorted(BUCKETS))}")
                 shas = node.get("conflict")
                 if "conflict" in node and not (isinstance(shas, list) and shas and all(resolution_ok(item) for item in shas)):
                     errors.append(f"node {node.get('id')}: conflict must be a non-empty list of commit SHAs or of "

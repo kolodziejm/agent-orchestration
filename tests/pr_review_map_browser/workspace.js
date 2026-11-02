@@ -8,7 +8,7 @@ const { sleep } = require('./lib');
 const STATE = `(function(){var g=document.getElementById('graph'),r=g.getBoundingClientRect(),q=function(s){var e=document.querySelector(s);if(!e)return null;var b=e.getBoundingClientRect();return {l:Math.round(b.left),r:Math.round(b.right),t:Math.round(b.top),b:Math.round(b.bottom),w:Math.round(b.width),shown:!!e.getClientRects().length&&getComputedStyle(e).display!=='none'&&getComputedStyle(e).visibility!=='hidden'};};
   return {ws:g.classList.contains('ws'),pos:getComputedStyle(g).position,rect:[r.left,r.top,r.width,r.height],root:document.documentElement.classList.contains('g-wsroot'),hash:location.hash,
     inert:[].filter.call(document.querySelectorAll('[inert]'),function(e){return !e.contains(g);}).length,toc:document.querySelector('nav.toc').hasAttribute('inert'),
-    side:q('.g-side'),dv:q('#dv'),det:q('#g-detail'),cv:q('#g-canvas'),rph:q('#g-rph'),top:q('#g-top'),plan:q('#g-plan'),lead:q('#graph>.lead'),btn:q('#g-wsb'),x:q('#g-wsx'),notesBtn:q('#g-wsnotes'),
+    side:q('.g-side'),dv:q('#dv'),det:q('#g-detail'),cv:q('#g-canvas'),rph:q('#g-rph'),top:q('#g-top'),lead:q('#graph>.lead'),btn:q('#g-wsb'),x:q('#g-wsx'),notesBtn:q('#g-wsnotes'),
     drawer:q('#nt-panel'),sep1:[document.getElementById('g-sep1').getAttribute('role'),+document.getElementById('g-sep1').getAttribute('aria-valuenow'),+document.getElementById('g-sep1').getAttribute('aria-valuemin'),+document.getElementById('g-sep1').getAttribute('aria-valuemax')],
     sep2:[document.getElementById('g-sep2').getAttribute('role'),+document.getElementById('g-sep2').getAttribute('aria-valuenow')],
     notesText:document.getElementById('g-wsnotes').textContent,notesExp:document.getElementById('g-wsnotes').getAttribute('aria-expanded'),
@@ -39,7 +39,7 @@ module.exports = {
       t.check(`ws ${th}: the button opens the graph over the whole window, the page behind inert, the address #ws`,
         s.ws && s.pos === 'fixed' && s.rect.join() === `0,0,${s.vw},${s.vh}` && s.root && s.toc && s.inert > 0 && s.hash === '#ws', s);
       t.check(`ws ${th}: list | diff | neighbourhood side by side under one top bar`, s.side.shown && s.dv.shown && s.det.shown && s.side.r <= s.dv.l && s.dv.r <= s.det.l && s.side.t >= s.top.b - 1
-        && s.top.t === 0 && s.top.b - s.top.t < 64 && s.det.r <= s.vw && !s.plan.shown && !s.lead.shown && !s.btn.shown && s.x.shown && s.notesBtn.shown && !s.cv.shown, s);
+        && s.top.t === 0 && s.top.b - s.top.t < 64 && s.det.r <= s.vw && !s.lead.shown && !s.btn.shown && s.x.shown && s.notesBtn.shown && !s.cv.shown, s);
       t.check(`ws ${th}: the selection carries over (file, diff, detail)`, await B.ev(`T.sel()===T.id('src/auth/session.ts')&&document.querySelector('#g-detail h4').textContent.indexOf('session.ts')>0&&!!T.df('src/auth/session.ts')`));
       t.check(`ws ${th}: the separators are focusable separators with their widths`, s.sep1[0] === 'separator' && s.sep1[1] === 340 && s.sep1[1] === s.side.w && s.sep2[0] === 'separator' && s.sep2[1] === 420
         && s.sep1[2] === 220 && s.sep1[3] > 340 && s.notesText === 'Notes 0' && s.notesExp === 'false', s);
@@ -114,7 +114,7 @@ module.exports = {
       await B.key('Escape');
       s = await st();
       t.check(`ws ${th}: then Esc closes the workspace: the page is back where it was, not inert, the address without #ws, focus on ⤢`,
-        !s.ws && s.pos !== 'fixed' && !s.root && s.inert === 0 && !s.toc && s.hash === '' && s.sy === y0 && s.active === 'g-wsb' && s.plan.shown, { s, y0 });
+        !s.ws && s.pos !== 'fixed' && !s.root && s.inert === 0 && !s.toc && s.hash === '' && s.sy === y0 && s.active === 'g-wsb', { s, y0 });
       t.noErrors(`ws ${th}: no page errors`);
     }
 

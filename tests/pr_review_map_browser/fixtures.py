@@ -564,13 +564,11 @@ def sec(d: Path) -> dict:
     script("gen_diffs.py", "--graph", graph, "--out", diffs, "--pr", "X", repo, "main...feat", "--no-manifest")
     data = json.loads(graph.read_text(encoding="utf-8"))
     data["prs"][0]["nodes"][0]["added"] = IMG.format("'added'")  # counts are data too
-    # An area, a bucket, and merges carry text too: the area's label and why, a bucket that is no bucket, a "SHA" that
-    # is markup (dropped, bare or in an entry) beside a real one (kept, in the older bare form).
-    data["prs"][0]["clusters"] = [{"id": "c1", "label": "area " + IMG.format("'alabel'"), "order": 1, "depth": IMG.format("'depth'"),
-                                   "why": "why " + IMG.format("'why'")}]
+    # An area and merges carry text too: the area's label, a "SHA" that is markup (dropped, bare or in an entry) beside
+    # a real one (kept, in the older bare form).
+    data["prs"][0]["clusters"] = [{"id": "c1", "label": "area " + IMG.format("'alabel'"), "order": 1}]
     for node in data["prs"][0]["nodes"]:
         node["cluster"] = "c1"
-        node["bucket"] = IMG.format("'bucket'")
         node["conflict"] = ["abc1234", IMG.format("'conflict'"), {"sha": IMG.format("'csha'"), "kind": "picked", "lines": 3}]
     graph.write_text(json.dumps(data), encoding="utf-8")
     entries = json.loads(diffs.read_text(encoding="utf-8"))
@@ -585,7 +583,7 @@ def sec(d: Path) -> dict:
                     f'<section id="risks"><h2>Risks</h2><ul class="risk-list"><li class="sev-h">Odd name: <code>{ref}</code></li></ul></section>\n', encoding="utf-8")
     # validate.py refuses these values (a real report cannot carry them); the pages are built anyway so the viewer is
     # tested against them, and the fixture asserts that validate.py rejects exactly those fields, nothing else.
-    bad_fields = ("node X1 has bucket", "node X1: conflict", "node X2 has bucket", "node X2: conflict", "cluster 'c1' depth")
+    bad_fields = ("node X1: conflict", "node X2: conflict")
     assemble(graph, diffs, narr, "xss", d / "xss.html", previous=previous, rejects=bad_fields)
     nofp = d / "nofp-diffs.json"
     nofp.write_text(json.dumps({k: [{kk: v for kk, v in e.items() if kk != "fp"} for e in es] for k, es in entries.items()}), encoding="utf-8")
@@ -595,9 +593,9 @@ def sec(d: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# plan: two stacked PRs for the review plan, conflicts, narrative references, and the workspace. P has three authored
-# areas (read, skim, tool, each with a why), a generated file alone in its folder, docs and i18n, and two files resolved
-# by hand in merges (and one resolved to one side); Q (on P) has no areas, buckets, or conflicts, like a report from before them, two unchanged
+# plan: two stacked PRs for conflicts, narrative references, and the workspace. P has three authored areas, a generated
+# file alone in its folder, docs and i18n, and two files resolved by hand in merges (and one resolved to one side);
+# Q (on P) has no areas or conflicts, like a report from before them, two unchanged
 # reference files (one beside its changed file, one alone in an authored area), and a pure rename (no changed lines). The narrative's risks
 # name lines inside and outside the diff, a bare file name, a continuation, and references that must stay plain.
 
@@ -614,7 +612,6 @@ PLAN_NARRATIVE = """<header><h1>Plan sample</h1><p class="sub">Areas, conflicts,
 <pre class="code"><code>src/auth/session.ts:40</code></pre>
 </section>
 """
-PLAN_AREAS = {"auth": ("read", "Token lifetime and storage"), "billing": ("skim", "Mechanical rounding change"), "util": ("tool", "Formatting only")}
 # Merge resolutions as build_graph.py writes them: session.ts combined by hand in one merge and resolved to one side in
 # another, invoice.ts combined by hand, token.ts only resolved to one side (no mark, no count; listed in its panel).
 PLAN_CONFLICTS = {"src/auth/session.ts": [{"sha": "abc1234", "kind": "merged", "lines": 12}, {"sha": "def5678", "kind": "picked", "lines": 4}],
@@ -666,12 +663,9 @@ def plan(d: Path) -> dict:
     for key, rng, name in prs:
         args += ["--pr", key, repo, rng, "--name", key, name]
     script("build_graph.py", *args, "--no-manifest")
-    # The data side's fields (build_graph.py writes them in newer versions): area depth and why, buckets, conflicts.
+    # The data side's merge resolutions, as build_graph.py writes them in a repository with merges.
     data = json.loads(graph.read_text(encoding="utf-8"))
-    for c in data["prs"][0].get("clusters", []):
-        c["depth"], c["why"] = PLAN_AREAS[c["id"]]
     for n in data["prs"][0]["nodes"]:
-        n["bucket"] = "generated" if n["path"] == "gen/api.ts" else {"test": "test", "i18n": "i18n", "docs": "docs", "config": "config"}.get(n["layer"], "logic")
         if n["path"] in PLAN_CONFLICTS:
             n["conflict"] = PLAN_CONFLICTS[n["path"]]
     graph.write_text(json.dumps(data), encoding="utf-8")
@@ -836,11 +830,9 @@ def demo_v1(demo: Path) -> dict:
     (scratch / "overlay.json").write_text(json.dumps(DEMO_OVERLAY, indent=1) + "\n", encoding="utf-8")
     (scratch / "narrative.html").write_text(
         '<header><h1>Items demo</h1><p class="sub">Two stacked PRs used to try refresh.py: the items service (A) and the web app on top of it (B).</p></header>\n'
-        '<section id="stack" data-toc="PR stack"><h2>PR stack and merge order</h2>\n<div class="grid-4">\n'
-        f'<div class="pr-card c-A"><span class="k">A · service</span><span class="t">A #1</span><span class="meta">base <code>main</code> · 6 files · tip <code>{tips["A"]}</code></span></div>\n'
-        f'<div class="pr-card c-B"><span class="k">B · web</span><span class="t">B #2</span><span class="meta">base <code>feat/items</code> · 2 files · tip <code>{tips["B"]}</code></span></div>\n'
-        "</div></section>\n<!-- review-map:graph -->\n"
-        '<section id="verify" data-toc="Verification"><h2>Verification</h2><p>Demo only; nothing was run.</p></section>\n', encoding="utf-8")
+        "<!-- review-map:graph -->\n"
+        '<section id="verify" data-toc="Before merging"><h2>Before merging</h2><h3>Verified</h3><ul>\n'
+        f'<li>At A <code>{tips["A"]}</code> and B <code>{tips["B"]}</code>: demo only; nothing was run.</li></ul></section>\n', encoding="utf-8")
     _demo_build(demo, scratch)
     return tips
 
@@ -887,8 +879,8 @@ def demo_rebuild(demo: Path, out: Path | None = None) -> dict:
 # narrative building block and two mermaid diagrams (one with a <br/> and an escaped "<" in a label).
 
 THEME_NARRATIVE = """<header><h1>Theme fixture</h1><p class="sub">Every building block, in light and dark.</p></header>
-<section id="stack" data-toc="PR stack">
-  <h2>PR stack and merge order</h2>
+<section id="cards" data-toc="Cards">
+  <h2>Cards (the older building blocks)</h2>
   <p class="lead">A ships first.</p>
   <div class="grid-4">
     <div class="pr-card c-A"><span class="k">A · api</span><span class="t">A #1</span><span class="meta">base <code>main</code> · 6 files</span><ul><li>Adds the service</li></ul></div>

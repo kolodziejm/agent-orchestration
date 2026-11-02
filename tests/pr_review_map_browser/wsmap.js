@@ -28,7 +28,7 @@ const DIFF = `({tbl:[].map.call(document.querySelectorAll('#dv-files table.dt'),
   title:(document.querySelector('[data-m][aria-pressed=true]')||{}).title||'',stored:localStorage.getItem(T.key()+'diffmode'),dv:document.getElementById('dv').offsetWidth,
   cols:(function(){var t=document.querySelector('#dv-files table.dt'),r=t&&t.querySelector('tr:not(.hk)');return r?r.children.length:0;})(),
   code:(function(){var c=document.querySelector('#dv-files table.dt td.cd');var t=c&&c.closest('table');return c?Math.round(c.getBoundingClientRect().width/t.getBoundingClientRect().width*100):0;})()})`;
-const CONF = `({chips:document.querySelectorAll('#g-order .g-cfb').length,marks:document.querySelectorAll('#g-canvas .cfm').length,note:(document.querySelector('#g-planb .g-cfn')||{}).textContent||null,
+const CONF = `({chips:document.querySelectorAll('#g-order .g-cfb').length,marks:document.querySelectorAll('#g-canvas .cfm').length,note:(function(){var e=document.getElementById('g-cfn');return e&&!e.hidden?e.textContent:null;})(),
   box:document.getElementById('g-cfmarks').checked,label:document.getElementById('g-cfl').hidden?null:document.getElementById('g-cfl').textContent.trim(),stored:localStorage.getItem(T.key()+'cfmarks'),
   detail:document.querySelectorAll('#g-detail .g-cf').length})`;
 
@@ -351,7 +351,7 @@ module.exports = {
     const noteText = (lang, n) => { const c = lang === 'pl' ? (n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? 'few' : 'many') : 'other'; return strings.cfNoise[c].replace('{n}', n); };
     await t.fresh(fx('plan', 'noise11.html'));
     let c = await conf();
-    t.check('conflicts: all 11 files of a PR combined by hand (more than 10, more than a quarter): no chips, the plan says why in one line, the View toggle off', c.chips === 0 && c.note === noteText('en', 11)
+    t.check('conflicts: all 11 files of a PR combined by hand (more than 10, more than a quarter): no chips, one line above the toolbar says why, the View toggle off', c.chips === 0 && c.note === noteText('en', 11)
       && c.box === false && c.label === strings.cfMarks && c.stored === null, c);
     await B.ev(`T.pick(T.rows()[0].id)`); await sleep(60);
     t.check('conflicts: the detail panel still lists the file\'s merge', (await conf()).detail === 1);
@@ -359,7 +359,7 @@ module.exports = {
     t.check('conflicts: no marks on the map either', (await conf()).marks === 0);
     await B.ev(`document.getElementById('g-mbtn').click();document.getElementById('g-cfmarks').click()`); await sleep(150);
     c = await conf();
-    t.check('conflicts: "Conflict marks" in View turns the chips and the map marks on, the plan\'s line goes, and it is stored', c.chips === 11 && c.marks === 11 && c.note === null && c.box === true && c.stored === '1', c);
+    t.check('conflicts: "Conflict marks" in View turns the chips and the map marks on, the line above the toolbar goes, and it is stored', c.chips === 11 && c.marks === 11 && c.note === null && c.box === true && c.stored === '1', c);
     await t.reload(fx('plan', 'noise11.html'));
     t.check('conflicts: the choice is kept', (await conf()).chips === 11);
     await B.ev(`T.tabTo('Q')`);
@@ -386,10 +386,10 @@ module.exports = {
     await t.fresh(fx('big', 'noise26-pl.html'));
     const plStrings = JSON.parse(await B.ev(`document.getElementById('review-config').textContent`)).strings;
     c = await conf();
-    t.check('conflicts pl: the plan\'s line and the toggle in Polish', c.note === '26 plików rozwiązanych ręcznie przy merge’ach — znaczniki ukryte, włącz w Widok' && c.label === 'Znaczniki konfliktów'
+    t.check('conflicts pl: the line above the toolbar and the toggle in Polish', c.note === '26 plików rozwiązanych ręcznie przy merge’ach — znaczniki ukryte, włącz w Widok' && c.label === 'Znaczniki konfliktów'
       && plStrings.cfNoise.few.startsWith('{n} pliki rozwiązane'), c);
     await B.ev(`document.querySelector('.g-tabs-row').scrollIntoView()`); await sleep(100);
-    await t.shot('plan-pl-noise');
+    await t.shot('conflicts-pl-noise');
     t.noErrors('conflicts: no page errors');
   },
 };

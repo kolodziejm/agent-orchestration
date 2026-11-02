@@ -36,11 +36,12 @@ lines; a step whose file left the PR is left out (a warning), and a tour with fe
 steps left with it. None of these stops the refresh. The overlay is never rewritten: update
 a step's lines there to keep the new place as authored.
 
-The narrative is never rewritten. When a tip moved, refresh.py warns that the
-narrative's claims may be outdated, lists the lines of narrative.html that still show
-a PR's old tip or a part's old end, names a new part the parts card lacks, and prints
-each PR's new file count and +/-. After editing the narrative, `--assemble-only`
-assembles and validates again without rebuilding.
+The narrative is never rewritten. The merge-order header (tip, files, +/- per PR, and the
+parts of a split PR) is not part of it: assemble.py generates it from graphs.json, so it is
+right after every refresh. When a tip moved, refresh.py warns that the narrative's claims
+may be outdated and lists the lines of narrative.html that still show a PR's old tip or a
+part's old end (the verification table names the SHA each row ran on). After editing the
+narrative, `--assemble-only` assembles and validates again without rebuilding.
 
 refresh.py trusts the manifest only so far: PR keys, repositories, and ranges must
 pass manifest.check_pr (no leading "-", white space, or control characters), every
@@ -117,16 +118,6 @@ def load_json(path: Path | None):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def counts(graph: dict) -> dict[str, tuple[int, int, int]]:
-    """{PR key: (files, added, removed)} over the changed files, as a stack card shows them."""
-    out = {}
-    for pr in graph.get("prs", []):
-        nodes = [n for n in pr.get("nodes", []) if not n.get("unchanged")]
-        out[pr["key"]] = (sum(len(n.get("files") or [n["path"]]) for n in nodes),
-                          sum(n.get("added", 0) for n in nodes), sum(n.get("removed", 0) for n in nodes))
-    return out
-
-
 def summary(before: dict[str, dict[str, str]], after: dict[str, dict[str, str]]) -> tuple[int, int, int]:
     new = changed = removed = 0
     for key in sorted(set(before) | set(after)):
@@ -176,30 +167,22 @@ def sha_lines(name: str, lines: list[str], sha: str) -> list[str]:
     return hits
 
 
-def narrative_warnings(narrative: Path | None, moved: list[tuple[str, str, str]], before: dict, after: dict,
-                       ends: list[tuple[str, str, str, str]] = (), added: list[tuple[str, str, str]] = ()) -> list[str]:
-    """Where narrative.html still shows a moved PR's old tip, each moved PR's new counts, the lines that still show a
-    part's old end (`ends`: parent, part key, old end, new end), and new parts the narrative does not show (`added`:
-    parent, part key, its end)."""
+def narrative_warnings(narrative: Path | None, moved: list[tuple[str, str, str]],
+                       ends: list[tuple[str, str, str, str]] = ()) -> list[str]:
+    """Where narrative.html still shows a moved PR's old tip, or (`ends`: parent, part key, old end, new end) a part's old
+    end: a claim bound to that SHA, such as a verification row, no longer describes the new tip."""
     text = narrative.read_text(encoding="utf-8") if narrative and narrative.is_file() else ""
     lines = text.splitlines()
     name = narrative.name if narrative else "narrative.html"
     out = []
     for key, old, new in moved:
         hits = sha_lines(name, lines, old) if old else []
-        where = f"still shows its old tip {old[:7]} at {', '.join(hits)}" if hits else (
-            f"does not show its new tip {new[:7]}" if new[:7] not in text else "")
-        files, added_lines, removed = after.get(key, (0, 0, 0))
-        was = before.get(key)
-        stats = f"now {files} files +{added_lines}/−{removed}" + (f" (was {was[0]} files +{was[1]}/−{was[2]})" if was else "")
-        out.append(f"PR {key}: tip {old[:7] or '?'} -> {new[:7]}; {stats}" + (f"; the narrative {where}" if where else ""))
+        if hits:
+            out.append(f"PR {key}: tip {old[:7]} -> {new[:7]}; the narrative still shows the old tip at {', '.join(hits)}")
     for parent, part, old, new in ends:
         hits = sha_lines(name, lines, old)
         if hits:
             out.append(f"PR {parent}: part {part} now ends at {new[:7]}, not {old[:7]}; the narrative still shows {old[:7]} at {', '.join(hits)}")
-    for parent, part, end in added:
-        if end[:7] not in text:
-            out.append(f"PR {parent}: the new part {part} (to {end[:7]}) is not in the narrative; add it to the parts card")
     return out
 
 
@@ -215,21 +198,6 @@ def new_part_label(here: Path, asm: dict) -> str:
     except (OSError, ValueError, AttributeError, KeyError):
         label = "new since last version"
     return label if chunks.text_ok(label) else "new since last version"
-
-
-def parent_counts(graph: dict, repos: dict[str, str]) -> dict[str, tuple[int, int, int]]:
-    """{parent key: (files, added, removed)} over the whole PR (first part's start to last part's end), as its stack card shows them."""
-    out = {}
-    for parent in graph.get("parents") or []:
-        repo, base, tip = repos.get(parent.get("key")), parent.get("base"), parent.get("tip")
-        if not (repo and base and tip):
-            continue
-        stat = git(repo, "diff", "--numstat", "--end-of-options", f"{base}..{tip}", "--")
-        if stat is None:
-            continue
-        rows = [line.split("\t", 2) for line in stat.splitlines() if line.count("\t") >= 2]
-        out[parent["key"]] = (len(rows), sum(int(r[0]) for r in rows if r[0].isdigit()), sum(int(r[1]) for r in rows if r[1].isdigit()))
-    return out
 
 
 def previous_file(here: Path, asm: dict) -> Path | None:
@@ -290,12 +258,11 @@ def main() -> int:
     new_tips, moved, warnings = {}, [], []
     # Parts first: a part that cannot be mapped stops here, before anything is rebuilt or written.
     label = new_part_label(here, asm)
-    chunked, side_chunks, side_data, split_after, ends, added_parts, repos = set(), {}, {}, [], [], [], {}
+    chunked, side_chunks, side_data, split_after, ends = set(), {}, {}, [], []
     for entry, path in zip(split, chunk_paths):
         before_data = chunks.load(path)
         parent = before_data["parent"]
         chunked.add(parent["key"])
-        repos[parent["key"]] = parent["repo"]
         tip = resolve_tip(parent["repo"], parent["range"])
         if not tip:
             raise SystemExit(f"PR {parent['key']}: cannot resolve {tip_of(parent['range'])!r} in {parent['repo']}; fetch it or fix the range")
@@ -311,8 +278,6 @@ def main() -> int:
             warnings.append(f"PR {parent['key']}: its range starts at the fixed commit {left}, which is no longer an ancestor of the tip "
                             f"(rebased?); give chunks.json a new range and re-run chunks.py propose")
         ends += [(parent["key"], key, was, now) for key, was, now in remapped]
-        known = {part["key"] for part in before_data["parts"]}
-        added_parts += [(parent["key"], part["key"], part["to"]) for part in after_data["parts"] if part["key"] not in known]
         if after_data is not before_data:
             # Written only inside the guarded build below, so a stop before it (or in it) leaves no .new file behind.
             side_chunks[path] = path.with_name(path.name + ".new")
@@ -404,11 +369,9 @@ def main() -> int:
         print(f"changed since the previous version: {new + changed + removed} files ({new} new, {changed} changed, {removed} removed)")
     if moved:
         narrative = manifest.resolve(here, asm["narrative"])
-        print(f"warning: the branches moved, so claims in {narrative.name} (stack cards, counts, file:line references, "
-              f"behaviour) may be outdated; update it, then run: python3 {Path(__file__).resolve()} {here} --assemble-only")
-        before_counts = {**counts(old_graph or {}), **parent_counts(old_graph or {}, repos)}
-        after_counts = {**counts(new_graph), **parent_counts(new_graph, repos)}
-        for line in narrative_warnings(narrative, moved, before_counts, after_counts, ends, added_parts):
+        print(f"warning: the branches moved, so claims in {narrative.name} (file:line references, behaviour, verified "
+              f"checks) may be outdated; update it, then run: python3 {Path(__file__).resolve()} {here} --assemble-only")
+        for line in narrative_warnings(narrative, moved, ends):
             print(f"warning: {line}")
     for line in warnings:
         print(f"warning: {line}")

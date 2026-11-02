@@ -427,8 +427,6 @@ class ReviewMapPipelineTests(unittest.TestCase):
         cls.narrative = cls.root / "narrative.html"
         cls.narrative.write_text(
             '<header><h1>Demo</h1><p class="sub">Two PRs.</p></header>\n'
-            '<section id="stack"><h2>Stack <span class="tag c-A">A</span></h2>'
-            '<div class="grid-4"><div class="pr-card c-A"><span class="t">A #1</span></div></div></section>\n'
             "<!-- review-map:graph -->\n"
             '<section id="arch" data-toc="Architecture"><h2>How {{count}} items flow</h2>'
             '<div class="diagram"><pre class="mermaid">\nflowchart LR\n  A --> B\n</pre></div></section>\n'
@@ -1012,6 +1010,58 @@ class ReviewMapPipelineTests(unittest.TestCase):
                     self.assertIn("mermaid.min.js", page)
                     self.assertLess(page.index("M.run({nodes:pres})"), page.index("mermaid.min.js"))
 
+    def test_the_merge_order_header_is_generated_from_graphs_json(self):
+        """REQUIREMENT: the header lists one line per PR in merge order with key, name, title, tip SHA, file count, and +/-, all generated from graphs.json; this test will fail when a line is missing or out of order, a number differs from `git diff --numstat` of the PR's range (so it could be hand-copied wrong), the tip differs from the graph's, the section is not above the reading graph and in the table of contents, or the narrative has to carry any of it."""
+        page = self.assemble("artifact").read_text(encoding="utf-8")
+        section = page.split('<section id="stack"')[1].split("</section>")[0]
+        self.assertLess(page.index('<section id="stack"'), page.index('id="graph"'))
+        self.assertIn('<li><a href="#stack">Kolejność merge</a></li>', page)
+        rows = re.findall(r'<li class="c-([AB])">(.*?)</li>', section, re.DOTALL)
+        self.assertEqual([key for key, _row in rows], ["A", "B"])
+        for (key, row), rng in zip(rows, ("main...feat/a", "feat/a...feat/b")):
+            with self.subTest(pr=key):
+                stat = [line.split("\t") for line in git(self.repo, "diff", "--numstat", rng).splitlines()]
+                pr = next(p for p in self.graph["prs"] if p["key"] == key)
+                for expected in (f'<span class="tag c-{key}">{key}</span>', f"<strong>{pr['name']}</strong>", f"<code>{pr['tip']}</code>",
+                                 f"plików: {len(stat)}", f"+{sum(int(a) for a, _r, _p in stat)}/\u2212{sum(int(r) for _a, r, _p in stat)}"):
+                    self.assertIn(expected, row)
+        self.assertIn("Items service", rows[0][1])  # the PR's title (build_graph --title)
+
+    def test_a_pr_summary_flows_from_the_overlay_to_the_merge_order_and_a_missing_one_breaks_nothing(self):
+        """REQUIREMENT: an authored per-PR `summary` (overlay `summaries`) reaches graphs.json and shows under the PR's line in the merge-order header, whose name links to the PR's section; this test will fail when build_graph.py drops it, accepts a value that is not text (it must warn and skip, not stop), assemble.py shows a summary for a PR that has none or leaves it unescaped, the row does not link to `#pr-KEY`, or validate.py passes a summary that is not text."""
+        overlay = json.loads(self.overlay.read_text(encoding="utf-8"))
+        overlay["summaries"] = {"A": "Adds <b>items</b>. Users see a new list.", "B": "", "Z": "No such PR."}
+        path = self.root / "overlay-summaries.json"
+        path.write_text(json.dumps(overlay), encoding="utf-8")
+        out = self.root / "graphs-summaries.json"
+        args = [a for a in self.build_args]
+        args[args.index("--out") + 1] = str(out)
+        args[args.index("--overlay") + 1] = str(path)
+        result = run_script("build_graph.py", *args)
+        graph = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual([p.get("summary") for p in graph["prs"]], ["Adds <b>items</b>. Users see a new list.", None])
+        self.assertIn("overlay summaries['B'] must be text", result.stdout)
+        self.assertIn("overlay summaries['Z']: no such PR", result.stdout)
+        page = self.root / "summaries.html"
+        run_script("assemble.py", "--graph", str(out), "--diffs", str(self.diffs_path), "--narrative", str(self.narrative), "--title", "t",
+                   "--out", str(page), "--no-manifest")
+        header = page.read_text(encoding="utf-8").split('<ol class="merge-order">')[1].split("</ol>")[0]
+        rows = re.findall(r'<li class="c-([AB])">(.*?)</li>', header, re.DOTALL)
+        self.assertIn('<p class="sum">Adds &lt;b&gt;items&lt;/b&gt;. Users see a new list.</p>', rows[0][1])
+        self.assertNotIn('class="sum"', rows[1][1])
+        self.assertIn('<a class="mo-link" href="#pr-A">', rows[0][1])
+        self.assertIn('<a class="mo-link" href="#pr-B">', rows[1][1])
+        broken = json.loads(out.read_text(encoding="utf-8"))
+        broken["prs"][0]["summary"] = 3
+        bad = self.root / "graphs-bad-summary.json"
+        bad.write_text(json.dumps(broken), encoding="utf-8")
+        run_script("assemble.py", "--graph", str(bad), "--diffs", str(self.diffs_path), "--narrative", str(self.narrative), "--title", "t",
+                   "--out", str(self.root / "bad-summary.html"), "--no-manifest")
+        if NODE:
+            checked = run_script("validate.py", str(self.root / "bad-summary.html"), check=False)
+            self.assertEqual(checked.returncode, 1, checked.stdout)
+            self.assertIn("PR A: summary must be non-empty text", checked.stdout)
+
     def test_string_overrides_replace_single_keys(self):
         """This test will fail when a --strings override is ignored or wipes the other strings."""
         overrides = self.root / "strings.json"
@@ -1176,8 +1226,9 @@ class ReviewMapRefreshTests(unittest.TestCase):
         (d / "groups.json").write_text(json.dumps([{"id": "imgs", "label": "images", "layer": "config", "pattern": "^img/"}]), encoding="utf-8")
         (d / "strings.json").write_text(json.dumps({"graphTitle": "Mapa"}), encoding="utf-8")
         (d / "narrative.html").write_text(
-            f'<section id="stack"><h2>Stack</h2><div class="pr-card c-A">\n<span class="meta">tip <code>{cls.tip1[:7]}</code></span></div></section>\n'
-            "<!-- review-map:graph -->\n<footer>x</footer>\n", encoding="utf-8")
+            "<header><h1>Items</h1></header>\n<!-- review-map:graph -->\n"
+            f'<section id="before-merging"><h2>Before merging</h2><ul>\n<li>Verified at <code>{cls.tip1[:7]}</code>: tests pass</li></ul></section>\n'
+            "<footer>x</footer>\n", encoding="utf-8")
         cls.build = ["--out", str(d / "graphs.json"), "--pr", "A", str(repo), "main...feat", "--name", "A", "A #1",
                      "--title", "A", "Items", "--repo", "A", "acme/items", "--alias", "@x/=src/", "--groups", str(d / "groups.json"),
                      "--overlay", str(d / "overlay.json")]
@@ -1232,11 +1283,11 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertIn("no review-map.json", result.stderr)
 
     def test_refresh_rebuilds_from_the_directory_and_reports_what_moved(self):
-        """This test will fail when refresh.py does not resolve the branch to its new tip, print old -> new tips and the change counts, carry over the inputs (title, language, strings, storage key, target), warn about the narrative's old tip with its line, skip an overlay entry for a removed file instead of failing, update the manifest's tips, or writes to the repository."""
+        """This test will fail when refresh.py does not resolve the branch to its new tip, print old -> new tips and the change counts, carry over the inputs (title, language, strings, storage key, target), warn about the narrative's old tip (a "Verified" bullet bound to it) with its line, show the new tip in the generated merge-order header, skip an overlay entry for a removed file instead of failing, update the manifest's tips, or writes to the repository."""
         out = self.out
         self.assertIn(f"PR A: {self.tip1[:7]} -> {self.tip2[:7]}", out)
         self.assertIn("changed since the previous version: 4 files (1 new, 2 changed, 1 removed)", out)
-        self.assertIn(f"still shows its old tip {self.tip1[:7]} at narrative.html:2", out)
+        self.assertIn(f"PR A: tip {self.tip1[:7]} -> {self.tip2[:7]}; the narrative still shows the old tip at narrative.html:4", out)
         self.assertIn("overlay reference 'A:src/c.ts': no node or changed file with that path in PR A; skipped", out)
         self.assertIn("OK", out)
         self.assertEqual((git(self.repo, "for-each-ref"), git(self.repo, "rev-parse", "HEAD"), git(self.repo, "status", "--porcelain")), self.refs)
@@ -1248,6 +1299,10 @@ class ReviewMapRefreshTests(unittest.TestCase):
         self.assertEqual(graph["prs"][0]["tip"], self.tip2[:len(graph["prs"][0]["tip"])])
         self.assertEqual(json.loads((self.scratch / "review-map.json").read_text(encoding="utf-8"))["build_graph"]["tips"], {"A": self.tip2})
         self.assertFalse(list(self.scratch.glob("*.new")))
+        # Requirement: the merge-order header is generated, so a refresh leaves no old tip in it.
+        header = page.split('<ol class="merge-order">')[1].split("</ol>")[0]
+        self.assertIn(f"<code>{graph['prs'][0]['tip']}</code>", header)
+        self.assertNotIn(self.tip1[:7], header)
 
     def test_fingerprints_flag_new_changed_and_removed_files_only(self):
         """This test will fail when a file whose change is the same gets a new fingerprint (or one fingerprinted from an old diffs.json body differs), when an edited, shifted, or binary file keeps its old one, or when the page does not embed the previous build's tips and fingerprints."""
@@ -1712,7 +1767,7 @@ class AreaTests(unittest.TestCase):
         self.assertIn("clusters with no file of their own (only tests or hubs): ['tests']", warned.stdout)
 
         def catalogs(pr):
-            pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 9, "depth": "tool", "why": "key parity test"})
+            pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 9})
             next(n for n in pr["nodes"] if n["layer"] == "i18n")["cluster"] = "copy"
 
         late = broken(catalogs)
@@ -1756,7 +1811,7 @@ class AreaTests(unittest.TestCase):
         self.assertFalse([pair for *_rest, pairs in areas["edges"] for pair in pairs if ".test." in pair[0]])
         # An area of nothing but late files (the catalogs, covered by a tool) is listed and shelved with the late ones.
         pr = graph["prs"][0]
-        pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 0, "depth": "tool", "why": "key parity test"})
+        pr["clusters"].append({"id": "copy", "label": "Catalogs", "order": 0})
         next(n for n in pr["nodes"] if n["path"] == "locales/*.json")["cluster"] = "copy"
         shelf = self.viewer(graph, "shelf")
         ids = [area["id"] for area in shelf["list"]]
@@ -2092,9 +2147,9 @@ class ChunkRefreshTests(unittest.TestCase):
         run_script("build_graph.py", "--out", str(d / "graphs.json"), "--chunks", str(d / "chunks.json"), "--overlay", str(d / "overlay.json"))
         run_script("gen_diffs.py", "--graph", str(d / "graphs.json"), "--out", str(d / "diffs.json"), "--chunks", str(d / "chunks.json"), "--strict")
         (d / "narrative.html").write_text(
-            '<section id="stack"><h2>Stack</h2><div class="pr-card c-M"><span class="meta">tip <code>%s</code></span>\n'
-            '<ol class="parts"><li><button type="button" class="tag c-Ma" data-gopen="Ma">1/3</button><code>%s..%s</code></li></ol></div></section>\n'
-            "<!-- review-map:graph -->\n<footer>x</footer>\n" % (cls.shas[4][:7], cls.shas[0][:7], cls.shas[1][:7]), encoding="utf-8")
+            "<header><h1>Parts</h1></header>\n<!-- review-map:graph -->\n"
+            '<section id="before-merging"><h2>Before merging</h2><ul>\n<li>Verified at <code>%s</code></li><li>Part Ma <code>%s..%s</code></li></ul></section>\n'
+            "<footer>x</footer>\n" % (cls.shas[4][:7], cls.shas[0][:7], cls.shas[1][:7]), encoding="utf-8")
         run_script("assemble.py", "--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"),
                    "--title", "Parts", "--lang", "pl", "--target", "local", "--out", str(d / "review.html"))
         cls.repo, cls.scratch = repo, d
@@ -2116,9 +2171,25 @@ class ChunkRefreshTests(unittest.TestCase):
     def parts(self, d: Path) -> list[dict]:
         return json.loads((d / "chunks.json").read_text(encoding="utf-8"))["parts"]
 
+    def test_the_merge_order_lists_a_split_pr_once_with_its_parts_and_whole_pr_counts(self):
+        """REQUIREMENT: a PR split into parts is one line in the generated header, with the totals of `git diff --numstat` over the whole PR (not the parts' sum), and its parts under it with their open buttons and ranges; this test will fail when the parent repeats per part, the totals come from the parts (a file changed in two parts would count twice), or a part has no button."""
+        graph = json.loads((self.scratch / "graphs.json").read_text(encoding="utf-8"))
+        stat = [line.split("\t") for line in git(self.repo, "diff", "--numstat", "main...feat").splitlines()]
+        parent = graph["parents"][0]
+        self.assertEqual((parent["files"], parent["added"], parent["removed"]),
+                         (len(stat), sum(int(a) for a, _r, _p in stat), sum(int(r) for _a, r, _p in stat)))
+        page = (self.scratch / "review.html").read_text(encoding="utf-8")
+        section = page.split('<ol class="merge-order">')[1].split("\n</ol>\n</section>")[0]
+        self.assertEqual(section.count('<li class="c-M">'), 1)
+        self.assertEqual(re.findall(r'data-gopen="(M[a-z])"', section), parent["parts"])
+        self.assertIn(f"plików: {parent['files']}", section.split('<ol class="parts">')[0])
+        self.assertIn(f"+{parent['added']}/\u2212{parent['removed']}", section.split('<ol class="parts">')[0])
+        chunk = graph["prs"][0]["chunk"]
+        self.assertIn(f"<code>{chunk['from'][:7]}..{chunk['to'][:7]}</code>", section)
+
     @unittest.skipUnless(NODE, "node is required to validate the refreshed page")
     def test_new_commits_become_a_new_part_and_earlier_parts_stay(self):
-        """This test will fail when refresh.py does not turn commits after the last part into a new part labelled in the page's language, changes an earlier part's range or fingerprints (which would clear its read marks), forgets to record the new tip, misses the narrative's missing part, or writes to the repository."""
+        """This test will fail when refresh.py does not turn commits after the last part into a new part labelled in the page's language, changes an earlier part's range or fingerprints (which would clear its read marks), forgets to record the new tip, leaves the new part out of the generated merge-order header, or writes to the repository."""
         repo, d = self.copy("append")
         before = self.parts(d)
         old = {e["path"] + "@" + k: e["fp"] for k, entries in json.loads((d / "diffs.json").read_text(encoding="utf-8")).items() for e in entries}
@@ -2128,7 +2199,9 @@ class ChunkRefreshTests(unittest.TestCase):
         out = run_script("refresh.py", str(d)).stdout
         self.assertEqual(self.parts(d), before + [{"key": "Md", "to": tip, "label": "nowe od ostatniej wersji"}])
         self.assertIn(f"1 commit(s) after part Mc became the new part Md ({self.shas[4][:7]}..{tip[:7]})", out)
-        self.assertIn(f"PR M: the new part Md (to {tip[:7]}) is not in the narrative; add it to the parts card", out)
+        header = (d / "review.html").read_text(encoding="utf-8").split('<ol class="merge-order">')[1].split("\n</ol></li>")[0]
+        self.assertIn('data-gopen="Md"', header)  # Requirement: the new part is listed by assemble.py, not by hand in a parts card
+        self.assertIn(f"<code>{tip[:7]}</code>", header)
         self.assertIn("changed since the previous version: 1 files (1 new, 0 changed, 0 removed)", out)
         graph = json.loads((d / "graphs.json").read_text(encoding="utf-8"))
         self.assertEqual([pr["key"] for pr in graph["prs"]], ["Ma", "Mb", "Mc", "Md"])
@@ -2156,7 +2229,7 @@ class ChunkRefreshTests(unittest.TestCase):
         self.assertTrue(all(a["to"] != b["to"] for a, b in zip(after, before)))
         self.assertEqual(after[-1]["to"], git(repo, "rev-parse", "feat").strip())
         self.assertIn("the history was rewritten; 3 of 3 part ends remapped", out)
-        self.assertIn(f"part Ma now ends at {after[0]['to'][:7]}, not {before[0]['to'][:7]}; the narrative still shows {before[0]['to'][:7]} at narrative.html:2", out)
+        self.assertIn(f"part Ma now ends at {after[0]['to'][:7]}, not {before[0]['to'][:7]}; the narrative still shows {before[0]['to'][:7]} at narrative.html:4", out)
         self.assertIn("changed since the previous version: 0 files", out)
 
     def test_a_refresh_that_stops_after_mapping_the_parts_leaves_no_side_file(self):
@@ -3075,8 +3148,8 @@ def merge_repo(repo: Path) -> tuple[str, str]:
     return first, git(repo, "rev-parse", "HEAD").strip()
 
 
-class BucketConflictTests(unittest.TestCase):
-    """Each node's `bucket` and `conflict` from build_graph.py, an area's `depth` and `why`, and validate.py's checks of all three."""
+class ConflictTests(unittest.TestCase):
+    """Each node's `conflict` from build_graph.py, and validate.py's check of it."""
 
     @classmethod
     def setUpClass(cls):
@@ -3086,10 +3159,8 @@ class BucketConflictTests(unittest.TestCase):
         cls.first, cls.second = merge_repo(cls.repo)
         cls.overlay = cls.root / "overlay.json"
         cls.overlay.write_text(json.dumps({
-            "clusters": {"core": {"label": "Core", "depth": "read"}, "ui": {"label": "UI", "depth": "skim", "why": "layout only"},
-                         "copy": {"depth": "tool", "why": "i18n key parity test"}},
-            "nodes": {"P:src/app.ts": {"cluster": "core"}, "P:src/ui/View.tsx": {"cluster": "ui"}, "P:src/feature.ts": {"cluster": "copy"},
-                      "P:src/gen/client.ts": {"generated": True}, "P:public/vendor.min.js": {"generated": False}},
+            "clusters": {"core": {"label": "Core"}, "ui": {"label": "UI"}, "copy": {}},
+            "nodes": {"P:src/app.ts": {"cluster": "core"}, "P:src/ui/View.tsx": {"cluster": "ui"}, "P:src/feature.ts": {"cluster": "copy"}},
         }), encoding="utf-8")
         cls.graph_path = cls.root / "graphs.json"
         cls.out = run_script("build_graph.py", "--out", str(cls.graph_path), "--pr", "P", str(cls.repo), "main...feat",
@@ -3107,28 +3178,14 @@ class BucketConflictTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPTS / "build_graph.py"), "--out", str(self.root / "case.json"), "--pr", "P", str(self.repo),
                                "main...feat", "--overlay", str(path), "--no-manifest"], capture_output=True, text=True, env=env or ENV)
 
-    def test_every_node_gets_the_bucket_of_its_files_layer_or_overlay(self):
-        """This test will fail when a node lacks a bucket, a lockfile, a test snapshot, a minified file, or a file the overlay marks generated is not "generated", the overlay's `generated: false` does not keep a file in its layer's bucket, a test, i18n, docs, or config node is not in its layer's bucket, any other layer (ui included) is not "logic", or a non-boolean `generated` is accepted."""
-        self.assertTrue(all("bucket" in node for node in self.graph["prs"][0]["nodes"]))
-        expected = {"src/app.ts": "logic", "src/feature.ts": "logic", "src/ui/View.tsx": "logic", "src/app.test.ts": "test",
-                    "src/__snapshots__/app.test.ts.snap": "generated", "pnpm-lock.yaml": "generated", "src/gen/client.ts": "generated",
-                    "public/vendor.min.js": "logic", "locales/en.json": "i18n", "docs/guide.md": "docs", "package.json": "config"}
-        self.assertEqual({path: self.nodes[path]["bucket"] for path in expected}, expected)
-        self.assertEqual(self.nodes["src/__snapshots__/app.test.ts.snap"]["layer"], "test")
-        self.assertEqual(self.nodes["pnpm-lock.yaml"]["layer"], "config")
-        bucket = skill_module("build_graph").bucket
-        for path, want in (("yarn.lock", "generated"), ("apps/web/package-lock.json", "generated"), ("go.sum", "generated"),
-                           ("Cargo.lock", "generated"), ("composer.lock", "generated"), ("poetry.lock", "generated"),
-                           ("Gemfile.lock", "generated"), ("ui/__snapshots__/View.tsx.snap", "generated"),
-                           ("ui/__snapshots__/data.json", "generated"), ("assets/app.min.css", "generated"), ("lib/x.min.mjs", "generated"),
-                           ("src/admin.js", "logic"), ("src/snapshot.ts", "logic"), ("src/min.js", "logic"), ("go.sum.ts", "logic")):
-            with self.subTest(path=path):
-                self.assertEqual(bucket({"files": [path], "path": path, "layer": "logic"}), want)
-        self.assertEqual(bucket({"files": ["yarn.lock", "notes.txt"], "path": "*", "layer": "config"}), "config")
-        self.assertEqual(bucket({"files": [], "path": "src/Base.php", "layer": "rest"}), "logic")
-        result = self.build({"nodes": {"P:src/app.ts": {"generated": "yes"}}})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("generated must be true or false", result.stderr)
+    def test_the_overlay_fields_of_the_removed_review_plan_are_ignored(self):
+        """This test will fail when an overlay written before the review plan was removed (an area's `depth` and `why`, a node's `generated`) stops building, or when build_graph.py writes those fields, or a node `bucket`, again: the page has no plan to use them."""
+        result = self.build({"clusters": {"core": {"label": "Core", "depth": "tool", "why": "parity test"}},
+                             "nodes": {"P:src/app.ts": {"cluster": "core", "generated": True}}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        graph = json.loads((self.root / "case.json").read_text(encoding="utf-8"))
+        self.assertEqual(graph["prs"][0]["clusters"], [{"id": "core", "label": "Core", "order": 1}])
+        self.assertFalse([node for node in graph["prs"][0]["nodes"] if "bucket" in node or "generated" in node])
 
     def test_files_resolved_by_hand_in_a_merge_carry_its_sha_kind_and_lines(self):
         """This test will fail when a file whose merge result differs from git's automatic re-merge does not get an entry {sha, kind, lines} in `conflict` with that merge's 7-character SHA (also under the path it had before the PR moved it), a file combined from both sides is not "merged", a file resolved to one parent's version is not "picked", `lines` is not the re-merge diff's added plus removed lines for the file, a clean merge or a file without a hand resolution is flagged, a file the PR does not change becomes a node through its conflict, or the summary stops naming the merged files with their lines and counting the picked ones."""
@@ -3162,7 +3219,6 @@ class BucketConflictTests(unittest.TestCase):
         self.assertEqual(old.stdout.count("warning: git 2.35 has no --remerge-diff (2.36+); files with hand-resolved merge conflicts are not marked"), 1)
         graph = json.loads((self.root / "case.json").read_text(encoding="utf-8"))
         self.assertFalse([node for node in graph["prs"][0]["nodes"] if "conflict" in node])
-        self.assertTrue(all("bucket" in node for node in graph["prs"][0]["nodes"]))
 
         bg = skill_module("build_graph")
         calls: list[tuple[str, ...]] = []
@@ -3211,20 +3267,8 @@ class BucketConflictTests(unittest.TestCase):
                 self.assertEqual(unsupported.of("B", "repo", "main..feat"), {})
             self.assertEqual(warnings, ["git 2.30 has no --remerge-diff (2.36+); files with hand-resolved merge conflicts are not marked"])
 
-    def test_area_depth_and_why_pass_through_and_are_checked(self):
-        """This test will fail when an area's `depth` or `why` from the overlay does not reach its PR's `clusters` as given, build_graph.py accepts a depth other than read, skim, or tool or a why that is not text, or validate.py passes an unknown depth, an empty why, an unknown bucket, or a conflict that is not a list of {sha, kind merged|picked, lines >= 0} entries or bare SHAs, refuses the bare SHAs older builds wrote, or stays silent about a "tool" area without a why or a long why."""
-        self.assertEqual(self.graph["prs"][0]["clusters"], [
-            {"id": "core", "label": "Core", "order": 1, "depth": "read"},
-            {"id": "ui", "label": "UI", "order": 2, "depth": "skim", "why": "layout only"},
-            {"id": "copy", "label": "copy", "order": 3, "depth": "tool", "why": "i18n key parity test"},
-        ])
-        for name, fields, message in (("depth", {"depth": "deep"}, "depth must be one of read, skim, tool"),
-                                      ("why", {"why": ""}, "why must be non-empty text"), ("why type", {"why": 3}, "why must be non-empty text")):
-            with self.subTest(case=name):
-                result = self.build({"clusters": {"a": fields}})
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(f"overlay cluster 'a': {message}", result.stderr)
-
+    def test_validate_checks_the_conflict_entries_of_a_node(self):
+        """This test will fail when validate.py passes a node `conflict` that is not a non-empty list of commit SHAs or of {sha, kind: merged|picked, lines >= 0} entries, or rejects a list of bare SHAs (older builds) beside entries."""
         diffs, narrative = self.root / "diffs.json", self.root / "narrative.html"
         run_script("gen_diffs.py", "--graph", str(self.graph_path), "--out", str(diffs), "--pr", "P", str(self.repo), "main...feat", "--no-manifest")
         narrative.write_text('<section id="s"><h2>S</h2></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
@@ -3240,13 +3284,8 @@ class BucketConflictTests(unittest.TestCase):
 
         good = validate(lambda pr: None)
         self.assertEqual(good.returncode, 0, good.stdout)
-        self.assertFalse([line for line in good.stdout.splitlines() if line.startswith(("warning", "error")) and ("depth" in line or "why" in line)])
-        cluster = lambda pr, cid: next(c for c in pr["clusters"] if c["id"] == cid)  # noqa: E731
         node = lambda pr, path: next(n for n in pr["nodes"] if n["path"] == path)  # noqa: E731
         for name, change, message in (
-            ("depth", lambda pr: cluster(pr, "core").update(depth="deep"), "cluster 'core' depth 'deep' is not one of read, skim, tool"),
-            ("why", lambda pr: cluster(pr, "ui").update(why=" "), "cluster 'ui' why must be non-empty text"),
-            ("bucket", lambda pr: node(pr, "src/app.ts").update(bucket="vendor"), "has bucket 'vendor', not one of"),
             ("conflict", lambda pr: node(pr, "src/app.ts").update(conflict=["nope"]), "conflict must be a non-empty list of commit SHAs"),
             ("empty conflict", lambda pr: node(pr, "src/app.ts").update(conflict=[]), "conflict must be a non-empty list of commit SHAs"),
             ("conflict kind", lambda pr: node(pr, "src/app.ts").update(conflict=[{"sha": "abc1234", "kind": "both", "lines": 1}]), "conflict must be"),
@@ -3260,10 +3299,6 @@ class BucketConflictTests(unittest.TestCase):
                 self.assertIn(message, result.stdout)
         older = validate(lambda pr: node(pr, "src/app.ts").update(conflict=["abc1234", {"sha": "def5678", "kind": "picked", "lines": 0}]))
         self.assertEqual(older.returncode, 0, older.stdout)  # bare SHAs (older builds) still pass, beside entries
-        warned = validate(lambda pr: (cluster(pr, "copy").pop("why"), cluster(pr, "ui").update(why="x" * 121)))
-        self.assertEqual(warned.returncode, 0, warned.stdout)
-        self.assertIn("warning: PR P: cluster 'copy' is covered by a tool but has no why naming the check", warned.stdout)
-        self.assertIn("warning: PR P: cluster 'ui' why has 121 characters; keep it to 120 at most", warned.stdout)
 
 
 if __name__ == "__main__":
