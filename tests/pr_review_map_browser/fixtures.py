@@ -957,7 +957,91 @@ def theme(d: Path) -> dict:
     return {"page": str(out), "artifact": str(artifact)}
 
 
-FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan, "theme": theme}
+# ---------------------------------------------------------------------------------------------------------------------
+# brief: the page of a large change (four stacked PRs: a migration, a session file the overlay marks risky with focus
+# ranges, an old-side focus on a deleted file, tests, a lockfile, translations, docs) with its brief and generated budget,
+# and the page of a small change (one PR of three files) with a brief and no budget.
+
+BRIEF_NARRATIVE = """<header><h1>Brief sample</h1><p class="sub">Four PRs.</p></header>
+<section id="brief" data-toc="Brief">
+  <h2>Brief</h2>
+  <ul class="brief-users"><li>Staff see which clinic a session belongs to.</li><li>Old exports stop working.</li></ul>
+  <h3>Contracts</h3>
+  <div class="tbl"><table class="contracts">
+    <thead><tr><th>Kind</th><th>What</th><th>PR</th><th>Code</th></tr></thead>
+    <tbody>
+      <tr><td class="kind">Migration</td><td>Adds <code>visits.slot_id</code>, NOT NULL, no default</td><td><span class="who tag c-A">A</span></td><td><code>db/migrations/0042_slot.sql:1-8</code></td></tr>
+      <tr><td class="kind">Route</td><td><code>GET /items</code> returns 404 for an unknown clinic</td><td><span class="who tag c-B">B</span></td><td><code>src/api/items.ts:3-6</code></td></tr>
+    </tbody>
+  </table></div>
+  <h3>Risks</h3>
+  <ol class="brief-risks">
+    <li class="sev-h"><span class="sev">High</span> <span class="who tag c-A">A</span> The tenant check is gone, so a token of one clinic opens another's data <code>src/auth/session.ts:5-9</code></li>
+    <li class="sev-m"><span class="sev">Medium</span> <span class="who tag c-B">B</span> A retry after the timeout can list items twice <code>src/api/items.ts:3-6</code></li>
+    <li class="sev-l"><span class="sev">Low</span> <span class="who tag c-C">C</span> The list shows a blank row for an empty name <code>web/ItemList.tsx:2-3</code></li>
+  </ol>
+  <h3>Never tested</h3>
+  <ul class="gaps"><li>The four PRs were never run together.</li></ul>
+  <h3>Decisions</h3>
+  <ol class="brief-decisions"><li><a href="#dec-1">Ship the 404 for an unknown clinic now, or behind a flag?</a></li></ol>
+</section>
+<!-- review-map:graph -->
+<section id="pr-A"><h2>PR A</h2><p><button type="button" class="tag c-A" data-gopen="A"></button></p></section>
+<section id="before-merging" data-toc="Before merging"><h2>Before merging</h2>
+  <h3>Decisions for you</h3>
+  <ol class="decisions"><li id="dec-1"><span class="who tag c-B">B</span><p class="q">Ship the 404 for an unknown clinic now, or behind a flag?</p>
+    <p class="rec none"><strong>No recommendation:</strong> no data on callers.</p><p class="refs"><code>src/api/items.ts:3-6</code> <code>src/api/items.test.ts:1-2</code></p></li></ol>
+</section>
+<footer>As of today.</footer>
+"""
+SMALL_NARRATIVE = """<header><h1>Small change</h1></header>
+<section id="brief" data-toc="Brief"><h2>Brief</h2><ul class="brief-users"><li>Items are listed sorted by name.</li></ul>
+  <h3>Risks</h3><ol class="brief-risks"><li class="sev-m"><span class="sev">Medium</span> <span class="who tag c-S">S</span> Sorting is case-sensitive <code>src/sort.ts:2-3</code></li></ol></section>
+<!-- review-map:graph -->
+<section id="before-merging"><h2>Before merging</h2><h3>Decisions for you</h3><p>None.</p></section>
+"""
+
+
+def brief(d: Path) -> dict:
+    repo = new_repo(d / "repo")
+    commit(repo, {"README.md": "# x\n", "src/auth/legacy.ts": "".join(f"export const l{i} = {i};\n" for i in range(10))}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/a")
+    commit(repo, {
+        "db/migrations/0042_slot.sql": "".join(f"ALTER TABLE visits ADD COLUMN c{i} text;\n" for i in range(8)),
+        "src/auth/session.ts": "".join(f"export const s{i} = {i};\n" for i in range(20)),
+        "src/auth/session.test.ts": "import { s1 } from './session';\ntest('s', () => expect(s1).toBe(1));\ntest('t', () => 1);\n",
+    }, "A")
+    git(repo, "checkout", "-q", "-b", "feat/b")
+    commit(repo, {
+        "src/api/items.ts": "import { s1 } from '../auth/session';\n" + "".join(f"export const i{i} = s1 + {i};\n" for i in range(11)),
+        "src/api/items.test.ts": "import { i1 } from './items';\ntest('i', () => expect(i1).toBe(2));\ntest('j', () => 1);\n",
+        "package-lock.json": "".join(f'{{"line": {i}}}\n' for i in range(30)),
+    }, "B")
+    git(repo, "checkout", "-q", "-b", "feat/c")
+    commit(repo, {"web/ItemList.tsx": "import { i1 } from '../src/api/items';\nexport const ItemList = () => i1;\n" + "".join(f"// row {i}\n" for i in range(4)),
+                  "web/locales/en.json": '{"items": "Items"}\n'}, "C")
+    git(repo, "checkout", "-q", "-b", "feat/d")
+    git(repo, "rm", "-q", "src/auth/legacy.ts")
+    commit(repo, {"docs/notes.md": "# Notes\n\nDone.\n"}, "D")
+    overlay = d / "overlay.json"
+    overlay.write_text(json.dumps({"nodes": {
+        "A:src/auth/session.ts": {"role": "Session check", "attention": "risky", "focus": [{"start": 5, "end": 9, "why": "Tenant check dropped"}]},
+        "D:src/auth/legacy.ts": {"attention": "risky", "focus": [{"start": 2, "end": 4, "why": "Removed check", "side": "old"}]}}}), encoding="utf-8")
+    prs = [("A", "main...feat/a", "A #1"), ("B", "feat/a...feat/b", "B #2"), ("C", "feat/b...feat/c", "C #3"), ("D", "feat/c...feat/d", "D #4")]
+    large = page(d, repo, prs, "Brief sample", overlay=overlay, narrative=BRIEF_NARRATIVE)
+    small_dir = d / "small"
+    small_dir.mkdir()
+    repo = new_repo(small_dir / "repo")
+    commit(repo, {"README.md": "# x\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/s")
+    commit(repo, {"src/sort.ts": "export const sort = (a: string[]) => a.slice().sort();\nexport const first = (a: string[]) => sort(a)[0];\n",
+                  "src/sort.test.ts": "import { sort } from './sort';\ntest('sort', () => expect(sort(['b', 'a'])).toEqual(['a', 'b']));\n",
+                  "src/index.ts": "export { sort } from './sort';\n"}, "S")
+    small = page(small_dir, repo, [("S", "main...feat/s", "S #5")], "Small sample", narrative=SMALL_NARRATIVE)
+    return {"page": str(large), "small": str(small)}
+
+
+FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan, "theme": theme, "brief": brief}
 
 
 def main(argv: list[str]) -> None:

@@ -1,111 +1,108 @@
 ---
 name: pr-review-map
 description: >-
-  Build an interactive HTML review map for one large pull request or a stack of
-  dependent pull requests, possibly across repositories: a per-PR graph of the
-  changed files and their real dependencies with a numbered reading order, a
-  side-by-side diff viewer for the selected file, with a merge order, the
-  changes per PR as short bullets, and what to check before merging. Use it when the user
-  wants to review, visualize, or understand a big PR or PR stack ("review map",
-  "raport do review", "graf zależności diffu", "jak czytać te zmiany", "in what
-  order should I read this diff"), and offer it after finishing a change that
-  spans several PRs.
+  Build an interactive HTML review map for a change of any size: one pull request, a
+  branch, or a stack of dependent pull requests, possibly across repositories. A brief
+  first (what changes for users, contract changes, ranked risks, what was never tested,
+  decisions), then, as the change grows, a reading budget, a per-PR graph of the changed
+  files and their real dependencies with a numbered reading order, a side-by-side diff
+  viewer, the merge order, the changes per PR, and what to check before merging. Use it
+  when the user wants to review, visualize, or understand a PR or a PR stack ("review
+  map", "raport do review", "graf zależności diffu", "jak czytać te zmiany", "in what
+  order should I read this diff", "where is the risk in this change"), and offer it after
+  finishing a change that spans several PRs.
 compatibility: Requires git and python3 (standard library only) to build the data, node to validate the page, and read access to every repository in the stack. Publishes through the Claude Code Artifact tool when available, otherwise writes a local HTML file. The page loads highlight.js (plus any language file its diffs need, such as dockerfile or protobuf) and, for a local file, mermaid from cdnjs.
 ---
 
 # PR review map
 
-Large diffs are unreadable in GitHub's alphabetical file order. This skill
-produces one page that tells a reviewer where to start, what depends on what,
-and what to check, with the diff of each file one click away. It is a
-comprehension aid for the reviewer, not a summary for its author: lead with the
-reading graph, keep prose short (bullets that restate the graph or the diff do not
-belong), and never state anything you did not verify.
+A diff reads in GitHub's alphabetical file order and says nothing about where the risk
+is. This skill produces one page that gets the reader to the important parts first: a
+brief (what changes, which contracts move, the ranked risks, what was never tested, the
+decisions), then, as the change grows, a reading budget and a graph of where to start,
+what depends on what, and what to skip, with each file's diff one click away. It is a
+comprehension aid for the reviewer, not a summary for its author: lead with the brief,
+keep prose short (bullets that restate the graph or the diff do not belong), and never
+state anything you did not verify.
 
 ## What the page contains
 
-Keep this order. The viewer (`assets/viewer.html`) renders section 2, `assemble.py`
-generates the merge order in section 1; you author the rest as `narrative.html`
-(building blocks and the rules for the bullets: `references/narrative.md`).
+Keep this order. The viewer (`assets/viewer.html`) renders section 4, `assemble.py`
+generates sections 2 and 3; you author the rest as `narrative.html` (building blocks
+and rules: `references/narrative.md`).
 
-1. **Header and merge order**: your title and, if needed, one sentence; under it one
-   line per PR in merge order with key, name, title, tip SHA, file count, and +/−,
-   generated from `graphs.json` (never typed by hand, so right after a refresh), the
-   authored `summary` (overlay `summaries`) under it, and a link to the PR's section. A PR
-   split into parts gets one line with its parts under it.
-2. **Interactive reading graph** (the core). Per-PR tabs. Nodes are changed
-   files; translations, catalogs, deploy config, docs, and lockfiles collapse into
-   one node each. Edges are real dependencies: resolved imports (through barrels,
-   changed or not, to the file that defines the name; type-only ones drawn dotted and lighter), PHP `use`, DI and
-   routing bindings, test → subject, code → config it reads, HTTP calls across
-   services, and links to files of earlier PRs. The page opens on the map; a **Steps** toggle
-   (closed by default, kept; an older saved view is ignored) opens the step list pinned beside the detail panel and diff: one row per file in reading order
-   (read checkbox, step number, layer colour, note-kind chips, and "→A"/"←B"
-   chips for files of PR A it uses or PR B files that use it, which open that
-   file on its tab), each test indented under its subject, and a lane drawing the
-   selected file's dependencies and dependents as arcs between rows ("All links"
-   draws every dependency, with limits on big PRs). Files of earlier PRs the PR uses head the list, grouped
-   by PR. Shared dependencies (files many of the PR's linked files use, flagged
-   `hub`; trivially changed ones last) come next as the first steps in both modes,
-   in their own group; arcs into them show only while one is selected.
-   "Group by folder" (or "by area") splits the rest into collapsible sections that
-   keep the step numbers. The order runs "from the entry point" (reverse dependency
-   order) or "from dependencies"; each PR opens in the one build_graph.py recommends
-   (`readFrom`; a note says why) until the reader picks one for it. In
-   both, a file connected to the one just read comes next when the dependencies
-   allow, tests follow their subject, unconnected files come after the connected
-   ones, and docs/config/i18n last.
-   Selecting a file (click, ↑/↓ and Enter, prev/next) shows its path, role, +/−,
-   per-file note, and neighbourhood (dependencies in blue | file | dependents in
-   orange, previous and next step), then its diff (side by side or unified). A Map
-   toggle adds the whole graph (entry points right, tests under their subject,
-   earlier-PR files in a left band, shared dependencies on top, unlinked files and
-   docs/config/i18n on a shelf); above 40 core files it opens on an overview
-   of areas (`clusters`, else folders), each expanding in place. Read marks and the chosen view persist in
-   localStorage. **Review notes**: on a line range (click a line number;
-   Shift+click or the keyboard for a range on the same side), a whole file, or a
-   whole PR (the button by the tabs), each an issue, question, suggestion, or OK.
-   Notes show as coloured markers and in a notes panel (filter, edit, delete, jump),
-   persist in localStorage, and "Copy notes" puts the shown ones on the clipboard as
-   Markdown for an agent, by kind, PR, file, and line, with a `path:start-end` reference.
-   **After a refresh** (step 7) a line note whose code moved follows it ("moved
-   from :12-14"), one whose code changed is "stale" (no marker), one on a file
-   the PR no longer changes is "file gone"; a "Code changed" filter and actions
-   (accept the new location, re-anchor, dismiss, restore) handle them. A banner
-   counts the files changed since the previous version; their read marks clear (↻). **A PR split into parts** (step 1) shows its parts as
-   tabs grouped under it; a file other parts change too carries an "also in parts"
-   chip and a whole-PR diff toggle. **Tours** ("Trasy", step 3): a picker beside the
-   Steps toggle walks one flow (Prev/Next, `[` `]`, Esc), opening each step's lines on its tab. Files combined by
-   hand in a merge (node `conflict` entries of kind `merged`) carry a ↯ mark on the row
-   and the map box (hidden by default when they are more than 10 and more than a quarter
-   of the PR's files, with one line above the toolbar saying so and "Conflict marks" in
-   View to show them); the detail panel lists every resolution with its lines and a
-   copyable `git show --remerge-diff`. The **View** menu holds the list and map options, with **Theme** (Auto: the host page's `data-theme`, else the system; Light; Dark; kept per browser, applied before the first paint, diagrams redrawn to match); ⤢, `f`, or `#ws` opens a full-window **workspace** (list | diff | neighbours or map, resizable columns, notes as a drawer; 1100 px and wider): "List | Map" (`m`, the same switch as Steps) puts the map in the left column instead, centred on each selected file with far files faded, and the file's header above the diff; a diff column under 900 px draws unified until it is wide again.
-3. **Architecture**: a mermaid flowchart, only when the PRs change how layers
-   connect. At most one line of text around it. Short labels and notes.
-4. **Request flow**: a mermaid sequence diagram, only when relevant. Failure paths
-   go inside it (`alt`/`else`), not in a table. At most one line of text around it.
-   Diagrams and the flat map zoom and pan (buttons, Ctrl+wheel, pinch, drag, `+` `-` `0`).
-5. **Changes per PR**: nested bullets, one per change in behaviour or structure
+1. **Header and brief** (authored): your title, then one section of one-liners across
+   the whole change, never per PR: what changes for users (at most 3 bullets); one table
+   of contract changes by kind (migration, route, API types, config/env, auth, events),
+   each with PR chip and code link; the risks ranked across all PRs (irreversible, all
+   users, security, data loss first), at most 7, each with severity, PR chip, and a link
+   that opens the lines; what was never tested; one line per decision, linking to its
+   card in Before merging.
+2. **Reading budget** (generated, large changes): "Read N of M changed lines (x%)", a bar
+   of the four attention classes (must read, read, skim, skip), then the files to read
+   by PR, risky first with why, each opening at its focus lines.
+3. **Merge order** (generated from `graphs.json`): one line per PR with key, name, title,
+   tip SHA, file count, +/−, the authored `summary` (overlay `summaries`), and a link to
+   its section; a PR split into parts is one line with its parts under it.
+4. **Interactive reading graph** (the core). Per-PR tabs. Nodes are changed files;
+   translations, catalogs, deploy config, docs, and lockfiles collapse into one node
+   each. Edges are real dependencies: resolved imports (through barrels to the file that
+   defines the name; type-only ones dotted), PHP `use`, DI and routing bindings, test →
+   subject, code → config it reads, HTTP calls across services, and links to files of
+   earlier PRs. Each changed file has an **attention** class (mechanical, pattern,
+   novel, risky; `build_graph.py` guesses it, the overlay decides), shown as a chip and
+   dimming mechanical rows; View › "Only what to read" keeps risky and novel files with
+   their step numbers. The page opens on the map; a **Steps** toggle (closed by default,
+   kept) opens the step list beside the detail panel and diff: one row per file in
+   reading order (read checkbox, step number, layer colour, attention and note chips,
+   "→A"/"←B" chips for other PRs), tests under their subject, a lane of arcs for the
+   selected file's links. Files of earlier PRs head the list, shared dependencies (`hub`)
+   come next, "Group by folder" or "by area" splits the rest. The order runs "from the
+   entry point" or "from dependencies"; each PR opens in the one `build_graph.py`
+   recommends (`readFrom`). Selecting a file shows its path, role, +/−, note, focus
+   ranges, and neighbourhood, then its diff (side by side or unified). The map opens
+   above 40 core files on an overview of areas (`clusters`, else folders). **Review
+   notes** go on a line range, a file, or a PR (issue, question, suggestion, OK) and
+   "Copy notes" puts them on the clipboard as Markdown with `path:start-end` references.
+   **After a refresh** (step 7) a note follows moved code, goes "stale" or "file gone",
+   and a banner counts files changed since the previous version and clears their read
+   marks. **A PR split into parts** (step 1) shows tabs grouped under it. **Tours**
+   (step 3): a picker walks one flow, opening each step's lines on its tab. Files combined
+   by hand in a merge carry a ↯ mark and a copyable `git show --remerge-diff`. The
+   **View** menu holds the list and map options and **Theme** (Auto, Light, Dark); ⤢,
+   `f`, or `#ws` opens a full-window **workspace** (1100 px and wider). Read marks and
+   the chosen view persist in localStorage.
+5. **Architecture**: a mermaid flowchart, only when the PRs change how layers connect.
+6. **Request flow**: a mermaid sequence diagram, only when relevant, failure paths inside
+   it (`alt`/`else`). At most one line of text around either; both zoom and pan.
+7. **Changes per PR**: nested bullets, one per change in behaviour or structure
    (never per file), with the button that opens the PR's graph. Behaviour changes
    start with "Behaviour change:"; business rules are bullets with concrete values.
-   Review pointers that are not decisions follow in a collapsed "Look closely (n)"
-   element, at most three per PR.
-6. **Before merging**: "Decisions for you" (only what the owner alone decides: question,
-   "Recommended:" with its evidence or "No recommendation:" and what is missing, alternatives,
-   code links; "Add as note" only here), a **verification table** (a row per PR with the
-   tested SHA, ran / not run / n/a, then the harmful gaps), and "After merging". File links
-   show as a short name and line, the full path on hover.
+   Review pointers that are not risks of the brief follow in a collapsed "Look closely
+   (n)", at most three per PR.
+8. **Before merging**: "Decisions for you" (only what the owner alone decides: question,
+   "Recommended:" with evidence or "No recommendation:", alternatives, code links; "Add
+   as note" only here), the **verification table** (per PR: tested SHA, ran / not run /
+   n/a), and "After merging". File links show as a short name and line.
 
-Write the narrative and the UI strings in the user's language. Built-in UI
-strings exist for `pl` and `en` (`assets/strings.json`); override any key, or
-supply a whole other locale, with a small JSON file passed as `--strings`.
+**Size** (`size` in `graphs.json`, computed by `build_graph.py`, the overlay may override):
+`small` is one PR of at most 10 files and 400 lines; `large` is over 60 files, over 3000
+lines, or over 3 PRs; else `medium`.
+
+- small: the brief, Before merging, and the diffs; the step list opens by default, no
+  map, budget, diagrams, or Changes per PR.
+- medium: + reading order, map, attention chips, "Only what to read".
+- large: + the reading budget.
+
+Write the narrative in the user's language. UI strings exist for `pl` and `en`
+(`assets/strings.json`); override keys or add a locale with `--strings`.
 
 ## Workflow
 
 Keep your own context small: subagents read the diffs, scripts move the data,
 you write the narrative from their summaries. Work in a scratch directory
-(`$SCRATCH` below); `$SKILL` is this skill's directory.
+(`$SCRATCH` below); `$SKILL` is this skill's directory. The size tier (step 3
+prints it) decides how much runs: steps 1 and 3 to 7 always.
 
 ### 1. Pin the PRs and their ranges
 
@@ -114,49 +111,51 @@ For each PR record: key (short, e.g. `M`, `S`, `A`, `B`), display name
 
 - A PR against its base branch: `base...tip` (three dots), the diff GitHub shows.
 - A stacked PR: `previous-tip...tip`, so it shows only its own layer.
-- The base moved and the PR was never rebased (long-lived branches, monoliths):
-  `$(git merge-base origin/<base> <tip>)..<tip>`, and write that SHA down.
-- Note merge commits: `git log --merges --oneline <range>`.
-- Fetch first. If a branch moves later, regenerate (step 7); do not patch data by hand.
+- The base moved and the PR was never rebased: `$(git merge-base origin/<base>
+  <tip>)..<tip>`, and write that SHA down. Note merge commits: `git log --merges`.
+- Fetch first. If a branch moves later, regenerate (step 7); never patch data by hand.
 
 List the PRs in merge order; edges may only point to the same or an earlier PR.
 
-**A very large PR** (over 100 changed files or 60 graph nodes; build_graph.py
-prints a hint) reads better as a virtual stack of parts cut from its commits:
+**A very large PR** (over 100 files or 60 nodes; build_graph.py prints a hint) reads
+better as a virtual stack of parts cut from its commits:
 
 ```bash
 python3 $SKILL/scripts/chunks.py propose --repo /abs/repo --range develop...feat/x \
   --key M --name "#251" --out $SCRATCH/chunks.json
 ```
 
-It groups consecutive commits by scope and prints a table. Show it to the user and
-let them confirm or adjust `chunks.json` (merge, split, relabel); never rewrite
-their history. Then pass `--chunks $SCRATCH/chunks.json` to build_graph.py and
-gen_diffs.py in place of that PR's `--pr`, and fan out one change map per part.
-Details, warnings, and the overlay's parent-key references: `references/chunks.md`.
+It groups consecutive commits by scope and prints a table. Let the user confirm or
+adjust `chunks.json`; never rewrite their history. Then pass `--chunks
+$SCRATCH/chunks.json` to build_graph.py and gen_diffs.py in place of that PR's `--pr`,
+and fan out one change map per part. Details: `references/chunks.md`.
 
 ### 2. Fan out change maps (parallel, read-only)
 
 Start one read-only subagent per PR with the prompt in
-`references/change-map-prompt.md`. Each writes `$SCRATCH/pr-<key>.md` (purpose,
-the changes in behaviour and structure as the bullets the page needs, files by layer
-with +/−, named flows as `path:start-end — note` steps, failure paths, config, tests,
-ranked risks, what it verified, per-file notes) and returns only a short summary.
-Read the summaries; open a map only for the section you are writing.
+`references/change-map-prompt.md`. Each writes `$SCRATCH/pr-<key>.md` (purpose, changes
+as the page's bullets, files by layer, flows as `path:start-end — note` steps, failure
+paths, config, tests, contracts, risks with severity, untested gaps, a proposed
+attention class and focus ranges per file, what it verified, per-file notes) and
+returns only a short summary. Read the summaries; open a map only for the section you
+are writing. A **small** change needs no fan-out: one change map, or read the diff
+yourself; tours, areas, and roles are optional for it.
 
 ### 3. Build the graph data (one subagent)
 
 Hand `references/graph-prompt.md` to one subagent. It runs
 `scripts/build_graph.py`, which scaffolds `graphs.json` from git without a
-checkout (numstat, grouping, a first-guess layer, JS/TS imports with tsconfig
-paths and aliases, re-exports through barrels to the defining files, type-only imports, Python
-imports, PHP `use`, test → subject, dependency order, a recommended reading mode),
-then records what
-git cannot show in `overlay.json`: DI, routing, config readers, HTTP edges,
-unchanged reference files, a `role` for every node, `note`s from the change
-maps, a `hub` override where the shared-dependency rule misjudges a file, for a
-PR above 40 core files 8-12 areas (`clusters`), and one tour per flow (`tours`, lines
-checked with `git show`). The schema and overlay format are in `references/graph-schema.md`.
+checkout (numstat, grouping, a first-guess layer and attention class, JS/TS imports
+with tsconfig paths and aliases, re-exports through barrels, type-only imports, Python
+imports, PHP `use`, test → subject, dependency order, a recommended reading mode, the
+`size` tier), then records what git cannot show in `overlay.json`: DI, routing, config
+readers, HTTP edges, unchanged reference files, a `role` for every node, `note`s from
+the change maps, a `hub` override where the shared-dependency rule misjudges a file,
+`attention` (default: migrations risky; lockfiles, generated files, i18n, docs, trivial
+changes, pure moves mechanical; tests and deploy config pattern; else novel) and `focus`
+ranges where the guess is wrong, for a PR above 40 core files 8-12 areas (`clusters`),
+and one tour per flow (`tours`, lines checked with `git show`). Schema and overlay
+format: `references/graph-schema.md`.
 
 ### 4. Generate the diffs
 
@@ -165,21 +164,22 @@ python3 $SKILL/scripts/gen_diffs.py --graph $SCRATCH/graphs.json --out $SCRATCH/
   --pr S /abs/repo main...feat/s --pr A /abs/repo feat/s...feat/a --strict
 ```
 
-One `--pr KEY REPO RANGE` per PR. Git headers are stripped, each diff is
-assigned to its node through `path`/`files`, `--max-lines` (default 2000)
-caps a huge file such as a lockfile, and Vue/Svelte/Astro hunks name their block
-on the `@@` line so the viewer highlights template, script, and style apart. Fix every "mapped to no node" file in the
-overlay rather than dropping `--strict`.
+One `--pr KEY REPO RANGE` per PR. Each diff is assigned to its node through
+`path`/`files`, and `--max-lines` (default 2000) caps a huge file such as a lockfile.
+Fix every "mapped to no node" file in the overlay rather than dropping `--strict`.
 
 ### 5. Write the narrative
 
 Write `$SCRATCH/narrative.html` following `references/narrative.md`: the title
-header, then the single `<!-- review-map:graph -->` line, then the diagrams that are
-relevant, the bullets per PR, and "Before merging". Do not write the merge order,
-tips, file counts, or +/−: assemble.py generates them from `graphs.json`. Before writing a claim, check it against the code at the
-tip: config semantics, defaults, status codes, flag behavior, deploy order. If
-you cannot verify something, say so in the page or leave it out. Use `file:line`
-references, not code dumps; the diff viewer shows the code.
+header, the brief, the single `<!-- review-map:graph -->` line, then the diagrams that are
+relevant, the bullets per PR, and "Before merging" (a small change: header, brief, and
+"Before merging" only). For the brief, merge the maps across all PRs: contracts into one
+table, risks re-ranked by the rubric (at most 7; the rest stay under "Look closely"), the
+harmful gaps, one line per decision. Do not write the budget, merge order, tips, file
+counts, or +/−: assemble.py generates them from `graphs.json`. Check each claim against
+the code at the tip (config semantics, defaults, status codes, flag behavior, deploy
+order); if you cannot verify it, say so or leave it out. Use `file:line` references,
+not code dumps.
 
 ### 6. Assemble and validate
 
@@ -195,24 +195,23 @@ Read marks (by PR and file path) and review notes live in localStorage under
 regenerate so they survive. Keep `graphs.json` and `diffs.json` in `$SCRATCH`:
 build_graph, gen_diffs, and assemble record their inputs (and the resolved
 storage key) in `$SCRATCH/review-map.json` for step 7.
-`assemble.py` fills the template, builds the table of contents, colours each PR,
-and embeds the data as `<script type="application/json">` blocks with `</`
-written as `<\/` and `<!--` as `<!--` (both valid JSON). Never hand-insert
-JSON into the page and never emit an invalid escape such as `<\!--`.
+`assemble.py` fills the template, builds the table of contents, the budget, and
+the merge order, colours each PR, and embeds the data as `<script
+type="application/json">` blocks with `</` written as `<\/` and `<!--` as `<!--`
+(both valid JSON). Never hand-insert JSON into the page and never emit an invalid
+escape such as `<\!--`.
 
-`validate.py` compiles every inline script in node (`new Function`), parses
-every data block with `JSON.parse`, checks div/section/details balance, the CDN
-allowlist (cdnjs), leftover placeholders, and graph/diff consistency. Do not
-publish until it prints `OK`. Warnings about nodes without a diff are worth
-fixing too.
+`validate.py` compiles every inline script in node, parses every data block, checks
+markup balance, the CDN allowlist (cdnjs), leftover placeholders, and graph/diff
+consistency (attention values, focus ranges). Do not publish until it prints `OK`;
+a warning (no brief, a node without a diff, a focus outside its diff) is worth fixing.
 
 ### 7. Publish
 
-- **Claude Code with the Artifact tool**: call its quickstart with intent
-  `other` first and follow the page contract it returns (`<title>` first, theme
-  tokens for light and dark, mobile layout, CDN allowlist). `--target artifact`
-  output already starts with `<title>` and leaves `<pre class="mermaid">` to the
-  host renderer. Publish `review.html` and give the user the link.
+- **Claude Code with the Artifact tool**: call its quickstart with intent `other`
+  first and follow the page contract it returns. `--target artifact` output already
+  starts with `<title>` and leaves `<pre class="mermaid">` to the host renderer.
+  Publish `review.html` and give the user the link.
 - **Anywhere else**: assemble with `--target local` (a full document that loads
   mermaid from cdnjs), validate it, and give the user the absolute file path.
 
@@ -221,16 +220,16 @@ It replays steps 3 (same overlay), 4, and 6 from `review-map.json`, resolves
 branch names to their current tips (read-only, prints old → new per PR), and
 builds the page against the previous version (`previous.json`): changed-file
 banner and badges, read marks of changed files cleared, notes moved or flagged.
-It never edits the narrative; the merge-order header comes from the new
-`graphs.json`, and it warns where the narrative still shows an old tip (a verification
-row bound to it). Tour steps follow their code (moved, or stale: whole file). Parts survive: new commits become a new part, a rebase is
-remapped by patch-id or subject, and it stops when that fails. Update those lines
-and every claim the new commits change, run `refresh.py $SCRATCH --assemble-only`,
-and republish. refresh.py
-trusts `review-map.json` as far as reading the files it names (overlay,
-narrative, strings, template): run it only on a manifest your own runs wrote.
-It refuses PR keys, repositories, and ranges git could read as options and
-writes only inside `$SCRATCH` unless given `--allow-outside`.
+It never edits the narrative; the budget and merge order come from the new
+`graphs.json`, and it warns where the narrative still shows an old tip. Tour steps
+follow their code (moved, or stale: whole file); `focus` ranges do not, so a changed
+file that has them is warned about. Parts survive: new commits become a new part, a
+rebase is remapped by patch-id or subject, and it stops when that fails. Update the
+narrative lines and claims the new commits change, run `refresh.py $SCRATCH
+--assemble-only`, and republish. It trusts `review-map.json` as far as reading the
+files it names: run it only on a manifest your own runs wrote; it refuses PR keys,
+repositories, and ranges git could read as options and writes only inside `$SCRATCH`
+unless given `--allow-outside`.
 
 ## Rules
 
@@ -239,11 +238,11 @@ writes only inside `$SCRATCH` unless given `--allow-outside`.
   never start with `-`; the scripts check that and pass `--end-of-options`.
 - The graph owns reading order. Do not add numbered reading lists to the
   narrative; put per-file explanations in the graph `note` fields.
-- Every edge must come from the code (resolved import, binding, call site). Do
-  not draw edges from naming similarity alone, except test → subject.
-- Keep diffs in the page: embed them through `diffs.json`, never link out
-  instead. Keep the page self-contained apart from cdnjs.
-- Report only what was verified. A suite that was not run is "not run" in the verification table;
-  a config value whose meaning you did not read is not described.
+- Every edge must come from the code (resolved import, binding, call site), never
+  from naming similarity alone, except test → subject.
+- Keep diffs in the page (`diffs.json`), never link out; the page is self-contained
+  apart from cdnjs.
+- Report only what was verified. A suite that was not run is "not run"; a config
+  value whose meaning you did not read is not described.
 - Offer the map when you finish a change that spans several PRs; build it only
   when the user wants it.

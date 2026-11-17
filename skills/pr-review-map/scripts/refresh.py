@@ -36,6 +36,10 @@ lines; a step whose file left the PR is left out (a warning), and a tour with fe
 steps left with it. None of these stops the refresh. The overlay is never rewritten: update
 a step's lines there to keep the new place as authored.
 
+Focus ranges (the overlay's `focus` on a risky or novel file, scripts/attention.py) do not follow their code: the line
+numbers are the overlay's as written. A file that carries them and whose change differs from the previous build's is flagged
+with a warning ("focus ranges may be stale"); update the ranges in the overlay.
+
 The narrative is never rewritten. The merge-order header (tip, files, +/- per PR, and the
 parts of a split PR) is not part of it: assemble.py generates it from graphs.json, so it is
 right after every refresh. When a tip moved, refresh.py warns that the narrative's claims
@@ -62,6 +66,7 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing sibling scripts must not leave a __pycache__ in the skill
+import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
 from gen_diffs import fingerprint  # noqa: E402
@@ -346,6 +351,10 @@ def main() -> int:
     new_graph, new_diffs = load_json(graph_path), load_json(diffs_path)
     new_files = file_fingerprints(new_graph, new_diffs)
     kept = previous_file(here, asm)
+    if old_files is not None:
+        for key, path in attention.stale_focus(new_graph, old_files, new_files):
+            warnings.append(f"PR {key}: {path} changed since the last build and carries focus ranges: they may be stale "
+                            "(refresh.py does not move them); check the overlay's focus lines")
     if old_files is None:
         previous = kept
     elif old_files == new_files and not moved and kept is not None:

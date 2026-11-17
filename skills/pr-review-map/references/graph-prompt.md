@@ -73,9 +73,17 @@ Steps:
    sentences in the report language saying what the PR does and what changes for users or
    the system, taken from the change map's Purpose and Changes. The merge-order header
    shows them; a PR without one just has no sentence.
+   Attention: build_graph.py guesses each file's `attention` (mechanical, pattern, novel, risky; see
+   <skill dir>/references/graph-schema.md, "Attention and size"). Take each change map's proposed class per file and set
+   `nodes.<ref>.attention` where it differs from the guess (risky: auth, security gates, destructive or irreversible
+   changes, contracts others depend on; mechanical: a rename or formatting sweep the guess missed), and for each risky or
+   novel file the change map gives focus ranges for, `nodes.<ref>.focus` ([{"start": 12, "end": 30, "why": "...",
+   "side": "new"}], lines at the tip, `side: "old"` for code the PR removes, `why` in the report language, one line, checked
+   with `git show`). Leave `focus` out when the whole file matters. Add `"size"` at the top of the overlay only to override
+   the computed tier (the summary prints it with the files and lines it counted).
 4. Re-run build_graph.py with the overlay until the summary shows no missing roles,
    no core files without an area where you authored areas, every tour with its step
-   count, and no warnings you have not checked. If it reports an import cycle (type-only
+   count, the size tier and lines to read it prints, and no warnings you have not checked. If it reports an import cycle (type-only
    imports never make one), confirm it is real or drop the wrong edge with `dropEdges`.
 5. Generate diffs and confirm every node has one:
    python3 <skill dir>/scripts/gen_diffs.py --graph <scratch dir>/graphs.json \
@@ -87,7 +95,7 @@ Steps:
    step whose lines lie outside every hunk of its diff is a warning (the viewer opens the
    whole file); move it onto changed lines unless the unchanged code is the point.
 
-Return only: node and edge counts per PR, cross-PR edge count, the areas per PR with
+Return only: the size tier with its lines to read, the files you marked risky or gave focus ranges, node and edge counts per PR, cross-PR edge count, the areas per PR with
 their file counts, the tours with their step counts, the files resolved by
 hand in merges with what each kept, the overlay path, and anything you could not
 resolve (unmatched files, edges you were unsure about).

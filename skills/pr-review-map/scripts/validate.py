@@ -29,6 +29,10 @@ Checks, each an error unless noted:
     side new or old, and its lines 1 <= a <= b or none; lines outside every hunk on
     their side are a warning (the viewer opens the whole file), as is a narrative
     data-tour button that names no tour
+  * `size` (small, medium, or large) and each node's `attention` (mechanical, pattern, novel, or risky) and `focus`
+    ([{"start", "end", "why", "side"?}], 1 <= start <= end, side new or old) within their values; a focus range outside
+    every hunk of the node's diff is a warning (scripts/attention.py)
+  * the page's `<section id="brief">` (warning when missing: a page from before the brief still passes)
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
     review-config "generation", when present, an integer from 0 to 2**31
@@ -48,6 +52,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 sys.dont_write_bytecode = True  # importing chunks.py must not leave a __pycache__ in the skill
+import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
 import tours  # noqa: E402
@@ -202,6 +207,9 @@ def main() -> int:
     if leftover:
         errors.append(f"unfilled template placeholders: {leftover}")
 
+    if not re.search(r'<section\b[^>]*\bid="brief"', markup):
+        warnings.append('no <section id="brief">: the page opens without what changes for users, the contracts, the ranked risks, '
+                        "the untested gaps, and the decisions (references/narrative.md)")
     graph = data.get("graph-data")
     diffs = data.get("diff-data")
     if isinstance(graph, dict) and isinstance(graph.get("prs"), list):
@@ -243,6 +251,9 @@ def main() -> int:
             found, notes = cluster_problems(pr) if isinstance(pr, dict) else ([], [])
             errors.extend(found)
             warnings.extend(notes)
+        found, notes = attention.problems(graph, diffs)
+        errors.extend(found)
+        warnings.extend(notes)
         found, notes = tours.problems(graph, diffs, re.findall(r'\bdata-tour="([^"]*)"', markup))
         errors.extend(f"tours: {problem}" for problem in found)
         warnings.extend(f"tours: {problem}" for problem in notes)

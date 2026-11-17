@@ -37,6 +37,10 @@ What the script resolves on its own:
     without leading area words (`mobile-transport-test` -> `transport`), then to word overlap with a
     changed file near it (`mobile-auth-bootstrap-test` -> `auth/bootstrap.ts`), only when one file wins
   * `trivial`: a file that changes at most 2 lines, or only import/re-export lines
+  * `attention` and the top-level `size` (scripts/attention.py): a first guess of where a reviewer's attention goes, per
+    changed node: mechanical (lockfiles, generated files, translations, docs, trivial changes, pure moves, binary files),
+    pattern (tests, deploy config), risky (migrations by path), else novel; the overlay overrides it and sets `focus`
+    ranges. `size` is small, medium, or large by the PRs, files, and lines changed; the overlay overrides it too
   * `hub`: shared dependencies, files that at least max(4, ceil(1.25 * sqrt(linked))) of the PR's linked
     files depend on, plus files only they use; the viewer pins them in a "Shared dependencies" group,
     trivial ones after the others, and leaves their incoming links out of the arcs
@@ -59,6 +63,11 @@ What the script resolves on its own:
 What it cannot see (DI wiring, routing, HTTP calls between services, config
 readers, roles, per-file notes, unchanged reference files, areas) goes in the overlay,
 so re-running after the branches move keeps it. See references/graph-schema.md.
+
+Attention: a node's overlay entry may set `attention` (mechanical, pattern, novel, or risky) and `focus`, `[{"start": 12,
+"end": 30, "why": "…", "side": "old"}]` (lines on the new side, or the old with `side`), the ranges of a risky or novel file
+that matter; the top-level overlay key `size` (small, medium, or large) overrides the computed tier. A malformed value stops
+the build. A `focus` on a mechanical or pattern file is ignored with a warning.
 
 Summaries: the overlay's `summaries` ({PR key: one or two sentences}, a split PR's parent key too) become each PR's
 `summary` (and the parent's), which the merge-order header shows under the PR's line. A PR without one has none, and a
@@ -108,6 +117,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
 import tours  # noqa: E402
@@ -182,6 +192,10 @@ BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-onl
 # trivial, or changing at most 1/MODE_RATIO of the largest change underneath them.
 MODE_ENTRIES, MODE_RATIO = 3, 3
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
+# First guess of a node's `attention` (see guess_attention()): a path that is generated, or a migration.
+GENERATED = re.compile(r"(^|/)(__generated__|generated)/|[._-](generated|gen)\.[^/]+$|\.snap$|\.min\.(js|css)$|\.pb\.go$|_pb2(_grpc)?\.pyi?$|\.g\.dart$")
+MIGRATION = re.compile(r"(^|/)(migrations?|alembic/versions|db/migrate)/|(^|/)V\d+__[^/]+\.sql$")
+DEPLOY = next(rule["pattern"] for rule in DEFAULT_GROUPS if rule["id"] == "deploy")
 REMERGE_GIT = (2, 36)  # first git with `show --remerge-diff`
 MERGE_CAP = 50         # merge commits per PR checked for hand-resolved conflicts (the newest)
 KIND_RANK = {"test": 6, "route": 5, "di": 4, "http": 3, "config": 2, "import": 1, "type": 0}
@@ -892,6 +906,26 @@ class Conflicts:
         return found
 
 
+def guess_attention(nk: str, node: dict) -> str:
+    """A changed node's first-guess `attention` (scripts/attention.py), from its group, path, layer, and change.
+    Nothing to read: lockfiles, generated files, translations, docs, binary files, a pure move, a trivial change.
+    A migration (by path) is risky even when small; tests and deploy config are patterns to skim; the rest is novel."""
+    if nk.startswith("#"):
+        if nk in ("#lockfiles", "#catalogs", "#translations", "#docs") or node["layer"] in ("docs", "i18n"):
+            return "mechanical"
+        return "pattern" if node["layer"] == "config" else "novel"
+    path = node["path"]
+    if re.search(LOCKFILES, path) or GENERATED.search(path) or node["layer"] in ("docs", "i18n") or node.get("moved") or node.get("binary"):
+        return "mechanical"
+    if MIGRATION.search(path):
+        return "risky"
+    if node.get("trivial"):
+        return "mechanical"
+    if node["layer"] == "test" or re.search(DEPLOY, path):
+        return "pattern"
+    return "novel"
+
+
 def is_light(node: dict) -> bool:
     """A trivial change or an unchanged reference file: nothing to read first."""
     return bool(node.get("trivial") or node.get("unchanged"))
@@ -1375,6 +1409,10 @@ def main() -> int:
                 node = nodes.setdefault(nk, {"label": posixpath.basename(path), "layer": layer or guess_layer(path),
                                              "role": "", "added": 0, "removed": 0, "files": [path], "path": path})
                 lines = added + removed
+                if binary:
+                    node["binary"] = True
+                if old and not binary and not lines:
+                    node["moved"] = True  # renamed with no change at all
                 if not binary and lines <= TRIVIAL_LINES:
                     node["trivial"] = True
                 elif not binary and lines <= IMPORT_ONLY_MAX and base and path.endswith((*JS_EXT, ".py", ".php")):
@@ -1545,6 +1583,15 @@ def main() -> int:
             for field in ("role", "note", "layer", "label"):
                 if field in fields:
                     node[field] = fields[field]
+            if "attention" in fields:
+                if fields["attention"] not in attention.CLASSES:
+                    raise SystemExit(f"overlay nodes {text!r}: attention must be one of {list(attention.CLASSES)}")
+                node["forced_attention"] = fields["attention"]
+            if "focus" in fields:
+                found = attention.focus_problems(fields["focus"])
+                if found:
+                    raise SystemExit(f"overlay nodes {text!r}: {found[0]}")
+                node["focus"] = fields["focus"]
             if "hub" in fields:
                 if not isinstance(fields["hub"], bool):
                     raise SystemExit(f"overlay nodes {text!r}: hub must be true or false")
@@ -1652,6 +1699,13 @@ def main() -> int:
                 item["trivial"] = True
             if node.get("hub"):
                 item["hub"] = True
+            if not node.get("unchanged"):
+                item["attention"] = node.get("forced_attention") or guess_attention(nk, node)
+                if node.get("focus"):
+                    if item["attention"] in attention.READ:
+                        item["focus"] = node["focus"]
+                    else:
+                        warnings.append(f"{pr['key']}: overlay focus ignored for {node['path']} ({item['attention']} files are not read in full)")
             if "cluster" in node:
                 item["cluster"] = node["cluster"]
             if node.get("conflicts"):
@@ -1685,6 +1739,12 @@ def main() -> int:
             out["parents"].append(item)
     if tour_out:
         out["tours"] = tour_out
+    totals = attention.size_totals(out)
+    computed = attention.size_of(*totals)
+    forced = overlay.get("size")
+    if forced is not None and forced not in attention.SIZES:
+        raise SystemExit(f"overlay size must be one of {list(attention.SIZES)}, not {forced!r}")
+    out["size"] = forced or computed
 
     args.out.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     if not args.no_manifest:
@@ -1747,6 +1807,11 @@ def main() -> int:
         if parent["tip"] and parent["tip"] != parent["end"]:
             warnings.append(f"PR {parent['key']}: the branch tip is {parent['tip'][:7]} but the last part ends at {parent['end'][:7]}; "
                             "refresh.py adds the commits after it as a new part")
+    budget = attention.budget(out)
+    print(f"size: {out['size']}" + (f" (computed {computed}, overlay overrides)" if out["size"] != computed else "")
+          + f" ({totals[0]} files, {totals[1]} lines, {totals[2]} PR{'s' if totals[2] != 1 else ''}"
+          + f"); to read: {budget['read']} of {budget['total']} changed lines ("
+          + ", ".join(f"{name} {budget['lines'][name]}" for name in reversed(attention.CLASSES)) + ")")
     print(f"cross-PR edges: {len(out['crossEdges'])}; nodes without a role: {missing_roles} -> {args.out}")
     if tour_out:
         print("tours: " + ", ".join(f"{tour['id']} {len(tour['steps'])} steps" for tour in tour_out))

@@ -3301,5 +3301,234 @@ class ConflictTests(unittest.TestCase):
         self.assertEqual(older.returncode, 0, older.stdout)  # bare SHAs (older builds) still pass, beside entries
 
 
+class AttentionTests(unittest.TestCase):
+    """Attention classes, focus ranges, the reading budget, and the size tiers (scripts/attention.py)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        cls.repo = repo = cls.root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        moved = "".join(f"export const m{i} = {i};\n" for i in range(8))
+        commit_files(repo, {"README.md": "# x\n", "src/moved.ts": moved,
+                            "src/tiny.ts": "".join(f"export const t{i} = {i};\n" for i in range(5))}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        (repo / "lib").mkdir()
+        git(repo, "mv", "src/moved.ts", "lib/moved.ts")
+        commit_files(repo, {
+            "db/migrations/0001_items.sql": "".join(f"ALTER TABLE items ADD COLUMN c{i} text;\n" for i in range(6)),
+            "src/auth/session.ts": "".join(f"export const s{i} = {i};\n" for i in range(15)),
+            "src/auth/session.test.ts": "".join(f"test('s{i}', () => 1);\n" for i in range(4)),
+            "src/other.ts": "".join(f"export const o{i} = {i};\n" for i in range(10)),
+            "src/tiny.ts": "export const t0 = 99;\n" + "".join(f"export const t{i} = {i};\n" for i in range(1, 5)),
+            "src/__generated__/types.ts": "".join(f"export type G{i} = {i};\n" for i in range(20)),
+            "package-lock.json": "".join(f'{{"line": {i}}}\n' for i in range(40)),
+            "locales/en.json": '{"a": "b"}\n', "docs/a.md": "# a\n\ntext\n",
+            "helm/values.yaml": "replicas: 2\nimage: x\n",
+        }, "feat")
+        cls.overlay = cls.root / "overlay.json"
+        cls.overlay.write_text(json.dumps({"nodes": {
+            "A:src/auth/session.ts": {"attention": "risky", "focus": [
+                {"start": 2, "end": 4, "why": "Signature check"}, {"start": 3, "end": 5, "why": "Expiry"}]},
+            "A:src/other.ts": {"role": "Other"}}, "size": "large"}), encoding="utf-8")
+        cls.build = lambda name, *extra: run_script(
+            "build_graph.py", "--out", str(cls.root / f"{name}.json"), "--pr", "A", str(repo), "main...feat", "--name", "A", "A #1",
+            "--no-manifest", *extra)
+        cls.plain_out = cls.build("plain").stdout
+        cls.tuned_out = cls.build("tuned", "--overlay", str(cls.overlay)).stdout
+        cls.plain = json.loads((cls.root / "plain.json").read_text(encoding="utf-8"))
+        cls.tuned = json.loads((cls.root / "tuned.json").read_text(encoding="utf-8"))
+        for name in ("plain", "tuned"):
+            run_script("gen_diffs.py", "--graph", str(cls.root / f"{name}.json"), "--out", str(cls.root / f"{name}-diffs.json"),
+                       "--pr", "A", str(repo), "main...feat", "--no-manifest")
+        cls.narrative = cls.root / "narrative.html"
+        cls.narrative.write_text('<header><h1>T</h1></header>\n<section id="brief" data-toc="Brief"><h2>Brief</h2>'
+                                 '<ul class="brief-users"><li>x</li></ul></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    def by_path(self, graph: dict) -> dict[str, dict]:
+        return {node["path"]: node for node in graph["prs"][0]["nodes"]}
+
+    def page(self, graph: dict, name: str, diffs: str = "tuned", narrative: Path | None = None) -> str:
+        path, out = self.root / f"{name}-graph.json", self.root / f"{name}.html"
+        path.write_text(json.dumps(graph), encoding="utf-8")
+        run_script("assemble.py", "--graph", str(path), "--diffs", str(self.root / f"{diffs}-diffs.json"), "--narrative", str(narrative or self.narrative),
+                   "--title", "T", "--out", str(out), "--no-manifest")
+        return out.read_text(encoding="utf-8")
+
+    def test_the_first_guess_classes_each_changed_file_by_what_a_reviewer_does_with_it(self):
+        """This test will fail when build_graph.py stops guessing lockfiles, generated files, translations, docs, trivial changes, and pure moves as mechanical, tests and deploy config as pattern, a migration (even a small one) as risky, and everything else as novel, gives a reference node of an unchanged file an attention, or lets an overlay `attention` or `focus` fail to override the guess."""
+        nodes = self.by_path(self.plain)
+        expected = {"package-lock.json": "mechanical", "locales/en.json": "mechanical", "docs/a.md": "mechanical",
+                    "src/__generated__/types.ts": "mechanical", "src/tiny.ts": "mechanical", "lib/moved.ts": "mechanical",
+                    "src/auth/session.test.ts": "pattern", "helm/values.yaml": "pattern",
+                    "db/migrations/0001_items.sql": "risky", "src/auth/session.ts": "novel", "src/other.ts": "novel"}
+        self.assertEqual({path: nodes[path]["attention"] for path in expected}, expected)
+        self.assertTrue(all("focus" not in node for node in nodes.values()))
+        tuned = self.by_path(self.tuned)
+        self.assertEqual(tuned["src/auth/session.ts"]["attention"], "risky")
+        self.assertEqual([r["why"] for r in tuned["src/auth/session.ts"]["focus"]], ["Signature check", "Expiry"])
+        self.assertEqual(tuned["db/migrations/0001_items.sql"]["attention"], "risky")
+        base = self.root / "ov.json"
+        for bad, message in (({"attention": "urgent"}, "attention must be one of"), ({"focus": [{"start": 5, "end": 2, "why": "x"}]}, "start and end"),
+                             ({"focus": [{"start": 1, "end": 2}]}, "needs start, end, why"), ({"focus": []}, "non-empty list")):
+            base.write_text(json.dumps({"nodes": {"A:src/other.ts": bad}}), encoding="utf-8")
+            result = run_script("build_graph.py", "--out", str(self.root / "bad.json"), "--pr", "A", str(self.repo), "main...feat", "--overlay", str(base),
+                                "--no-manifest", check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(message, result.stdout + result.stderr)
+        base.write_text(json.dumps({"nodes": {"A:src/tiny.ts": {"focus": [{"start": 1, "end": 1, "why": "x"}]}}}), encoding="utf-8")
+        result = run_script("build_graph.py", "--out", str(self.root / "ignored.json"), "--pr", "A", str(self.repo), "main...feat", "--overlay", str(base), "--no-manifest")
+        self.assertIn("overlay focus ignored for src/tiny.ts", result.stdout)
+
+    def test_the_budget_counts_risky_and_novel_lines_and_a_focused_node_only_its_ranges(self):
+        """This test will fail when the budget counts lines of mechanical or pattern files, counts all of a focused node instead of the union of its ranges (overlapping ranges once, never more than the node changes), loses the rest of a focused node (it is skim), or the four classes do not add up to every changed line."""
+        code = ("import sys, json; sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[1]); import attention\n"
+                "g = json.load(open(sys.argv[2])); print(json.dumps(attention.budget(g)))\n"
+                "print(attention.focus_lines([{'start': 2, 'end': 4}, {'start': 3, 'end': 5}, {'start': 1, 'end': 1, 'side': 'old'}]))\n"
+                "print(attention.read_lines({'added': 3, 'removed': 0, 'focus': [{'start': 1, 'end': 90, 'why': 'x'}]}))")
+        result = subprocess.run([sys.executable, "-c", code, str(SCRIPTS), str(self.root / "tuned.json")], capture_output=True, text=True, env=ENV, check=True)
+        figures, union, capped = result.stdout.splitlines()
+        figures = json.loads(figures)
+        nodes = self.by_path(self.tuned)
+        lines = {path: node["added"] + node["removed"] for path, node in nodes.items()}
+        self.assertEqual((union, capped), ("5", "3"))  # 2-5 once (4 lines) and one old-side line; capped at what the node changes
+        self.assertEqual(figures["total"], sum(lines.values()))
+        self.assertEqual(figures["read"], lines["db/migrations/0001_items.sql"] + 4 + lines["src/other.ts"])
+        self.assertEqual(figures["lines"]["risky"], lines["db/migrations/0001_items.sql"] + 4)
+        self.assertEqual(figures["lines"]["novel"], lines["src/other.ts"])
+        mechanical = sum(lines[p] for p in ("package-lock.json", "locales/en.json", "docs/a.md", "src/__generated__/types.ts", "src/tiny.ts", "lib/moved.ts"))
+        self.assertEqual(figures["lines"]["mechanical"], mechanical)
+        skim = lines["src/auth/session.test.ts"] + lines["helm/values.yaml"] + lines["src/auth/session.ts"] - 4
+        self.assertEqual(figures["lines"]["pattern"], skim)
+
+    def test_size_tiers_follow_the_files_lines_and_prs_and_the_overlay_overrides_them(self):
+        """This test will fail when a change of one PR, at most 10 files, and at most 400 lines is not small, a PR above 60 files, 3000 lines, or a stack of more than 3 PRs is not large, a size between them is not medium, the overlay cannot override the computed tier, or a bad overlay size is accepted."""
+        def size(files: dict[str, str], prs: int = 1, extra: tuple = ()) -> str:
+            repo = self.root / f"size-{len(list(self.root.glob('size-*')))}"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            commit_files(repo, {"README.md": "# x\n"}, "base")
+            args, previous = [], "main"
+            for number in range(prs):
+                git(repo, "checkout", "-q", "-b", f"feat/{number}")
+                commit_files(repo, files if number == 0 else {f"extra{number}.ts": "export const x = 1;\n"}, f"pr {number}")
+                args += ["--pr", f"P{number}", str(repo), f"{previous}...feat/{number}"]
+                previous = f"feat/{number}"
+            out = repo / "g.json"
+            result = run_script("build_graph.py", "--out", str(out), *args, "--no-manifest", *extra, check=not extra)
+            return json.loads(out.read_text(encoding="utf-8"))["size"] if result.returncode == 0 else result.stdout + result.stderr
+
+        def files(count: int, lines: int = 1) -> dict[str, str]:
+            return {f"src/f{i}.ts": "".join(f"export const a{j} = {j};\n" for j in range(lines)) for i in range(count)}
+
+        self.assertEqual(size(files(1, 5)), "small")
+        self.assertEqual(size(files(10, 40)), "small")      # 10 files, 400 lines
+        self.assertEqual(size(files(11, 1)), "medium")      # one file too many
+        self.assertEqual(size(files(10, 41)), "medium")     # 410 lines
+        self.assertEqual(size(files(1, 5), prs=2), "medium")
+        self.assertEqual(size(files(1, 5), prs=3), "medium")
+        self.assertEqual(size(files(1, 5), prs=4), "large")  # more than 3 PRs
+        self.assertEqual(size(files(60, 1)), "medium")
+        self.assertEqual(size(files(61, 1)), "large")        # more than 60 files
+        self.assertEqual(size({"src/big.ts": "".join(f"export const a{j} = {j};\n" for j in range(3000))}), "medium")
+        self.assertEqual(size({"src/big.ts": "".join(f"export const a{j} = {j};\n" for j in range(3001))}), "large")  # more than 3000 lines
+        overlay = self.root / "size-overlay.json"
+        overlay.write_text(json.dumps({"size": "large"}), encoding="utf-8")
+        self.assertEqual(size(files(1, 5), extra=("--overlay", str(overlay))), "large")
+        overlay.write_text(json.dumps({"size": "small"}), encoding="utf-8")
+        self.assertEqual(size(files(61, 1), extra=("--overlay", str(overlay))), "small")
+        overlay.write_text(json.dumps({"size": "huge"}), encoding="utf-8")
+        self.assertIn("overlay size must be one of", size(files(1, 5), extra=("--overlay", str(overlay))))
+        self.assertIn("size: large", self.tuned_out)
+        self.assertIn("computed", self.tuned_out)
+
+    def test_a_large_change_gets_a_budget_after_the_brief_and_before_the_merge_order(self):
+        """This test will fail when a large page lacks the reading budget or places it elsewhere than after the brief and before the merge order, its headline, bar, and lists disagree with the graph, a risky file does not come with its reason, a focused file does not open at its first range (the old side marked), a mechanical file is listed, a medium, small, or tierless page gets a budget, a small page's merge-order link points to a section it does not have, or the budget is missing from the table of contents."""
+        page = self.page(self.tuned, "large")
+        brief, budget, stack = (page.index(f'<section id="{name}"') for name in ("brief", "budget", "stack"))
+        self.assertLess(brief, budget)
+        self.assertLess(budget, stack)
+        self.assertLess(stack, page.index('id="graph"'))
+        section = page.split('<section id="budget"')[1].split("</section>")[0]
+        figures = {"total": sum(n["added"] + n["removed"] for n in self.tuned["prs"][0]["nodes"])}
+        lines = {n["path"]: n["added"] + n["removed"] for n in self.tuned["prs"][0]["nodes"]}
+        read = lines["db/migrations/0001_items.sql"] + 4 + lines["src/other.ts"]
+        percent = max(1, round(100 * read / figures["total"]))
+        self.assertIn(f"Read {read} of {figures['total']} changed lines ({percent}%)", section)
+        self.assertEqual(re.findall(r'class="b-seg b-(\w+)"', section), ["risky", "novel", "pattern", "mechanical"])
+        self.assertIn("<code>src/auth/session.ts:2-4</code>", section)            # the first focus range
+        self.assertIn('<span class="b-why">Signature check</span>', section)
+        self.assertIn("<code>db/migrations/0001_items.sql:1</code>", section)     # no focus: its first changed line
+        self.assertNotIn("package-lock.json", section)
+        self.assertNotIn("src/tiny.ts", section)
+        self.assertIn('<span class="who tag c-A">A</span>', section)
+        self.assertIn('<li><a href="#budget">Reading budget</a></li>', page)
+        old = json.loads(json.dumps(self.tuned))
+        next(n for n in old["prs"][0]["nodes"] if n["path"] == "src/auth/session.ts")["focus"] = [{"start": 3, "end": 3, "why": "Removed check", "side": "old"}]
+        self.assertIn('<code data-side="old">src/auth/session.ts:3</code>', self.page(old, "old-side"))
+        for tier in ("medium", "small", None):
+            graph = json.loads(json.dumps(self.tuned))
+            if tier:
+                graph["size"] = tier
+            else:
+                del graph["size"]
+            text = self.page(graph, f"tier-{tier}")
+            with self.subTest(tier=tier):
+                self.assertNotIn('<section id="budget"', text)
+                self.assertIn('<section id="stack"', text)
+                self.assertEqual('href="#graph"' in text.split('<ol class="merge-order">')[1].split("</ol>")[0], tier == "small")
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_validate_checks_attention_focus_and_size_and_warns_about_a_missing_brief(self):
+        """This test will fail when validate.py accepts an unknown attention or size or a malformed focus, stays quiet about a focus range outside every hunk of its diff, fails a page that has no brief (it must warn: pages from before the brief still pass), or warns about one that has it."""
+        def check(change, name: str, narrative: Path | None = None) -> subprocess.CompletedProcess:
+            graph = json.loads(json.dumps(self.tuned))
+            change(graph)
+            self.page(graph, name, narrative=narrative)
+            return run_script("validate.py", str(self.root / f"{name}.html"), check=False)
+
+        node = lambda graph, path: next(n for n in graph["prs"][0]["nodes"] if n["path"] == path)  # noqa: E731
+        good = check(lambda g: None, "att-good")
+        self.assertEqual(good.returncode, 0, good.stdout)
+        self.assertNotIn("section id=\"brief\"", good.stdout)
+        for name, change, message in (
+            ("attention", lambda g: node(g, "src/other.ts").update(attention="urgent"), "attention must be one of"),
+            ("size", lambda g: g.update(size="huge"), "size must be one of"),
+            ("focus order", lambda g: node(g, "src/auth/session.ts").update(focus=[{"start": 5, "end": 2, "why": "x"}]), "1 <= start <= end"),
+            ("focus shape", lambda g: node(g, "src/auth/session.ts").update(focus=[{"start": 1, "end": 2}]), "needs start, end, why"),
+            ("focus side", lambda g: node(g, "src/auth/session.ts").update(focus=[{"start": 1, "end": 2, "why": "x", "side": "left"}]), "side must be one of"),
+            ("focus empty", lambda g: node(g, "src/auth/session.ts").update(focus=[]), "non-empty list"),
+        ):
+            with self.subTest(case=name):
+                result = check(change, f"att-{name.replace(' ', '-')}")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(message, result.stdout)
+        beyond = check(lambda g: node(g, "src/auth/session.ts").update(focus=[{"start": 40, "end": 50, "why": "x"}]), "att-beyond")
+        self.assertEqual(beyond.returncode, 0, beyond.stdout)
+        self.assertIn("focus 40-50 (new side) is outside every hunk of its diff", beyond.stdout)
+        old_side = check(lambda g: node(g, "src/auth/session.ts").update(focus=[{"start": 1, "end": 2, "why": "x", "side": "old"}]), "att-oldside")
+        self.assertIn("focus 1-2 (old side) is outside every hunk", old_side.stdout)  # a new file has no old side
+        bare = self.root / "no-brief.html"
+        bare.write_text('<header><h1>T</h1></header>\n<!-- review-map:graph -->\n', encoding="utf-8")
+        missing = check(lambda g: None, "att-nobrief", narrative=bare)
+        self.assertEqual(missing.returncode, 0, missing.stdout)
+        self.assertIn('warning: no <section id="brief">', missing.stdout)
+
+    def test_refresh_flags_focus_ranges_of_files_that_changed_and_never_moves_them(self):
+        """This test will fail when a file with focus ranges whose change differs from the previous build's is not reported, an unchanged one or a file new since then is, or a file without focus is."""
+        code = ("import sys, json; sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[1]); import attention\n"
+                "g = {'prs': [{'key': 'A', 'nodes': [{'path': 'a.ts', 'focus': [1]}, {'path': 'b.ts', 'focus': [1]}, {'path': 'c.ts', 'focus': [1]}, {'path': 'd.ts'}]}]}\n"
+                "before = {'A': {'a.ts': '1', 'b.ts': '1', 'd.ts': '1'}}\nafter = {'A': {'a.ts': '2', 'b.ts': '1', 'c.ts': '1', 'd.ts': '2'}}\n"
+                "print(json.dumps(attention.stale_focus(g, before, after)))")
+        result = subprocess.run([sys.executable, "-c", code, str(SCRIPTS)], capture_output=True, text=True, env=ENV, check=True)
+        self.assertEqual(json.loads(result.stdout), [["A", "a.ts"]])
+
+
 if __name__ == "__main__":
     unittest.main()

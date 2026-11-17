@@ -67,7 +67,7 @@ Write the map to <scratch dir>/pr-<key>.md with exactly these sections:
      each; the code links. Do not invent a recommendation.
    - Look closely: where a bug could hide or a contract must be checked, ranked high /
      medium / low, at most three, each one line with `path:start-end` (relative to the
-     repository root). Include unrelated changes (lockfile churn, drive-by refactors) and
+     repository root); what you list as a risk in item 13 is not repeated here. Include unrelated changes (lockfile churn, drive-by refactors) and
      files a merge commit changed by hand (`git show --remerge-diff <merge>` lists them).
    Intended behaviour changes go under Changes, not here.
 10. Not verified and surfaces: what you could not read or determine (a config value whose
@@ -78,6 +78,27 @@ Write the map to <scratch dir>/pr-<key>.md with exactly these sections:
 11. Per-file notes: for files a reviewer could misread, one sentence each in the
     report language, formatted `path: note`. These become the graph's detail-panel
     notes, so state facts the diff alone does not make obvious.
+12. Contracts: every contract this PR changes, one line each, `kind — what — path:start-end`,
+    kind one of: migration/schema, route/public endpoint, API & generated types, config/env
+    (name and default), auth/permissions, events/jobs/schedules. The orchestrator merges these
+    across the stack into the brief's one table, so name the thing (the column, the route and
+    method, the variable and its default) and not the file.
+13. Risks: what could hurt, ranked, at most 5, each `high|medium|low — one line — path:start-end`.
+    Rank by the rubric the orchestrator uses across all PRs (`references/narrative.md`, "Risks"):
+    high when the change is irreversible, reaches all users, touches security, or can lose data;
+    medium when it reaches one group or is reversible by a deploy; low when it is local or
+    behind a flag. The code link opens the lines that carry the risk. Say what you verified.
+14. Never tested: gaps in what was verified that could cause harm, one line each: the stack was
+    never run together, a platform or surface the PR touches that nobody ran (from item 10).
+    Not "no test for X" for a change that is not risky.
+15. Attention: a proposed class per changed file, `path: mechanical|pattern|novel|risky`, only
+    where it differs from the obvious (lockfiles, generated code, translations, docs, trivial
+    changes, pure moves are mechanical; tests and deploy config are pattern; migrations are
+    risky; the rest is novel; risky is for auth, security gates, destructive or irreversible
+    changes, and contracts others depend on), then for each risky or novel file whose
+    important part is a few ranges: `path: start-end — why` (lines at the tip, `old:` and the
+    base for code the PR removes, why in one line, report language). The graph's `attention`
+    and `focus` come from this.
 
 Rules:
 - Every claim must come from the code at the tip. Do not infer config semantics,
@@ -97,12 +118,19 @@ Rules:
   Purpose.
 - Diagrams, only when relevant: the architecture from "Changes" and "Config and
   wiring", the request flow from "Flows" with "Failure paths" as `alt`/`else`.
+- The brief (`references/narrative.md`, section 2): "What changes for users" from the behaviour
+  changes (at most 3 bullets); one contracts table from every map's item 12, merged across the
+  PRs and ordered by kind; the risks from every map's item 13, re-ranked together by the rubric
+  into one list of at most 7 (not per PR; what does not make it stays as the PR's "Look closely"
+  and is not repeated); "Never tested" from item 14 and the verification gaps; one line per
+  decision linking to its full entry. For a small change there is one map (or you read the
+  diff yourself) and the brief is all the narrative besides "Before merging".
 - "Before merging": "Decisions for you" from the decision lists (keep only what the owner
   alone decides, and only recommendations the evidence supports), "Look closely" under the
   owning PR's bullets from the pointer lists (at most three per PR, drop the rest), the
-  verification table and its gaps from the surfaces and from what you ran or read
+  verification table from the surfaces and from what you ran or read
   yourself, with the SHA. Re-check any claim you put in the report against the code
   before writing it.
-- Graph overlay: `role` per file from "Files by layer", `note` from "Per-file
-  notes", HTTP/DI/route/config edges from "Flows" and "Config and wiring", and one
+- Graph overlay: `role` per file from "Files by layer", `attention` and `focus` from item 15,
+  `note` from "Per-file notes", HTTP/DI/route/config edges from "Flows" and "Config and wiring", and one
   tour per flow from "Flows".

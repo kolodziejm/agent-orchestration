@@ -325,17 +325,23 @@ Nothing in this repository rewrites those files for you.
   itself or the user may request them. `promote-changes-to-prod` ships a reviewed
   pull request through `develop` and `master` to a Railway deployment and runs only
   when the user asks for it. `pr-review-map` builds an interactive HTML review map
-  for one large pull request or a stack of dependent ones: a per-PR reading list
-  of the changed files with their real dependencies drawn as arcs, links across
-  the stack, an optional map that above 40 core files opens on a zoomable overview
-  of areas (authored clusters, else folders) expanding in place, and each file's
-  neighbourhood and side-by-side diff beside it, the list grouped by folder or by
-  area on request, tours that walk each flow step by step across tabs and parts with
-  their path on the map, review notes on lines, files, or whole PRs that copy as
-  Markdown for an agent (the report's `path:line` references open their lines and
-  each risk becomes a note in one click), the files resolved by hand in merges marked,
-  and a full-window workspace, plus a generated merge order, diagrams when they
-  matter, the changes per PR as short bullets, and what to check before merging;
+  for a change of any size, one pull request, a branch, or a stack of dependent ones,
+  and gets the reader to the important parts first: a brief (what changes for users,
+  one table of contract changes, the risks ranked across all PRs, what was never
+  tested, the decisions), then, as the change grows, a reading budget (lines to read
+  of those changed, a bar of must read / read / skim / skip, the files to read by PR)
+  and a per-PR reading list of the changed files with their real dependencies drawn as
+  arcs, each file classed by attention (a chip, mechanical rows dimmed, an "Only what
+  to read" filter, focus line ranges), links across the stack, an optional map that
+  above 40 core files opens on a zoomable overview of areas, and each file's
+  neighbourhood and side-by-side diff beside it. A small change (one PR, at most 10
+  files and 400 lines) gets the brief, the diffs, and an open step list, no map; a
+  large one (over 60 files, 3000 lines, or 3 PRs) adds the budget. Also tours that walk
+  each flow across tabs and parts, review notes on lines, files, or whole PRs that copy
+  as Markdown for an agent (the report's `path:line` references open their lines and
+  each decision becomes a note in one click), the files resolved by hand in merges
+  marked, a full-window workspace, a generated merge order, diagrams when they matter,
+  the changes per PR as short bullets, and what to check before merging;
   `chunks.py` splits a pull request too large for one map into parts cut from its
   commits, shown as tabs grouped under it with each shared file's whole-PR diff a
   toggle away; `refresh.py` rebuilds it after the branches move, flagging changed

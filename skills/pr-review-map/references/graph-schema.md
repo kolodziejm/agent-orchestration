@@ -85,6 +85,8 @@ last part's end, and `files`, `added`, `removed` the totals of `git diff --numst
 `assemble.py` and `validate.py` refuse a broken chain. A graph without `parents` and
 `chunk` renders exactly as before.
 
+The top level also holds `"size"`: `"small"`, `"medium"`, or `"large"` (see Attention and size below); a graph without it reads as medium.
+
 With tours (see Tours below) the top level also holds `"tours": [{"id": "apple-web",
 "name": "…", "steps": [{"node": "Mc4", "path": "app/…/AppleController.php", "side": "new",
 "a": 12, "b": 30, "note": "…", "ref": "M:app/…/AppleController.php", "lines": "12-30",
@@ -107,6 +109,8 @@ Node fields:
 | `unchanged` | Reference node for a file the PR does not change (base class, router). No diff. |
 | `hub` | `true` on a shared dependency (see below), written by `build_graph.py`; absent otherwise. The viewer reads it and does not detect hubs itself. |
 | `trivial` | `true` on a file whose change is at most 2 lines, or only its import or re-export lines (JS/TS, Python, PHP; checked up to 60 changed lines and 1 MB, both versions with their imports and white space removed; `import.meta` and `import(` are code, and a PHP `use` counts only before the first class, interface, trait, enum, or function), written by `build_graph.py`. Such a hub reads after the other hubs; such an entry point is light (Reading order). |
+| `attention` | What a reviewer should do with a changed file: `mechanical` (skip), `pattern` (skim), `novel` (read), or `risky` (read first). Written by `build_graph.py` on every changed node (not on `unchanged` reference nodes), overridden by the overlay (see Attention and size). The viewer shows it as a chip and dims mechanical rows. |
+| `focus` | Optional, on a risky or novel node: the line ranges that matter, `[{"start": 12, "end": 30, "why": "…", "side": "old"}]`, 1 <= start <= end, `why` at most 200 characters, `side` `"new"` (default, lines at the tip) or `"old"` (at the base, for code the PR removes), as tour steps and notes address lines. From the overlay only. |
 | `cluster` | The id of the node's area from the overlay, one of its PR's `clusters` (see Areas below); absent otherwise. |
 | `conflict` | One entry per merge commit of the PR whose recorded result for one of the node's files differs from what git merges on its own (`git show --remerge-diff`): a conflict resolved by hand, or an edit made in the merge. `{"sha": "4d5e6f7", "kind": "merged", "lines": 12}`: the merge's short (7-character) SHA; `kind` `"picked"` when the merge's version of every such file is byte-identical to one parent's (one side taken), else `"merged"` (combined by hand); `lines` the lines the re-merge diff changes for the node's files. Oldest first; absent when there is none (see Merge resolutions below). An older build wrote bare SHAs; validate.py and the viewer still take them (as merged). |
 
@@ -330,6 +334,32 @@ branch merged from main often), the row and map marks hide by default, a line ab
 toolbar says how many and that "Conflict marks" in the View menu shows them. The detail panel
 always lists every resolution with its lines, picked ones dimmed.
 
+### Attention and size
+
+`build_graph.py` guesses each changed node's `attention` (first match wins): `mechanical` for lockfiles, generated files
+(`__generated__/`, `generated/`, `*.generated.*`, `*.gen.*`, `*.snap`, `*.min.js`, protobuf output), `docs` and `i18n`
+nodes (translations, catalogs, docs groups), a file renamed without a change (a pure move), a binary file, and a `trivial`
+change (above); `risky` for a migration by path (`migrations/`, `alembic/versions/`, `db/migrate/`, a `V1__x.sql`),
+even when small; `pattern` for tests and deploy config; `novel` for everything else. The overlay's `attention` on a node
+overrides the guess, and its `focus` narrows a risky or novel file to the ranges that matter (an unknown value or a
+malformed range stops the build; a `focus` on a mechanical or pattern file is dropped with a warning).
+
+The reading budget (assemble.py, large changes) counts the changed lines of risky and novel nodes; a node with `focus`
+counts the lines of its ranges, overlapping ranges once, never more than the node changes. What a focused node does not
+count (and every pattern node) is "skim", every mechanical node "skip". The page shows "Read N of M changed lines", a bar
+of the four classes, and the risky ("Must read", with each range's `why`, else the node's `role`) and novel ("Read")
+files grouped by PR, each opening at its first focus range (else its first changed line).
+
+`size` is computed by `build_graph.py` over the changed files and lines (a group node counts its files; a PR split into
+parts counts once with its whole-PR totals): `small` is one PR, no parts, at most 10 files and 400 lines; `large` is more
+than 60 files, more than 3000 lines, or more than 3 PRs; else `medium` (the constants are in `scripts/attention.py`).
+The overlay's top-level `"size": "large"` overrides it. `small` has no budget section and no map (the step list opens by
+default, a saved choice still wins), `medium` adds the map and the attention chips and an "Only what to read" filter in
+View, `large` adds the budget section; narrative scope per tier: `references/narrative.md`.
+
+`refresh.py` does not move `focus` ranges: it warns for each file that carries them and whose change differs from the
+previous build's, so they can be checked in the overlay.
+
 ### Areas (clusters)
 
 A PR above 40 core files (not tests, not docs/config/i18n) opens its Map on an overview
@@ -455,7 +485,8 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 `summaries` maps a PR key (or a split PR's parent key) to its summary, one or two sentences in the report
 language (see `summary` above).
 `nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
-Shared dependencies), and `cluster` (an id from the overlay's `clusters`, see Areas).
+Shared dependencies), `cluster` (an id from the overlay's `clusters`, see Areas), `attention` and `focus` (see Attention
+and size). The top-level `size` overrides the computed tier.
 `tours` are described under Tours.
 An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,

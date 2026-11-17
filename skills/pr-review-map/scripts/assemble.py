@@ -8,9 +8,12 @@ Usage:
       [--template ../assets/viewer.html] [--previous previous.json]
 
 The narrative is HTML for <main>, split by one line `<!-- review-map:graph -->`:
-everything before it (the title header) renders above the reading graph, everything
-after it (architecture, request flow, changes per PR, before merging, footer) below.
-assemble.py itself adds the merge order to the end of the part above the line: one
+everything before it (the title header and the brief) renders above the reading graph,
+everything after it (architecture, request flow, changes per PR, before merging, footer)
+below. assemble.py itself adds two sections to the end of the part above the line: for a
+large change (graphs.json `size`, scripts/attention.py) the reading budget (lines to read
+of those changed, a bar of the four attention classes, the files to read grouped by PR,
+each opening at its focus), then the merge order: one
 line per PR with its key, name, title, tip SHA, file count, and +/-, all taken from
 graphs.json (a PR split into parts gets one line with its parts under it), so the
 numbers are never typed by hand and stay right after refresh.py. The table of contents
@@ -64,6 +67,7 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycache__ in the skill
+import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
 import tours  # noqa: E402
@@ -126,10 +130,76 @@ def merge_order_meta(strings: dict, tip: str, counts: tuple[int, int, int]) -> s
     return '<span class="meta">' + " · ".join(b for b in bits if b) + "</span>"
 
 
-def merge_order(graph: dict, strings: dict) -> str:
+HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
+
+
+def first_line(diffs: dict, node: dict) -> tuple[str, int]:
+    """(side, line) of the first changed hunk of a node's diff: where a reader opens a file with no `focus` (line 1 when the
+    diff has no hunk, the old side for a file the PR deletes)."""
+    for entry in diffs.get(node["id"]) or []:
+        hunk = HUNK.search(entry.get("diff", ""))
+        if hunk:
+            return ("old", int(hunk.group(1))) if int(hunk.group(2)) == 0 else ("new", int(hunk.group(2)))
+    return "new", 1
+
+
+def budget_entry(node: dict, diffs: dict, show_why: bool) -> str:
+    """One line of a budget list: the file at its focus (else its first change) as a `path:lines` reference the viewer
+    opens like any code link, the reason, and the lines to read."""
+    focus = [r for r in node.get("focus") or [] if isinstance(r, dict)] if not attention.focus_problems(node.get("focus")) else []
+    path = str(node.get("path"))
+    if focus:
+        top = focus[0]
+        side, span = top.get("side", "new"), f"{top['start']}" + (f"-{top['end']}" if top["end"] != top["start"] else "")
+        why = top["why"]
+    else:
+        side, line = first_line(diffs, node)
+        span, why = str(line), node.get("role") or ""
+    mark = ' data-side="old"' if side == "old" else ""
+    text = f"<code{mark}>{html.escape(path)}:{span}</code>"
+    note = f' <span class="b-why">{html.escape(str(why))}</span>' if show_why and why else ""
+    return f'<li>{text}{note} <span class="b-n">{attention.read_lines(node)}</span></li>'
+
+
+def budget_section(graph: dict, diffs: dict, strings: dict) -> str:
+    """The generated "Reading budget" (large changes): lines to read of those changed, a stacked bar of the four classes, then
+    the files to read, risky ones first with why, grouped by PR. Empty when nothing changed."""
+    figures = attention.budget(graph)
+    total, read = figures["total"], figures["read"]
+    if not total:
+        return ""
+    percent = max(1, round(100 * read / total)) if read else 0
+    title = html.escape(strings["budgetTitle"])
+    words = {"risky": strings["budgetMust"], "novel": strings["budgetRead"], "pattern": strings["budgetSkim"], "mechanical": strings["budgetSkip"]}
+    order = ("risky", "novel", "pattern", "mechanical")
+    summary = strings["budgetSummary"].replace("{n}", str(read)).replace("{m}", str(total)).replace("{p}", str(percent))
+    bar = "".join(f'<span class="b-seg b-{name}" style="width:{100 * figures["lines"][name] / total:.2f}%" title="{html.escape(words[name])}: {figures["lines"][name]}"></span>'
+                  for name in order if figures["lines"][name])
+    label = html.escape(strings["budgetBar"].replace("{list}", ", ".join(f"{words[n]} {figures['lines'][n]}" for n in order)), quote=True)
+    key = "".join(f'<li class="b-{name}"><i></i>{html.escape(words[name])} <b>{figures["lines"][name]}</b></li>' for name in order)
+    blocks = []
+    for name in ("risky", "novel"):
+        groups = []
+        for pr in graph["prs"]:
+            nodes = [n for n in pr["nodes"] if not n.get("unchanged") and attention.attention_of(n) == name and attention.read_lines(n)]
+            if nodes:
+                items = "".join(budget_entry(n, diffs, name == "risky" or bool(n.get("focus"))) for n in nodes)
+                groups.append(f'<div class="b-group"><span class="who tag c-{html.escape(pr["key"])}">{html.escape(pr["key"])}</span> '
+                              f'<ul class="b-list">{items}</ul></div>')
+        if groups:
+            count = sum(g.count("<li>") for g in groups)
+            heading = f"{html.escape(words[name])} ({count})"
+            blocks.append(f'<h3 class="b-{name}">{heading}</h3>\n' + "\n".join(groups) if name == "risky" else
+                          f'<details class="b-more"{" open" if count <= 12 else ""}><summary>{heading}</summary><div class="body">' + "\n".join(groups) + "</div></details>")
+    return (f'<section id="budget" data-toc="{title}">\n<h2>{title}</h2>\n<p class="b-sum"><strong>{html.escape(summary)}</strong></p>\n'
+            f'<div class="b-bar" role="img" aria-label="{label}">{bar}</div>\n<ul class="b-key">{key}</ul>\n' + "\n".join(blocks) + "\n</section>")
+
+
+def merge_order(graph: dict, strings: dict, small: bool = False) -> str:
     """The generated header section: one line per PR in merge order (key, name, title, tip, files, +/-), from graphs.json,
     with the PR's authored `summary` (overlay `summaries`) under it when it has one. The name links to the PR's section,
-    `id="pr-KEY"` in the narrative (the whole row follows the link).
+    `id="pr-KEY"` in the narrative (the whole row follows the link); a small change has no such section, so its link goes to
+    the graph.
 
     A PR split into parts is one line (its counts over the whole PR when build_graph.py wrote them, else the parts' sum)
     with its parts under it, each with its open button, label, counts, and range."""
@@ -142,8 +212,9 @@ def merge_order(graph: dict, strings: dict) -> str:
         title = f' <span class="t">{html.escape(str(entry["title"]))}</span>' if entry.get("title") else ""
         summary = entry.get("summary")
         text = f'\n<p class="sum">{html.escape(summary)}</p>' if isinstance(summary, str) and summary.strip() else ""
+        target = "graph" if small else f"pr-{key}"
         return (f'<span class="tag c-{key}">{html.escape(key)}</span> '
-                f'<a class="mo-link" href="#pr-{html.escape(key, quote=True)}"><strong>{html.escape(str(entry.get("name") or key))}</strong></a>{title} '
+                f'<a class="mo-link" href="#{html.escape(target, quote=True)}"><strong>{html.escape(str(entry.get("name") or key))}</strong></a>{title} '
                 + merge_order_meta(strings, entry.get("tip", ""), counts) + text)
 
     for pr in graph["prs"]:
@@ -252,7 +323,9 @@ def main() -> int:
         raise SystemExit(f"the narrative must contain exactly one {MARKER} line")
     head, body = (part.strip("\n") for part in narrative.split(MARKER))
     strings = load_strings(args.lang, args.strings)
-    head = head + "\n\n" + merge_order(graph, strings)
+    size = attention.size_for(graph)
+    head = "\n\n".join(part for part in (head, budget_section(graph, diffs, strings) if size == "large" else "",
+                                          merge_order(graph, strings, size == "small")) if part)
 
     prs = []
     pr_css = []
