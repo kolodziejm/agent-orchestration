@@ -45,7 +45,7 @@
   --dep:#1f7ae0; --use:#d0731d;
   --warn-bg:#fff6e5; --warn-fg:#8a5300; --risk-bg:#fdecee; --risk-fg:#a3263a; --ok-bg:#e8f6ee; --ok-fg:#17643c;
   --code-bg:#f1f3f7; --shadow:rgba(0,0,0,.18);
-  --d-add:#e6f7ec; --d-add-ln:#cdeedd; --d-del:#fdebec; --d-del-ln:#f8d4d7; --d-emp:#f3f4f7; --d-sel:rgba(245,185,0,.3);
+  --d-add:#e6f7ec; --d-add-ln:#cdeedd; --d-del:#fdebec; --d-del-ln:#f8d4d7; --d-emp:#f3f4f7; --d-sel:rgba(245,185,0,.3); --d-rng:rgba(0,150,160,.2);
   --hl-k:#a2338a; --hl-s:#1a7f37; --hl-n:#0550ae; --hl-c:#6e7781; --hl-t:#953800; --hl-f:#6639ba; --hl-a:#0a3069;
   --l-contract:#1f7ae0; --l-domain:#7a4fd6; --l-logic:#0e9f9a; --l-infra:#d0731d; --l-rest:#c2410c; --l-wiring:#a3263a;
   --l-ui:#1a9b5a; --l-data:#8a6a2f; --l-test:#6b7280; --l-config:#8a5300; --l-docs:#5b6577; --l-i18n:#2f855a; --l-other:#888888;
@@ -61,7 +61,7 @@
   --dep:#6aa9f5; --use:#f0a35a;
   --warn-bg:#33270f; --warn-fg:#f2c26b; --risk-bg:#3a1a20; --risk-fg:#f39aa8; --ok-bg:#15301f; --ok-fg:#8fdcae;
   --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
-  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
+  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22); --d-rng:rgba(44,198,196,.24);
   --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
   --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
   --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
@@ -74,7 +74,7 @@
   --dep:#6aa9f5; --use:#f0a35a;
   --warn-bg:#33270f; --warn-fg:#f2c26b; --risk-bg:#3a1a20; --risk-fg:#f39aa8; --ok-bg:#15301f; --ok-fg:#8fdcae;
   --code-bg:#222a36; --shadow:rgba(0,0,0,.55);
-  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22);
+  --d-add:#14301f; --d-add-ln:#1c4029; --d-del:#3a1a1e; --d-del-ln:#4a2126; --d-emp:#1d232d; --d-sel:rgba(255,200,40,.22); --d-rng:rgba(44,198,196,.24);
   --hl-k:#ff7bd8; --hl-s:#7ee2a8; --hl-n:#79c0ff; --hl-c:#8b949e; --hl-t:#ffa657; --hl-f:#d2a8ff; --hl-a:#a5d6ff;
   --l-contract:#6aa9f5; --l-domain:#a78bf0; --l-logic:#3cc9c3; --l-infra:#f0a35a; --l-rest:#f78c6c; --l-wiring:#f39aa8;
   --l-ui:#4fc98a; --l-data:#d1b07a; --l-test:#a3adbf; --l-config:#f2c26b; --l-docs:#9aa4b5; --l-i18n:#7dd3a8; --l-other:#98a2b3;
@@ -619,7 +619,8 @@ section#budget h3{margin:14px 0 6px;font-size:16px}
 .b-list{list-style:none;margin:0;padding:0;display:grid;gap:3px;flex:1 1 320px;min-width:0}
 .b-list>li{max-width:none;display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;font-size:14px}
 .b-why{color:var(--muted);min-width:0;overflow-wrap:anywhere}
-.b-n{font-family:var(--f-mono);font-size:12px;color:var(--muted);margin-left:auto}
+.b-n{font-size:13px;color:var(--muted);white-space:nowrap;margin-left:-6px}
+.b-list .g-ref{max-width:100%;min-width:0}
 details.b-more{margin:10px 0 0}
 details.b-more>summary{padding:8px 14px;font-weight:600;font-size:16px}
 /* Attention: a chip on each step and in the detail panel, mechanical rows dimmed, the focus ranges of a file to read */
@@ -698,6 +699,51 @@ html.g-wsroot{overflow:hidden}
 #graph.ws .g-tour{position:absolute;left:12px;right:12px;bottom:12px;margin:0;z-index:7}
 #graph.ws.touring .g-work{padding-bottom:64px}
 #graph.ws.touring .g-side{max-height:none}
+/* Review overlay: a code link in the brief, the budget, or a decision card opens the workspace over the page with a queue
+   (the list the link came from) in place of the step list, the file's diff with its lines banded, the neighbours, and a
+   footer to step. Below 1100 pixels it is one sheet and the queue a drawer. */
+.g-rm{color:var(--ok-fg);font-weight:700;margin-right:3px}
+.g-rm[hidden]{display:none}
+.g-ovonly{display:none}
+#graph.ovl .g-tabs-row,#graph.ovl .nt-pred,#graph.ovl .g-tools>:not(#g-wsnotes):not(#g-wsx),#graph.ovl .g-order,#graph.ovl .g-xl,#graph.ovl .g-tour{display:none!important}
+#graph.ovl .ov-t{display:block;flex:1 1 auto;min-width:0;margin:0;font-size:14px;font-weight:650;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#graph.ovl .g-tools{margin-left:auto}
+#graph.ovl #ov-lb{display:none}
+#graph.ovl.ov-n #ov-lb{display:inline-flex}
+.ov-q{display:none}
+#graph.ovl .ov-q{display:block;position:relative;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px}
+.ov-q ol{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.ov-row{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px;align-items:center;min-height:30px;padding:0 6px;border-radius:6px;font-size:13.5px;max-width:none}
+.ov-row input{margin:0}
+.ov-row.cur{background:var(--soft);box-shadow:inset 3px 0 0 var(--accent)}
+.ov-row .nm{display:flex;gap:10px;align-items:baseline;justify-content:space-between;min-width:0;background:none;border:0;padding:5px 2px;font:inherit;color:var(--fg);cursor:pointer;text-align:left}
+.ov-row .nm:focus{outline:none}
+.ov-row .nm:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+.ov-row.cur .nm{font-weight:650}
+.ov-row .f{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ov-row .rg{flex:0 0 auto;font-family:var(--f-mono);font-size:11.5px;color:var(--muted);font-weight:400;white-space:nowrap}
+.ov-row.done .f{text-decoration:line-through;color:var(--muted)}
+.ov-div{max-width:none;margin:8px 6px 2px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.ov-div:first-child{margin-top:2px}
+#graph.ovl .ov-head{display:block;position:sticky;top:0;z-index:3;padding:8px 12px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.ov-head .l1{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;min-width:0}
+.ov-head .pth{font-family:var(--f-mono);font-size:13px;overflow-wrap:anywhere}
+.ov-head .rg{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);white-space:nowrap}
+.ov-head .why{margin:4px 0 0;max-width:none;font-size:14px}
+.ov-head .why:empty{display:none}
+#graph.ovl details.df.ov-off{display:none}
+#graph.ovl .dv-head{justify-content:flex-end}
+#graph.ovl .dv-head>div:first-child{display:none}
+table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
+.ov-foot{display:none}
+#graph.ovl .ov-foot{display:flex;flex:0 0 auto;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 12px;background:var(--surface);border-top:1px solid var(--line)}
+.ov-foot .pos{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ov-foot .keys{margin-left:auto;font-size:12px;color:var(--muted)}
+.ov-foot .nt-b[aria-disabled="true"]{opacity:.45;cursor:default}
+#graph.ovl.ov-n .g-work{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);grid-template-areas:"diff"}
+#graph.ovl.ov-n .g-sep,#graph.ovl.ov-n .g-rph,#graph.ovl.ov-n .g-detail,#graph.ovl.ov-n .g-canvas,#graph.ovl.ov-n .g-side,#graph.ovl.ov-n .ov-foot .keys{display:none!important}
+#graph.ovl.ov-n.ov-qopen .g-side{display:flex!important;position:absolute;left:0;top:var(--wst,52px);bottom:var(--ovf,56px);width:min(88vw,380px);z-index:9;padding:8px;background:var(--bg);border-right:1px solid var(--line);box-shadow:12px 0 32px var(--shadow)}
+#graph.ovl.ov-n .dv{padding:10px 8px 16px}
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 {{PR_CSS}}
@@ -739,6 +785,8 @@ html.g-wsroot{overflow:hidden}
   </div>
   <div class="nt-pred" id="nt-pred" hidden></div>
   <p class="g-cfn" id="g-cfn" hidden></p>
+  <h3 class="ov-t g-ovonly" id="ov-t"></h3>
+  <button type="button" class="nt-b g-ovonly" id="ov-lb" aria-expanded="false" aria-controls="ov-q"></button>
   <div class="g-tools">
     <span class="dv-mode g-vw"><button type="button" id="g-steps" aria-expanded="false" aria-controls="g-orderbox" title="{{S:stepsTitle}}">{{S:stepsToggle}}</button></span>
     <span class="dv-mode g-wsonly g-wsl" role="group" aria-label="{{S:wsLeft}}" title="{{S:wsLeftTitle}}"><button type="button" data-wl="list">{{S:wsLeftList}}</button><button type="button" data-wl="map">{{S:wsLeftMap}}</button></span>
@@ -790,6 +838,7 @@ html.g-wsroot{overflow:hidden}
     <aside class="g-side" aria-label="{{S:orderLabel}}">
       <div class="g-xl" id="g-xlist" hidden></div>
       <div class="g-order" id="g-orderbox"><ol id="g-order" aria-label="{{S:orderLabel}}"></ol><svg class="g-lane" id="g-lane" aria-hidden="true" focusable="false"></svg></div>
+      <div class="ov-q" id="ov-q"><ol id="ov-ol"></ol></div>
     </aside>
     <div class="g-sep" id="g-sep1" role="separator" aria-orientation="vertical" tabindex="0" aria-label="{{S:wsSepL}}"></div>
     <div class="g-main">
@@ -799,6 +848,7 @@ html.g-wsroot{overflow:hidden}
       </div>
       <div class="g-detail" id="g-detail"><p class="muted">{{S:detailEmpty}}</p></div>
       <div class="dv" id="dv">
+        <div class="ov-head g-ovonly" id="ov-head"><div class="l1"><span id="ov-pr"></span><code class="pth" id="ov-path"></code><span class="rg" id="ov-rg"></span></div><p class="why" id="ov-why"></p></div>
         <div class="dv-head">
           <div><h3 id="dv-title">{{S:diffTitle}}</h3><div class="m" id="dv-meta">{{S:diffPick}}</div></div>
           <div class="dv-mode" role="group" aria-label="{{S:diffModeLabel}}">
@@ -811,6 +861,9 @@ html.g-wsroot{overflow:hidden}
       </div>
     </div>
     <div class="g-sep" id="g-sep2" role="separator" aria-orientation="vertical" tabindex="0" aria-label="{{S:wsSepR}}"></div>
+  </div>
+  <div class="ov-foot g-ovonly" id="ov-foot">
+    <button type="button" class="nt-b" id="ov-prev"></button><button type="button" class="nt-b pri" id="ov-next"></button><span class="pos" id="ov-pos"></span><span class="keys" id="ov-keys"></span>
   </div>
   <div class="g-tour" id="g-tourbar" role="region" aria-label="{{S:tours}}" hidden>
     <strong class="tn" id="g-tourn"></strong><span class="ts" id="g-tours"></span><span class="tx" id="g-tourx"></span>
@@ -1164,6 +1217,7 @@ html.g-wsroot{overflow:hidden}
       if(det.open)fill();det.addEventListener('toggle',function(){if(det.open)fill();});
       paintFile(V);box.appendChild(det);
     });
+    if(ovOn)ovFiles();
   }
   /* Back from the whole-PR diff to the part's own, where notes sit. */
   function partDiff(V){if(!V.whole)return;V.whole=false;var b=V.det.querySelector('.g-wd');if(b)b.setAttribute('aria-pressed','false');delete V.body.dataset.f;}
@@ -1348,7 +1402,7 @@ html.g-wsroot{overflow:hidden}
   function rowCells(V,td){return V.t.classList.contains('sbs')?[td,td.nextElementSibling]:[].slice.call(td.parentNode.children);}
   function rove(td){var o=td.closest('table.dt').querySelector('td.ln[tabindex="0"]');if(o&&o!==td)o.tabIndex=-1;td.tabIndex=0;}
   function focusCell(td,keep){if(!td)return;rove(td);td.focus(keep?{preventScroll:true}:undefined);}
-  function decorate(V){V.t=V.body.querySelector('table.dt');paintFile(V);if(!V.t)return;var first=V.t.querySelector('td.ln[data-l]');if(first)first.tabIndex=0;paint(V);}
+  function decorate(V){V.t=V.body.querySelector('table.dt');paintFile(V);if(!V.t)return;var first=V.t.querySelector('td.ln[data-l]');if(first)first.tabIndex=0;paint(V);if(ovOn)ovBand(V);}
   function paintAll(){Object.keys(VIEW).forEach(function(p){paintFile(VIEW[p]);paint(VIEW[p]);});paintPr();}
   function paint(V){
     var t=V.t;if(!t)return;
@@ -2510,6 +2564,7 @@ html.g-wsroot{overflow:hidden}
     var r=rowEl[id];if(r){r.li.classList.toggle('done',v);r.cb.checked=v;}
     if(MAP&&MAP.nd[id])MAP.nd[id].classList.toggle('done',v);
     if(MAP&&MAP.ov)ovCounts();
+    paintRefs();ovPaint();
     if(w!==wasRead(id)){paintMarks();paintChanges();}else{paintHeads();if(PARTOF[n.pr])paintChanges();}
   }
   function step(dir){var o=ordered();if(!o.length)return;var i=o.findIndex(function(n){return n.id===sel;});var j=i<0?0:Math.min(o.length-1,Math.max(0,i+dir));select(o[j].id,'list');}
@@ -3477,7 +3532,7 @@ html.g-wsroot{overflow:hidden}
     document.getElementById('g-texit').addEventListener('click',tourExit);
     /* [ and ] step, Esc exits, except while typing or in a note editor (whose Esc closes it first). */
     document.addEventListener('keydown',function(ev){
-      if(!TOUR||ev.defaultPrevented||ev.altKey||ev.ctrlKey||ev.metaKey)return;
+      if(!TOUR||ovOn||ev.defaultPrevented||ev.altKey||ev.ctrlKey||ev.metaKey)return;
       var t=ev.target,tag=t&&t.tagName||'';
       if(t&&(t.isContentEditable||(t.closest&&t.closest('.nt-ed'))||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||''))))return;
       if(ev.key===']'){ev.preventDefault();tourGo(TI+1);}
@@ -3506,11 +3561,11 @@ html.g-wsroot{overflow:hidden}
      hunks opens the file and says so). The path is a changed file's whole path, or its tail after a "/" (a bare file name)
      when that names exactly one changed file; a ":12" or ":12-14" code right after a reference continues it. Among the
      PRs that change the file, the risk item's PR (its .who tag, or a part of it) goes first, else the last in the stack.
-     The brief's risks and contracts (.brief-risks > li, a .brief table row) and the budget's lists (.b-list > li, under the PR's
+     The brief's risks and contracts (.brief-risks > li, a #brief table row) and the budget's lists (.b-list > li, under the PR's
      .who tag; a `data-side="old"` reference opens the old side) take their PR the same way. Each decision card (.decisions > li; also .risk-list > li of an older report) gets "Add as note": an issue note with the item's text, on the lines of its reference
      when it has exactly one (on the reference's file when those lines are outside the diff), else on the item's PR (the
      one its references share, else its .who tag's, else the open tab's); an item already noted is not added twice. */
-  var REF_LI='.decisions>li,.risk-list>li,.brief-risks>li,.brief table tbody tr,.b-list>li';
+  var REF_LI='.decisions>li,.risk-list>li,.brief-risks>li,#brief table tbody tr,.b-list>li';
   var PATHS=Object.create(null),REFS=[],REF_RE=/^(.+):(\d+)(?:\s*[-–]\s*(\d+))?$/,CONT_RE=/^:(\d+)(?:\s*[-–]\s*(\d+))?$/;
   data.prs.forEach(function(p){p.nodes.forEach(function(n){(own(DIFFS,n.id)||[]).forEach(function(f){var l=PATHS[f.path]||(PATHS[f.path]=[]);if(l.indexOf(p.key)<0)l.push(p.key);});});});
   function refPath(s){
@@ -3532,6 +3587,16 @@ html.g-wsroot{overflow:hidden}
     var pr=refPr(r.path,whoOf(r.li)),e=pr&&fileOf(pr,r.path);if(!e)return;
     jump({id:'ref\n'+pr+'\n'+r.path+'\n'+r.a+'-'+r.b,scope:'line',pr:pr,node:e.id,path:r.path,side:r.side||'new',a:r.a,b:r.b,code:null},false,true);
   }
+  /* A file name as a reference shows it: a leading date or timestamp (2026_11_16_193657_, 20261116193657_, 2026-11-16-) is
+     dropped, and a name past SHORT_MAX characters keeps its beginning and its end (the extension) around an ellipsis. */
+  var SHORT_MAX=32,STAMP=/^(?:\d{4}_\d{2}_\d{2}_\d{6}|\d{14}|\d{4}-\d{2}-\d{2}(?:[-_]\d{4,6})?)[_-](?=.)/;
+  function shortName(name){
+    var n=String(name).replace(STAMP,'');
+    if(n.length<=SHORT_MAX)return n;
+    var head=Math.floor((SHORT_MAX-1)/2),tail=SHORT_MAX-1-head;
+    return n.slice(0,head)+'…'+n.slice(n.length-tail);
+  }
+  window.__shortName=shortName;
   [].forEach.call(document.querySelectorAll('main code'),function(c){
     if(gEl.contains(c)||c.closest('pre,a,button,summary,.g-ref'))return;
     var t=c.textContent.trim(),m=REF_RE.exec(t),path=null,a=0,b=0,pv=c.previousElementSibling,named=false;
@@ -3541,11 +3606,17 @@ html.g-wsroot{overflow:hidden}
     var bt=document.createElement('button'),r={el:bt,path:path,a:a,b:b,li:c.closest(REF_LI),side:c.getAttribute('data-side')==='old'?'old':'new'};
     bt.type='button';bt.className='g-ref';bt.title=fmt(S.refGo,{ref:path+':'+(a===b?a:a+'-'+b)});bt.setAttribute('aria-label',bt.title);
     /* A reference shows as its short name and line (session.php:182); the full path is on hover and in the label. */
-    if(named&&path.indexOf('/')>0){c.setAttribute('data-full',t);c.textContent=path.slice(path.lastIndexOf('/')+1)+':'+(a===b?a:a+'-'+b);}
+    if(named){
+      var base=path.slice(path.lastIndexOf('/')+1),sh=shortName(base);
+      if(path.indexOf('/')>0||sh!==base){c.setAttribute('data-full',t);c.textContent=sh+':'+(a===b?a:a+'-'+b);}
+    }
     c.title=path;
     c.parentNode.replaceChild(bt,c);bt.appendChild(c);REFS.push(r);
-    bt.addEventListener('click',function(){refGo(r);});
+    r.grp=ovGroupOf(r);
+    if(r.grp){var rm=document.createElement('span');rm.className='g-rm';rm.hidden=true;rm.textContent='✓';rm.title=S.ovRead;rm.setAttribute('role','img');rm.setAttribute('aria-label',S.ovRead);bt.parentNode.insertBefore(rm,bt);r.rm=rm;}
+    bt.addEventListener('click',function(){if(r.grp&&!wsOn)rvOpen(r,bt);else refGo(r);});
   });
+  paintRefs();
   /* Diagrams in the narrative (<pre class="mermaid"> in a .diagram): once the diagram is drawn (by this page or by the
      host, whenever that happens) its box gets zoom and pan. The box is as tall as the diagram at the width it opens at,
      up to three quarters of the window; "Fit" shows all of it. The page scrolls normally over it (only Ctrl+wheel zooms). */
@@ -3582,7 +3653,7 @@ html.g-wsroot{overflow:hidden}
     ready();
   });
   /* A risk's text for its note: without its PR tag (the note's place names the PR) and its own button, references with their full path. */
-  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who'),function(b){b.parentNode.removeChild(b);});[].forEach.call(x.querySelectorAll('code[data-full]'),function(c){c.textContent=c.getAttribute('data-full');});return x.textContent.replace(/\s+/g,' ').trim();}
+  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who,.g-rm'),function(b){b.parentNode.removeChild(b);});[].forEach.call(x.querySelectorAll('code[data-full]'),function(c){c.textContent=c.getAttribute('data-full');});return x.textContent.replace(/\s+/g,' ').trim();}
   function riskNote(li,btn){
     var text=itemText(li),who=whoOf(li),seen={},rs=[],n=null;
     REFS.forEach(function(r){var k=r.path+':'+r.a+'-'+r.b;if(r.li===li&&!seen[k]){seen[k]=1;rs.push(r);}});
@@ -3656,11 +3727,13 @@ html.g-wsroot{overflow:hidden}
     gEl.style.setProperty('--wst',gTop.offsetHeight+'px');
   }
   /* `from` is the address's hash before #ws (a hash change tells it; the button and the key find it; a page opened on #ws had none). */
-  function wsEnter(from){
-    if(wsOn||!cur||!wsWide())return;
+  function wsEnter(from,ov){
+    if(wsOn||!cur||(!ov&&!wsWide()))return;
     menuOpen(false);wsOn=true;wsAt={x:window.scrollX,y:window.scrollY};wsInert=[];
+    if(ov){ovSpacer=document.createElement('div');ovSpacer.setAttribute('aria-hidden','true');ovSpacer.style.height=gEl.offsetHeight+'px';gEl.parentNode.insertBefore(ovSpacer,gEl);}
     for(var e=gEl;e&&e.parentNode&&e!==document.body;e=e.parentNode)[].forEach.call(e.parentNode.children,function(x){if(x!==e&&!x.hasAttribute('inert')&&!/^(SCRIPT|STYLE)$/.test(x.tagName)){x.setAttribute('inert','');wsInert.push(x);}});
     document.documentElement.classList.add('g-wsroot');gEl.classList.add('ws');
+    if(ov){gEl.classList.add('ovl');return;}
     wsApply();wsFit();dvMeasure();drawCanvas();select(sel);
     wsHash=typeof from==='string'?from:location.hash!=='#ws'?location.hash:'';
     if(location.hash!=='#ws'){try{history.replaceState(history.state,'','#ws');}catch(e){}}
@@ -3672,7 +3745,7 @@ html.g-wsroot{overflow:hidden}
   function wsExit(auto){
     if(!wsOn)return;
     wsOn=false;menuOpen(false);wsCols=wsKept();
-    gEl.classList.remove('ws','ws-notes','ws-map','ws-rc','ws-fold','ws-lmap');document.documentElement.classList.remove('g-wsroot');wsNb.setAttribute('aria-expanded','false');
+    gEl.classList.remove('ws','ws-notes','ws-map','ws-rc','ws-fold','ws-lmap','ovl','ov-n','ov-qopen');document.documentElement.classList.remove('g-wsroot');wsNb.setAttribute('aria-expanded','false');
     wsInert.forEach(function(x){x.removeAttribute('inert');});wsInert=[];
     /* The scroll position comes back now and again once the browser has left full screen (until then the graph stays
        fixed and the page is too short to scroll to it). */
@@ -3682,6 +3755,7 @@ html.g-wsroot{overflow:hidden}
     dvMeasure();drawCanvas();select(sel);
     back();
     /* Closed by the window getting narrow, the button is hidden: the focus goes to the selected step (or its section's heading). */
+    if(auto==='ov')return;
     if(auto===true){var rw=sel&&rowEl[sel],hd=sel&&secEl[SEC[sel]],tg=rw&&visible(rw.li)?rw.b:hd?hd.h:stepOl.querySelector('[tabindex="0"]');if(tg){if(rw&&tg===rw.b)roveRow(sel);tg.focus({preventScroll:true});}}
     else wsBtn.focus({preventScroll:true});
     say(S.wsOff);
@@ -3700,7 +3774,7 @@ html.g-wsroot{overflow:hidden}
     gEl.classList.toggle('ws-notes',v);wsNb.setAttribute('aria-expanded',v?'true':'false');
     if(v){ntPanel.open=true;wsFit();ntPanel.querySelector('summary').focus({preventScroll:true});}else wsNb.focus({preventScroll:true});
   }
-  wsBtn.addEventListener('click',function(){wsEnter();});wsXb.addEventListener('click',function(){wsExit();});
+  wsBtn.addEventListener('click',function(){wsEnter();});wsXb.addEventListener('click',function(){if(ovOn)ovClose();else wsExit();});
   wsNb.addEventListener('click',function(){wsNotes(!gEl.classList.contains('ws-notes'));});
   ntPanel.querySelector('summary').addEventListener('click',function(ev){if(wsOn){ev.preventDefault();wsNotes(false);}});
   [].forEach.call(document.querySelectorAll('[data-p]'),function(b){b.addEventListener('click',function(){wsPane=b.dataset.p;save('wspane',wsPane);wsApply();drawCanvas();select(sel);if(sel)mapTo(sel);});});
@@ -3733,21 +3807,220 @@ html.g-wsroot{overflow:hidden}
       if(!wsOn||(t&&t.closest&&t.closest('.nt-ed')))return;
       /* A form field (the tour picker, a search box) keeps its Esc: at most it lets go of the focus. */
       if(t&&(t.isContentEditable||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||'')))){ev.preventDefault();if(t.blur)t.blur();return;}
-      ev.preventDefault();if(gEl.classList.contains('ws-notes'))wsNotes(false);else wsExit();
+      ev.preventDefault();if(gEl.classList.contains('ws-notes'))wsNotes(false);else if(ovOn&&gEl.classList.contains('ov-qopen'))ovDrawer(false);else if(ovOn)ovClose();else wsExit();
       return;
     }
     var typing=t&&(t.isContentEditable||(t.closest&&t.closest('.nt-ed'))||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||'')));
+    if(ovOn)return;
     if((ev.key==='m'||ev.key==='M')&&wsOn&&!typing&&!SMALL){ev.preventDefault();wsLeftSet(wsLeft==='map'?'list':'map');return;}
     if(ev.key!=='f'&&ev.key!=='F'||typing)return;
     if(wsOn){ev.preventDefault();wsExit();}else if(wsWide()&&cur){ev.preventDefault();wsEnter();}
   });
-  window.addEventListener('resize',function(){if(wsOn){wsApply();wsFit();}});
-  if(WSQ&&WSQ.addEventListener)WSQ.addEventListener('change',function(){if(!WSQ.matches)wsExit(true);});
+  window.addEventListener('resize',function(){if(wsOn){wsApply();wsFit();if(ovOn)rvLayout();}});
+  if(WSQ&&WSQ.addEventListener)WSQ.addEventListener('change',function(){if(ovOn)rvLayout();else if(!WSQ.matches)wsExit(true);});
   window.addEventListener('hashchange',function(ev){if(location.hash==='#ws')wsEnter(String(ev&&ev.oldURL||'').split('#').length>1?'#'+String(ev.oldURL).split('#').slice(1).join('#'):'');});
+  /* Review overlay. A code link in the brief (a risk, a contract), the reading budget, or a decision card opens the
+     workspace's window over the page instead of scrolling to the graph: its left column is a queue (the list the link came
+     from; for the budget the Must read files, then the Read ones under their divider) instead of the step list, the middle
+     the diff of that file on its PR's tab opened at the entry's lines (banded), the right the neighbours, and a footer
+     steps. The keys j and k (also [ and ]) move through the queue, x marks the file read and opens the next one, Esc
+     closes it (not while typing or in a note editor, which take their keys first, and a drawer closes before the overlay);
+     the tour's [ ] and Esc, and the workspace's f and m, are off while it is open (the tour bar is hidden under it). Read marks
+     are the step list's, so the step list, the map, and the rows of the brief and the budget agree. Notes and their
+     drawer work as in the workspace. Below 1100 pixels it is a full-screen sheet (diff unified, no right pane) and the
+     queue a drawer from a "List (i/n)" button. It is a dialog (aria-modal) with a focus trap, and the page behind is inert and
+     keeps its scroll position (a spacer holds the graph's height). Opening adds one history entry (not one per step), so
+     Back closes it; closing by other means takes that entry off again. Closing puts the focus back on the link. */
+  var ovOn=false,ovN=false,OV=null,ovSpacer=null,ovOpener=null,ovLeftWas=null,ovSkip=false;
+  var ovQ=document.getElementById('ov-q'),ovOl=document.getElementById('ov-ol'),ovTitleEl=document.getElementById('ov-t'),ovLb=document.getElementById('ov-lb'),ovFoot=document.getElementById('ov-foot');
+  var ovPrevB=document.getElementById('ov-prev'),ovNextB=document.getElementById('ov-next'),ovPosEl=document.getElementById('ov-pos'),ovKeysEl=document.getElementById('ov-keys');
+  var ovPrEl=document.getElementById('ov-pr'),ovPathEl=document.getElementById('ov-path'),ovRgEl=document.getElementById('ov-rg'),ovWhyEl=document.getElementById('ov-why');
+  ovPrevB.textContent=S.ovPrev;ovNextB.textContent=S.ovNext;ovKeysEl.textContent=S.ovKeys;
+  /* The list a code link belongs to: the budget, the brief's risks, its contracts table, or one decision card. */
+  function ovGroupOf(r){
+    var li=r.li;if(!li)return null;
+    if(li.matches('.b-list>li'))return {k:'budget',key:li.closest('section')||document.body};
+    if(li.matches('.brief-risks>li'))return {k:'risks',key:li.parentNode};
+    if(li.matches('#brief table tbody tr'))return {k:'contracts',key:li.closest('table')};
+    if(li.matches('.decisions>li'))return {k:'decision',key:li};
+    return null;
+  }
+  /* The changed file a reference opens: its PR (the row's chip, else the last that changes it) and node. */
+  function refNode(r){var pr=refPr(r.path,whoOf(r.li)),e=pr&&fileOf(pr,r.path);return e?{pr:pr,id:e.id}:null;}
+  /* The mark in front of each such link and on its row follows the file's read mark. */
+  function paintRefs(){
+    var rows=[],all_=[];
+    REFS.forEach(function(r){
+      if(!r.rm)return;var n=refNode(r),d=!!n&&isDone(n.id);r.rm.hidden=!d;
+      var i=rows.indexOf(r.li);if(i<0){i=rows.length;rows.push(r.li);all_.push(true);}
+      if(!d)all_[i]=false;
+    });
+    rows.forEach(function(li,i){li.classList.toggle('r-read',all_[i]);});
+  }
+  function ovText(li,k){
+    var x=li.cloneNode(true),sev=x.querySelector('.sev'),pre=sev?sev.textContent.trim()+' · ':'';
+    if(k==='decision'){var q=x.querySelector('.q');return (q?q.textContent:'').replace(/\s+/g,' ').trim();}
+    if(k==='contracts'){var td=x.querySelectorAll('td');return ((td[0]?td[0].textContent.trim()+' · ':'')+(td[1]?td[1].textContent:'')).replace(/\s+/g,' ').trim();}
+    [].forEach.call(x.querySelectorAll('.g-rm,.g-ref,.who,.sev,.g-radd'),function(e){e.parentNode.removeChild(e);});
+    return pre+x.textContent.replace(/\(\s*\)/g,'').replace(/\s+/g,' ').trim();
+  }
+  function ovRange(it){return (it.a===it.b?String(it.a):it.a+'–'+it.b)+(it.side==='old'?' '+S.ovOld:'');}
+  function rvOpen(r,opener){
+    if(ovOn||wsOn||!r.grp)return;
+    var g=r.grp,items=[],seen=[],lis=[],i0=-1;
+    REFS.forEach(function(x){
+      if(!x.grp||x.grp.k!==g.k||x.grp.key!==g.key)return;
+      var n=refNode(x);if(!n)return;
+      var li=lis.indexOf(x.li);if(li<0){li=lis.length;lis.push(x.li);}
+      var key=li+'\n'+n.pr+'\n'+x.path+'\n'+x.side+'\n'+x.a+'-'+x.b,at=seen.indexOf(key);
+      if(at>=0){if(x===r)i0=at;return;}
+      seen.push(key);if(x===r)i0=items.length;
+      var why=g.k==='budget'?((x.li.querySelector('.b-why')||{}).textContent||'').trim():ovText(x.li,g.k),lab='';
+      if(g.k==='budget'){var d=x.li.closest('details.b-more'),sm=d&&d.querySelector('summary'),h=d?null:document.querySelector('#budget h3.b-risky');lab=((sm||h||{}).textContent||'').trim();}
+      items.push({r:x,pr:n.pr,id:n.id,path:x.path,side:x.side,a:x.a,b:x.b,why:why,name:shortName(x.path.slice(x.path.lastIndexOf('/')+1)),lab:lab,div:''});
+    });
+    if(!items.length||i0<0)return refGo(r);
+    items.forEach(function(it,i){if(i&&it.lab!==items[i-1].lab)it.div=it.lab;});
+    OV={items:items,i:i0,k:g.k,title:g.k==='budget'?S.budgetTitle:g.k==='risks'?S.ovRisks:g.k==='contracts'?S.ovContracts:S.ovDecision};
+    ovOpener=opener;ovLeftWas=wsLeft;wsLeft='list';ovOn=true;ovN=!wsWide();
+    try{history.pushState({prmOv:1},'');}catch(e){}
+    wsEnter('',true);
+    gEl.setAttribute('role','dialog');gEl.setAttribute('aria-modal','true');gEl.setAttribute('aria-label',fmt(S.ovDialog,{list:OV.title}));
+    ovOl.setAttribute('aria-label',fmt(S.ovQueue,{list:OV.title}));
+    ovBuild();rvLayout(true);ovShow(i0);ovFocusRow();
+    window.scrollTo(wsAt.x,wsAt.y);
+    say(S.ovOn);
+  }
+  function ovBuild(){
+    ovOl.textContent='';
+    OV.items.forEach(function(it,i){
+      if(it.div){var d=document.createElement('li');d.className='ov-div';d.textContent=it.div;ovOl.appendChild(d);}
+      var li=document.createElement('li'),cb=document.createElement('input'),b=document.createElement('button'),f=document.createElement('span'),rg=document.createElement('span');
+      li.className='ov-row';li.dataset.i=i;
+      cb.type='checkbox';cb.tabIndex=-1;cb.setAttribute('aria-label',S.readLabel+' '+it.name+':'+ovRange(it));
+      cb.addEventListener('change',function(){setDone(it.id,cb.checked);});
+      b.type='button';b.className='nm';b.title=it.path+':'+ovRange(it)+(it.why?'\n'+it.why:'');b.setAttribute('aria-label',it.name+', '+ovRange(it)+(it.why?', '+it.why:''));
+      f.className='f';f.textContent=it.name;rg.className='rg';rg.textContent=ovRange(it);b.append(f,rg);
+      b.addEventListener('click',function(){ovShow(i);ovDrawer(false,true);b.focus({preventScroll:true});});
+      li.append(cb,b);ovOl.appendChild(li);
+    });
+  }
+  /* The layout for the window's width: the workspace's three columns from 1100 pixels, else one sheet with the queue as a drawer. */
+  function rvLayout(first){
+    if(!ovOn)return;
+    ovN=!wsWide();gEl.classList.toggle('ov-n',ovN);if(!ovN)gEl.classList.remove('ov-qopen');
+    ovLb.setAttribute('aria-expanded',gEl.classList.contains('ov-qopen')?'true':'false');
+    wsApply();wsFit();gEl.style.setProperty('--ovf',ovFoot.offsetHeight+'px');
+    dvMeasure();drawCanvas();if(!first)select(sel);
+  }
+  function ovDrawer(v,quiet){
+    if(!ovOn||!gEl.classList.contains('ov-n')&&v)return;
+    var was=gEl.classList.contains('ov-qopen');if(was===v)return;
+    gEl.classList.toggle('ov-qopen',v);ovLb.setAttribute('aria-expanded',v?'true':'false');
+    if(v){ovQScroll();ovFocusRow();}else if(!quiet&&ovQ.contains(document.activeElement))ovLb.focus({preventScroll:true});
+  }
+  ovLb.addEventListener('click',function(){ovDrawer(!gEl.classList.contains('ov-qopen'));});
+  function ovFocusRow(){var b=ovOl.querySelector('.ov-row.cur .nm');if(!b||!b.getClientRects().length)b=ovLb.getClientRects().length?ovLb:ovNextB;b.focus({preventScroll:true});}
+  function ovQScroll(){
+    var li=ovOl.querySelector('.ov-row.cur');if(!li||!ovQ.clientHeight)return;
+    var t=li.offsetTop,h=li.offsetHeight,prev=li.previousElementSibling;
+    if(prev&&prev.classList.contains('ov-div')&&li.previousElementSibling.offsetTop<ovQ.scrollTop+4)t=prev.offsetTop;
+    if(t<ovQ.scrollTop+4)ovQ.scrollTop=Math.max(0,t-8);else if(li.offsetTop+h>ovQ.scrollTop+ovQ.clientHeight-4)ovQ.scrollTop=li.offsetTop+h-ovQ.clientHeight+8;
+  }
+  /* The queue, the header, the footer, and the title say where the reader is and what is read. */
+  function ovPaint(){
+    if(!ovOn||!OV)return;
+    var n=OV.items.length,it=OV.items[OV.i];
+    [].forEach.call(ovOl.querySelectorAll('.ov-row'),function(li){
+      var i=+li.dataset.i,d=isDone(OV.items[i].id),cu=i===OV.i,cb=li.firstChild,b=li.querySelector('.nm');
+      li.classList.toggle('done',d);li.classList.toggle('cur',cu);cb.checked=d;cb.tabIndex=cu?0:-1;b.tabIndex=cu?0:-1;
+      if(cu)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');
+    });
+    var pos=(OV.i+1)+'/'+n;
+    ovTitleEl.textContent=OV.title+' · '+pos;ovPosEl.textContent=pos;ovLb.textContent=fmt(S.ovList,{i:OV.i+1,n:n});
+    ovPrevB.setAttribute('aria-disabled',OV.i<=0?'true':'false');
+    ovPrEl.textContent=prName(it.pr);ovPrEl.className='who tag c-'+it.pr;ovPrEl.style.setProperty('--c',prColor(it.pr));
+    ovPathEl.textContent=it.path;ovRgEl.textContent=S.ovLines+' '+ovRange(it);ovWhyEl.textContent=it.why;
+  }
+  /* Open entry i: its PR's tab, its file's diff at the entry's lines (the old side for removed code) with the lines banded. */
+  function ovShow(i){
+    OV.i=i;ovPaint();ovQScroll();
+    var it=OV.items[i];
+    jump({id:'ov\n'+it.pr+'\n'+it.path+'\n'+it.a+'-'+it.b,scope:'line',pr:it.pr,node:it.id,path:it.path,side:it.side,a:it.a,b:it.b,code:null},true,true);
+    ovFiles();
+    say(it.name+' · '+(i+1)+'/'+OV.items.length+(it.why?' · '+it.why:''));
+  }
+  /* Only the entry's file shows (a node can hold several), open and drawn. */
+  function ovFiles(){
+    if(!ovOn||!OV)return;
+    var it=OV.items[OV.i];
+    Object.keys(VIEW).forEach(function(p){VIEW[p].det.classList.toggle('ov-off',p!==it.path);});
+    var V=VIEW[it.path];if(V){V.det.open=true;V.fill();ovBand(V);}
+  }
+  function ovBand(V){
+    [].forEach.call(dvf.querySelectorAll('.ovr'),function(c){c.classList.remove('ovr');});
+    if(!ovOn||!OV||!V||!V.t||V.f.path!==OV.items[OV.i].path)return;
+    var it=OV.items[OV.i];
+    [].forEach.call(V.t.querySelectorAll('td.ln[data-s="'+it.side+'"]'),function(td){var l=+td.dataset.l;if(l>=it.a&&l<=it.b)rowCells(V,td).forEach(function(c){c.classList.add('ovr');});});
+  }
+  function ovStep(d){
+    if(!ovOn)return;
+    var j=OV.i+d;if(j<0||j>=OV.items.length)return;
+    var inQ=ovQ.contains(document.activeElement);ovShow(j);if(inQ)ovFocusRow();
+  }
+  /* "Read, next": marks the file read (never unmarks) and opens the next entry; at the end it stays and says so. */
+  function ovReadNext(){
+    if(!ovOn)return;
+    var it=OV.items[OV.i],inQ=ovQ.contains(document.activeElement);setDone(it.id,true);
+    if(OV.i<OV.items.length-1){ovShow(OV.i+1);if(inQ)ovFocusRow();}else{ovPaint();say(S.ovEnd);}
+  }
+  ovPrevB.addEventListener('click',function(){ovStep(-1);});ovNextB.addEventListener('click',ovReadNext);
+  ovOl.addEventListener('keydown',function(ev){
+    var b=ev.target.closest?ev.target.closest('.nm'):null;if(!b||ev.altKey||ev.ctrlKey||ev.metaKey)return;
+    var bs=[].slice.call(ovOl.querySelectorAll('.nm')),i=bs.indexOf(b),j;
+    if(ev.key==='ArrowDown')j=i+1;else if(ev.key==='ArrowUp')j=i-1;else if(ev.key==='Home')j=0;else if(ev.key==='End')j=bs.length-1;else return;
+    ev.preventDefault();var to=bs[Math.max(0,Math.min(bs.length-1,j))];
+    bs.forEach(function(x){x.tabIndex=x===to?0:-1;});to.focus({preventScroll:true});
+  });
+  function ovClose(pop){
+    if(!ovOn)return;
+    var op=ovOpener,at=wsAt;
+    ovOn=false;ovN=false;OV=null;ovOpener=null;
+    gEl.removeAttribute('role');gEl.removeAttribute('aria-modal');gEl.removeAttribute('aria-label');
+    [].forEach.call(dvf.querySelectorAll('.ovr'),function(c){c.classList.remove('ovr');});
+    Object.keys(VIEW).forEach(function(p){VIEW[p].det.classList.remove('ov-off');});
+    wsLeft=ovLeftWas;
+    if(ovSpacer&&ovSpacer.parentNode)ovSpacer.parentNode.removeChild(ovSpacer);ovSpacer=null;
+    wsExit('ov');
+    if(at)window.scrollTo(at.x,at.y);
+    if(op&&document.contains(op))op.focus({preventScroll:true});
+    if(!pop&&history.state&&history.state.prmOv){ovSkip=true;try{history.back();}catch(e){ovSkip=false;}}
+    say(S.ovOff);
+  }
+  window.addEventListener('popstate',function(){if(ovSkip){ovSkip=false;return;}if(ovOn)ovClose(true);});
+  /* Tab stays inside the dialog; j/k and [ ] move, x reads and goes on (not while typing or in a note editor). */
+  document.addEventListener('keydown',function(ev){
+    if(!ovOn||ev.defaultPrevented||ev.altKey||ev.ctrlKey||ev.metaKey)return;
+    var t=ev.target,tag=t&&t.tagName||'';
+    if(ev.key==='Tab'){
+      var f=[].filter.call(gEl.querySelectorAll('a[href],button,input,select,textarea,summary,[tabindex]'),function(e){return e.tabIndex>=0&&!e.disabled&&e.getClientRects().length&&!e.closest('[hidden],[inert]');});
+      if(!f.length)return;
+      var a=document.activeElement;
+      if(!gEl.contains(a)){ev.preventDefault();f[0].focus();}
+      else if(ev.shiftKey&&a===f[0]){ev.preventDefault();f[f.length-1].focus();}
+      else if(!ev.shiftKey&&a===f[f.length-1]){ev.preventDefault();f[0].focus();}
+      return;
+    }
+    if(t&&(t.isContentEditable||(t.closest&&t.closest('.nt-ed'))||tag==='TEXTAREA'||tag==='SELECT'||(tag==='INPUT'&&!/^(checkbox|radio|button)$/i.test(t.type||''))))return;
+    var k=ev.key;
+    if(k==='j'||k===']'){ev.preventDefault();ovStep(1);}
+    else if(k==='k'||k==='['){ev.preventDefault();ovStep(-1);}
+    else if(k==='x'||k==='X'){ev.preventDefault();ovReadNext();}
+  });
   /* The map (or its overview of areas) where the reader shows it: under the toolbar with the Map view, in the
      workspace's left column with "Map" picked there, else in its right pane with "Map" picked there. In the left
      column it opens centred on the selected file, with that file's area open. */
-  function mapOn(){if(SMALL)return false;return wsOn?wsLeft==='map'||wsPane==='map'&&!wsRc:true;}
+  function mapOn(){if(SMALL||(ovOn&&ovN))return false;return wsOn?wsLeft==='map'||wsPane==='map'&&!wsRc:true;}
   function drawCanvas(){
     var on=mapOn(),ov=on&&coreCount(G.p)>OVN;cv.classList.toggle('ov',ov);cv.classList.toggle('flat',on&&!ov);document.getElementById('g-pathl').hidden=!on;
     cv.hidden=!on;MAP=null;

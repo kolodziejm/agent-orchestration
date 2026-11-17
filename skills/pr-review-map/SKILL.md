@@ -37,7 +37,8 @@ and rules: `references/narrative.md`).
    each with PR chip and code link; the risks ranked across all PRs (irreversible, all
    users, security, data loss first), at most 7, each with severity, PR chip, and a link
    that opens the lines; what was never tested; one line per decision, linking to its
-   card in Before merging.
+   card in Before merging. Code links here, in the budget, and on decision cards open a
+   review overlay (that list as a queue, the diff banded; `j`/`k`, `x` reads, Esc closes).
 2. **Reading budget** (generated, large changes): "Read N of M changed lines (x%)", a bar
    of the four attention classes (must read, read, skim, skip), then the files to read
    by PR, risky first with why, each opening at its focus lines.

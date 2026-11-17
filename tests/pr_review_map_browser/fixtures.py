@@ -959,7 +959,7 @@ def theme(d: Path) -> dict:
 
 # ---------------------------------------------------------------------------------------------------------------------
 # brief: the page of a large change (four stacked PRs: a migration, a session file the overlay marks risky with focus
-# ranges, an old-side focus on a deleted file, tests, a lockfile, translations, docs) with its brief and generated budget,
+# ranges, an old-side focus on a deleted file, a migration with a long name, tests, a lockfile, translations, docs) with its brief and generated budget,
 # and the page of a small change (one PR of three files) with a brief and no budget.
 
 BRIEF_NARRATIVE = """<header><h1>Brief sample</h1><p class="sub">Four PRs.</p></header>
@@ -1016,6 +1016,7 @@ def brief(d: Path) -> dict:
         "src/api/items.ts": "import { s1 } from '../auth/session';\n" + "".join(f"export const i{i} = s1 + {i};\n" for i in range(11)),
         "src/api/items.test.ts": "import { i1 } from './items';\ntest('i', () => expect(i1).toBe(2));\ntest('j', () => 1);\n",
         "package-lock.json": "".join(f'{{"line": {i}}}\n' for i in range(30)),
+        "database/migrations/2026_11_16_193657_add_link_to_tasks_routines_and_agenda_items_tables.php": "<?php\nreturn new class {};\n",
     }, "B")
     git(repo, "checkout", "-q", "-b", "feat/c")
     commit(repo, {"web/ItemList.tsx": "import { i1 } from '../src/api/items';\nexport const ItemList = () => i1;\n" + "".join(f"// row {i}\n" for i in range(4)),

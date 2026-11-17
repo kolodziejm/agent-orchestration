@@ -27,9 +27,9 @@ module.exports = {
     t.check('brief: the table of contents lists them', ['#brief', '#budget', '#stack', '#graph'].every((h) => order.toc.includes(h)) && order.toc.indexOf('#budget') < order.toc.indexOf('#stack'), order.toc);
     const budget = await B.ev(`(function(){var s=document.getElementById('budget');return {sum:s.querySelector('.b-sum').textContent,segs:[].map.call(s.querySelectorAll('.b-seg'),function(e){return e.className+':'+Math.round(e.getBoundingClientRect().width);}),
       must:[].map.call(s.querySelectorAll('h3.b-risky~.b-group .b-list>li'),function(l){return l.querySelector('code').textContent;}),refs:s.querySelectorAll('button.g-ref').length,why:[].map.call(s.querySelectorAll('.b-why'),function(e){return e.textContent;})};})()`);
-    t.check('brief: the budget says how much of the changed lines to read', /Read 34 of 96 changed lines \(35%\)/.test(budget.sum), budget.sum);
+    t.check('brief: the budget says how much of the changed lines to read', /Read 36 of 98 changed lines \(37%\)/.test(budget.sum), budget.sum);
     t.check('brief: its bar has the four classes, wider for more lines', budget.segs.length === 4 && budget.segs.every((x) => +x.split(':')[1] > 0), budget.segs);
-    t.check('brief: the files to read are links with their reasons, risky first', budget.refs >= 5 && budget.why.includes('Tenant check dropped') && budget.must.length === 3, budget);
+    t.check('brief: the files to read are links with their reasons, risky first', budget.refs >= 5 && budget.why.includes('Tenant check dropped') && budget.must.length === 4, budget);
 
     // A budget entry opens its file at its focus lines on that file's tab.
     await B.ev(`[].find.call(document.querySelectorAll('#budget button.g-ref'),function(b){return /session\\.ts:5-9/.test(b.textContent);}).click()`); await sleep(500);

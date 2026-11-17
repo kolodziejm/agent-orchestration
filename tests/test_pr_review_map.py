@@ -3467,6 +3467,9 @@ class AttentionTests(unittest.TestCase):
         self.assertIn("<code>db/migrations/0001_items.sql:1</code>", section)     # no focus: its first changed line
         self.assertNotIn("package-lock.json", section)
         self.assertNotIn("src/tiny.ts", section)
+        counts = re.findall(r'<span class="b-n">([^<]*)</span>', section)
+        self.assertTrue(counts and all(re.fullmatch(r"· \d+ lines?", c) for c in counts), counts)  # right after the reason, muted by CSS
+        self.assertIn('<span class="b-n">· 4 lines</span>', section)                # session.ts: the lines to read of its focus
         self.assertIn('<span class="who tag c-A">A</span>', section)
         self.assertIn('<li><a href="#budget">Reading budget</a></li>', page)
         old = json.loads(json.dumps(self.tuned))
@@ -3519,6 +3522,18 @@ class AttentionTests(unittest.TestCase):
         missing = check(lambda g: None, "att-nobrief", narrative=bare)
         self.assertEqual(missing.returncode, 0, missing.stdout)
         self.assertIn('warning: no <section id="brief">', missing.stdout)
+
+    def test_the_budget_line_count_agrees_with_its_number_in_each_language(self):
+        """This test will fail when assemble.py's plural_form picks the wrong form of the budget's "· n lines" (one for 1, Polish few for 2-4 outside 12-14, many otherwise), ignores a plain string a --strings override gives, or the built-in strings lack the count for a language."""
+        code = ("import sys, json; sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[1]); import assemble\n"
+                "strings = json.load(open(sys.argv[2]))\n"
+                "print(json.dumps({lang: [assemble.plural_form(strings[lang]['budgetLines'], n).replace('{n}', str(n)) for n in (1, 2, 5, 12, 22, 39)] for lang in strings} | {'plain': assemble.plural_form('{n} l.', 3)}))")
+        result = subprocess.run([sys.executable, "-c", code, str(SCRIPTS), str(SKILL / "assets" / "strings.json")], capture_output=True, text=True, env=ENV, check=True)
+        self.assertEqual(json.loads(result.stdout), {
+            "en": ["· 1 line", "· 2 lines", "· 5 lines", "· 12 lines", "· 22 lines", "· 39 lines"],
+            "pl": ["· 1 linia", "· 2 linie", "· 5 linii", "· 12 linii", "· 22 linie", "· 39 linii"],
+            "plain": "{n} l.",
+        })
 
     def test_refresh_flags_focus_ranges_of_files_that_changed_and_never_moves_them(self):
         """This test will fail when a file with focus ranges whose change differs from the previous build's is not reported, an unchanged one or a file new since then is, or a file without focus is."""

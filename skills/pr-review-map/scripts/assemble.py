@@ -143,9 +143,21 @@ def first_line(diffs: dict, node: dict) -> tuple[str, int]:
     return "new", 1
 
 
-def budget_entry(node: dict, diffs: dict, show_why: bool) -> str:
+def plural_form(forms: object, n: int) -> str:
+    """The form of a count string for n: `forms` is a string, or {one, few, many, other} (Polish when `few` or `many` is given,
+    else English's one and other), the `other` form when the category has none."""
+    if not isinstance(forms, dict):
+        return str(forms)
+    if "few" in forms or "many" in forms:
+        category = "one" if n == 1 else "few" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "many"
+    else:
+        category = "one" if n == 1 else "other"
+    return str(forms.get(category) or forms.get("other") or "")
+
+
+def budget_entry(node: dict, diffs: dict, show_why: bool, strings: dict) -> str:
     """One line of a budget list: the file at its focus (else its first change) as a `path:lines` reference the viewer
-    opens like any code link, the reason, and the lines to read."""
+    opens like any code link, the reason, and the lines to read ("· 39 lines", muted, right after the reason)."""
     focus = [r for r in node.get("focus") or [] if isinstance(r, dict)] if not attention.focus_problems(node.get("focus")) else []
     path = str(node.get("path"))
     if focus:
@@ -158,7 +170,9 @@ def budget_entry(node: dict, diffs: dict, show_why: bool) -> str:
     mark = ' data-side="old"' if side == "old" else ""
     text = f"<code{mark}>{html.escape(path)}:{span}</code>"
     note = f' <span class="b-why">{html.escape(str(why))}</span>' if show_why and why else ""
-    return f'<li>{text}{note} <span class="b-n">{attention.read_lines(node)}</span></li>'
+    lines = attention.read_lines(node)
+    count = plural_form(strings["budgetLines"], lines).replace("{n}", str(lines))
+    return f'<li>{text}{note} <span class="b-n">{html.escape(count)}</span></li>'
 
 
 def budget_section(graph: dict, diffs: dict, strings: dict) -> str:
@@ -183,7 +197,7 @@ def budget_section(graph: dict, diffs: dict, strings: dict) -> str:
         for pr in graph["prs"]:
             nodes = [n for n in pr["nodes"] if not n.get("unchanged") and attention.attention_of(n) == name and attention.read_lines(n)]
             if nodes:
-                items = "".join(budget_entry(n, diffs, name == "risky" or bool(n.get("focus"))) for n in nodes)
+                items = "".join(budget_entry(n, diffs, name == "risky" or bool(n.get("focus")), strings) for n in nodes)
                 groups.append(f'<div class="b-group"><span class="who tag c-{html.escape(pr["key"])}">{html.escape(pr["key"])}</span> '
                               f'<ul class="b-list">{items}</ul></div>')
         if groups:
