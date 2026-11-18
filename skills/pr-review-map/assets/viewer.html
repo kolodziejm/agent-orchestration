@@ -623,6 +623,84 @@ section#budget h3{margin:14px 0 6px;font-size:16px}
 .b-list .g-ref{max-width:100%;min-width:0}
 details.b-more{margin:10px 0 0}
 details.b-more>summary{padding:8px 14px;font-weight:600;font-size:16px}
+/* Verdicts: OK / Needs fix / Question on a risk, one option or Question on a decision, Routine / Not routine on a spot-check file; the progress line above the brief */
+.vd{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center}
+.vd[hidden],.ov-vd[hidden],.vd-ch[hidden]{display:none}
+.vd-b{font:inherit;font-size:12px;line-height:1.4;padding:1px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
+.vd-b:hover{border-color:var(--muted)}
+.vd-b[aria-pressed="true"]{font-weight:700}
+.vd-b[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vd-b.v-ok[aria-pressed="true"],.vd-b.v-pick[aria-pressed="true"]{background:var(--ok-bg);color:var(--ok-fg);border-color:var(--ok-fg)}
+.vd-b.v-fix[aria-pressed="true"]{background:var(--risk-bg);color:var(--risk-fg);border-color:var(--risk-fg)}
+.vd-b.v-q[aria-pressed="true"]{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-fg)}
+ol.brief-risks .vd{margin-left:auto;flex:0 1 auto}
+.vd-row{margin:8px 0 0}
+.decisions .vd-picked{background:var(--ok-bg);color:var(--ok-fg);border-radius:6px;padding:2px 8px}
+.vd-ch{margin-left:6px;font-size:13px;font-weight:600;color:var(--ok-fg)}
+li[data-vd="q"] .vd-ch{color:var(--warn-fg)}
+.vd-prog{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:10px 0 12px;padding:8px 12px;font-size:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+.pg-n{font-variant-numeric:tabular-nums;font-weight:600}
+.pg-state.ready{color:var(--ok-fg)}
+.pg-state.not{color:var(--warn-fg)}
+.pg-state .nt-b.lnk{padding:0 2px;font-size:inherit;color:inherit;text-decoration:underline}
+.vd-prog .nt-b#vd-copy{margin-left:auto}
+.b-spotnote{margin:2px 0 6px;font-size:14px;color:var(--muted);max-width:none}
+.b-spot .b-list>li .vd{margin-left:6px}
+.b-spotwarn{margin:8px 0}
+.ov-vd{margin-top:6px}
+.ov-row .vm{font-size:11.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+.ov-row .vm:empty{display:none}
+/* Screens: the before and after of the screens the change affects (assemble.py --screens; taken only when the reader asked for them),
+   a block in the brief after "What changes for users" and a full-window dialog that opens from a thumbnail */
+.scr{margin:14px 0 4px}
+section#brief .scr h3,.scr h3{margin:0 0 8px}
+ul.scr-list{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.scr-pair{max-width:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px}
+.scr-h{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.scr-t{font-size:15px}
+.scr-bd{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.5;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:var(--soft);color:var(--muted)}
+.scr-bd.new{background:var(--ok-bg);color:var(--ok-fg);border-color:var(--ok-fg)}
+.scr-bd.rem{background:var(--risk-bg);color:var(--risk-fg);border-color:var(--risk-fg)}
+.scr-vp{font-size:12.5px;color:var(--muted)}
+.scr-pics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.scr-pair.mobile .scr-pics{grid-template-columns:repeat(2,minmax(0,240px))}
+@media (max-width:700px){.scr-pics{grid-template-columns:minmax(0,1fr)}.scr-pair.mobile .scr-pics{grid-template-columns:minmax(0,260px)}}
+.scr-f{margin:0;display:grid;gap:4px;align-content:start;min-width:0}
+.scr-f figcaption{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.scr-th{display:block;width:100%;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--soft);overflow:hidden;cursor:zoom-in;line-height:0}
+.scr-th:hover{border-color:var(--muted)}
+.scr-th img{display:block;width:100%;height:auto;max-height:280px;object-fit:contain}
+.scr-none{display:grid;place-items:center;min-height:96px;padding:8px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:13px;text-align:center}
+.scr-none[hidden],.scd-box img[hidden]{display:none}
+.scr-note{margin:0;font-size:13.5px;color:var(--muted);max-width:none}
+.scr-stale{margin:0;justify-self:start;font-size:13px;color:var(--warn-fg);background:var(--warn-bg);padding:1px 8px;border-radius:6px;max-width:none}
+html.scd-lock{overflow:hidden}
+.scd{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;background:var(--bg);color:var(--fg)}
+.scd[hidden]{display:none}
+.scd-head,.scd-bar,.scd-foot{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:8px 14px;background:var(--surface)}
+.scd-head{border-bottom:1px solid var(--line)}
+.scd-foot{border-top:1px solid var(--line)}
+.scd-t{font-weight:700;font-size:16px;min-width:0;overflow-wrap:anywhere}
+.scd-pos{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.scd-b{font:inherit;font-size:13px;line-height:1.4;padding:3px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+.scd-b:hover{border-color:var(--muted)}
+.scd-b[aria-pressed="true"]{background:var(--accent-ink);border-color:var(--accent-ink);color:var(--surface);font-weight:700}
+.scd-b[aria-disabled="true"]{opacity:.45;cursor:default}
+.scd-tog{display:inline-flex;gap:4px}
+.scd-meta{font-size:13px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.scd-meta .stale{color:var(--warn-fg);background:var(--warn-bg);padding:0 6px;border-radius:6px}
+.scd-note{font-size:13.5px;color:var(--muted);padding:0 14px 8px;margin:0;background:var(--surface);max-width:none}
+.scd-note:empty{display:none}
+.scd-stage{flex:1 1 0;min-height:0;display:flex;gap:12px;padding:12px 14px}
+.scd-fig{flex:1 1 0;min-width:0;min-height:0;margin:0;display:flex;flex-direction:column;gap:4px}
+.scd-fig[hidden]{display:none}
+.scd-fig figcaption{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.scd:not(.sbs) .scd-fig figcaption{display:none}
+.scd-box{position:relative;flex:1 1 0;min-height:0;border:1px solid var(--line);border-radius:8px;background:var(--soft);overflow:hidden}
+.scd-box img{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%}
+.scd-box .scr-none{position:absolute;inset:0;border:0}
+.scd-keys{font-size:12.5px;color:var(--muted);margin-right:auto}
+@media (max-width:700px){.scd-keys{display:none}.scd-foot{justify-content:space-between}}
 /* Attention: a chip on each step and in the detail panel, mechanical rows dimmed, the focus ranges of a file to read */
 .g-att{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:0 6px;border-radius:999px;border:1px solid var(--line);background:var(--soft);color:var(--muted);white-space:nowrap;line-height:1.5}
 .g-att.a-risky{background:var(--risk-bg);color:var(--risk-fg);border-color:var(--risk-fg)}
@@ -713,7 +791,7 @@ html.g-wsroot{overflow:hidden}
 .ov-q{display:none}
 #graph.ovl .ov-q{display:block;position:relative;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px}
 .ov-q ol{list-style:none;margin:0;padding:0;display:grid;gap:1px}
-.ov-row{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px;align-items:center;min-height:30px;padding:0 6px;border-radius:6px;font-size:13.5px;max-width:none}
+.ov-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:6px;align-items:center;min-height:30px;padding:0 6px;border-radius:6px;font-size:13.5px;max-width:none}
 .ov-row input{margin:0}
 .ov-row.cur{background:var(--soft);box-shadow:inset 3px 0 0 var(--accent)}
 .ov-row .nm{display:flex;gap:10px;align-items:baseline;justify-content:space-between;min-width:0;background:none;border:0;padding:5px 2px;font:inherit;color:var(--fg);cursor:pointer;text-align:left}
@@ -879,7 +957,7 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
 <script type="application/json" id="review-config">{{CONFIG_JSON}}</script>
 <script type="application/json" id="graph-data">{{GRAPH_JSON}}</script>
 <script type="application/json" id="diff-data">{{DIFF_JSON}}</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+{{SCREENS_BLOCK}}<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script>
 (function(){
   var CFG=JSON.parse(document.getElementById('review-config').textContent);
@@ -1579,6 +1657,7 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
     document.getElementById('nt-empty').hidden=notes.length>0;
     document.getElementById('nt-fempty').hidden=!(notes.length&&!list.length);
     nCopy.disabled=!list.length;nClear.disabled=!notes.length&&!foreign.length;nCopy.textContent=copyLabel();nCopy.title=S.notesCopyTitle;
+    if(vdReady)vdCopyState();
     if(!notes.length&&!foreign.length)hideConfirm();
     nList.innerHTML='';
     list.forEach(function(n,i){
@@ -3653,7 +3732,7 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
     ready();
   });
   /* A risk's text for its note: without its PR tag (the note's place names the PR) and its own button, references with their full path. */
-  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who,.g-rm'),function(b){b.parentNode.removeChild(b);});[].forEach.call(x.querySelectorAll('code[data-full]'),function(c){c.textContent=c.getAttribute('data-full');});return x.textContent.replace(/\s+/g,' ').trim();}
+  function itemText(li){var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-radd,.who,.g-rm,.vd,.vd-row'),function(b){b.parentNode.removeChild(b);});[].forEach.call(x.querySelectorAll('code[data-full]'),function(c){c.textContent=c.getAttribute('data-full');});return x.textContent.replace(/\s+/g,' ').trim();}
   function riskNote(li,btn){
     var text=itemText(li),who=whoOf(li),seen={},rs=[],n=null;
     REFS.forEach(function(r){var k=r.path+':'+r.a+'-'+r.b;if(r.li===li&&!seen[k]){seen[k]=1;rs.push(r);}});
@@ -3830,8 +3909,10 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
      drawer work as in the workspace. Below 1100 pixels it is a full-screen sheet (diff unified, no right pane) and the
      queue a drawer from a "List (i/n)" button. It is a dialog (aria-modal) with a focus trap, and the page behind is inert and
      keeps its scroll position (a spacer holds the graph's height). Opening adds one history entry (not one per step), so
-     Back closes it; closing by other means takes that entry off again. Closing puts the focus back on the link. */
-  var ovOn=false,ovN=false,OV=null,ovSpacer=null,ovOpener=null,ovLeftWas=null,ovSkip=false;
+     Back closes it; closing by other means takes that entry off again. Closing puts the focus back on the link. The header
+     of a risk entry carries its verdict (OK, Needs fix, Question: the keys o, n, ?), that of a spot-check entry Routine
+     and Not routine (o, n); see "Verdicts" below. */
+  var RISK_ID=/^risk-[A-Za-z0-9_-]+$/,DEC_ID=/^dec-[A-Za-z0-9_-]+$/,ovOn=false,ovN=false,OV=null,ovSpacer=null,ovOpener=null,ovLeftWas=null,ovSkip=false;
   var ovQ=document.getElementById('ov-q'),ovOl=document.getElementById('ov-ol'),ovTitleEl=document.getElementById('ov-t'),ovLb=document.getElementById('ov-lb'),ovFoot=document.getElementById('ov-foot');
   var ovPrevB=document.getElementById('ov-prev'),ovNextB=document.getElementById('ov-next'),ovPosEl=document.getElementById('ov-pos'),ovKeysEl=document.getElementById('ov-keys');
   var ovPrEl=document.getElementById('ov-pr'),ovPathEl=document.getElementById('ov-path'),ovRgEl=document.getElementById('ov-rg'),ovWhyEl=document.getElementById('ov-why');
@@ -3856,12 +3937,13 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
       if(!d)all_[i]=false;
     });
     rows.forEach(function(li,i){li.classList.toggle('r-read',all_[i]);});
+    if(vdReady)vdSync();
   }
   function ovText(li,k){
     var x=li.cloneNode(true),sev=x.querySelector('.sev'),pre=sev?sev.textContent.trim()+' · ':'';
     if(k==='decision'){var q=x.querySelector('.q');return (q?q.textContent:'').replace(/\s+/g,' ').trim();}
     if(k==='contracts'){var td=x.querySelectorAll('td');return ((td[0]?td[0].textContent.trim()+' · ':'')+(td[1]?td[1].textContent:'')).replace(/\s+/g,' ').trim();}
-    [].forEach.call(x.querySelectorAll('.g-rm,.g-ref,.who,.sev,.g-radd'),function(e){e.parentNode.removeChild(e);});
+    [].forEach.call(x.querySelectorAll('.g-rm,.g-ref,.who,.sev,.g-radd,.vd,.vd-row'),function(e){e.parentNode.removeChild(e);});
     return pre+x.textContent.replace(/\(\s*\)/g,'').replace(/\s+/g,' ').trim();
   }
   function ovRange(it){return (it.a===it.b?String(it.a):it.a+'–'+it.b)+(it.side==='old'?' '+S.ovOld:'');}
@@ -3876,8 +3958,13 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
       if(at>=0){if(x===r)i0=at;return;}
       seen.push(key);if(x===r)i0=items.length;
       var why=g.k==='budget'?((x.li.querySelector('.b-why')||{}).textContent||'').trim():ovText(x.li,g.k),lab='';
-      if(g.k==='budget'){var d=x.li.closest('details.b-more'),sm=d&&d.querySelector('summary'),h=d?null:document.querySelector('#budget h3.b-risky');lab=((sm||h||{}).textContent||'').trim();}
-      items.push({r:x,pr:n.pr,id:n.id,path:x.path,side:x.side,a:x.a,b:x.b,why:why,name:shortName(x.path.slice(x.path.lastIndexOf('/')+1)),lab:lab,div:''});
+      var vk='',vid='';
+      if(g.k==='budget'){
+        var sp=x.li.closest('.b-spot'),d=x.li.closest('details.b-more'),sm=d&&d.querySelector('summary'),h=d||sp?null:document.querySelector('#budget h3.b-risky');
+        lab=((sp?sp.querySelector('h3'):(sm||h||{})).textContent||'').trim();
+        if(sp){vk='spot';vid=n.pr+':'+x.path;why=S.spotNote;}
+      }else if(g.k==='risks'&&RISK_ID.test(x.li.id)){vk='risk';vid=x.li.id;}
+      items.push({r:x,pr:n.pr,id:n.id,path:x.path,side:x.side,a:x.a,b:x.b,why:why,name:shortName(x.path.slice(x.path.lastIndexOf('/')+1)),lab:lab,div:'',vk:vk,vid:vid});
     });
     if(!items.length||i0<0)return refGo(r);
     items.forEach(function(it,i){if(i&&it.lab!==items[i-1].lab)it.div=it.lab;});
@@ -3902,7 +3989,8 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
       b.type='button';b.className='nm';b.title=it.path+':'+ovRange(it)+(it.why?'\n'+it.why:'');b.setAttribute('aria-label',it.name+', '+ovRange(it)+(it.why?', '+it.why:''));
       f.className='f';f.textContent=it.name;rg.className='rg';rg.textContent=ovRange(it);b.append(f,rg);
       b.addEventListener('click',function(){ovShow(i);ovDrawer(false,true);b.focus({preventScroll:true});});
-      li.append(cb,b);ovOl.appendChild(li);
+      var vm=document.createElement('span');vm.className='vm';
+      li.append(cb,b,vm);ovOl.appendChild(li);
     });
   }
   /* The layout for the window's width: the workspace's three columns from 1100 pixels, else one sheet with the queue as a drawer. */
@@ -3933,6 +4021,7 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
     var n=OV.items.length,it=OV.items[OV.i];
     [].forEach.call(ovOl.querySelectorAll('.ov-row'),function(li){
       var i=+li.dataset.i,d=isDone(OV.items[i].id),cu=i===OV.i,cb=li.firstChild,b=li.querySelector('.nm');
+      var vi=OV.items[i],vv=vi.vk?vdVal(vi.vk,vi.vid):'';li.lastChild.textContent=vv?vdWord(vi.vk,vv):'';
       li.classList.toggle('done',d);li.classList.toggle('cur',cu);cb.checked=d;cb.tabIndex=cu?0:-1;b.tabIndex=cu?0:-1;
       if(cu)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');
     });
@@ -3941,6 +4030,8 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
     ovPrevB.setAttribute('aria-disabled',OV.i<=0?'true':'false');
     ovPrEl.textContent=prName(it.pr);ovPrEl.className='who tag c-'+it.pr;ovPrEl.style.setProperty('--c',prColor(it.pr));
     ovPathEl.textContent=it.path;ovRgEl.textContent=S.ovLines+' '+ovRange(it);ovWhyEl.textContent=it.why;
+    ovKeysEl.textContent=S.ovKeys+(it.vk==='risk'?' · '+S.ovKeysRisk:it.vk==='spot'?' · '+S.ovKeysSpot:'');
+    vdHead();
   }
   /* Open entry i: its PR's tab, its file's diff at the entry's lines (the old side for removed code) with the lines banded. */
   function ovShow(i){
@@ -4016,7 +4107,219 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
     if(k==='j'||k===']'){ev.preventDefault();ovStep(1);}
     else if(k==='k'||k==='['){ev.preventDefault();ovStep(-1);}
     else if(k==='x'||k==='X'){ev.preventDefault();ovReadNext();}
+    else if(/^[onON?]$/.test(k)){if(ovVerdict(k.toLowerCase()))ev.preventDefault();}
   });
+  /* Verdicts: the review ends in a decision. Each risk of the brief that has an id (<li id="risk-N">) takes OK, Needs fix,
+     or Question (a three-button group on its row, and in the overlay's header when the entry is that risk; the keys o, n,
+     ? set it, only there and never while typing). Each decision card (<li id="dec-N">) takes one option (a button for each
+     element with data-option: the "Recommended:" line and each alternative; none on the card gives "Decided") or
+     Question; the chosen option is marked on the card and shown on the brief's decision line. Each spot-check file of
+     the budget takes Routine or Not routine (o, n). Pressing the active button again clears it. Verdicts live in
+     localStorage under "verdicts" beside the notes, keyed by risk id, decision id, or "PR:path" for a spot-check file, so
+     they survive a rebuild or a refresh of the page (which never edits the narrative). The progress line at the top of the
+     brief (assemble.py writes it for a page read without script) counts them with the must-read files read and the
+     spot-check files marked, says "Ready to merge" (every risk OK, every decision given an option, every spot-check
+     marked Routine) or "Not ready:" with what is open (each count jumps to the first such item), and keeps "Copy fix
+     brief" in step: Markdown of the risks to fix or ask about, the chosen options and open decision questions, the
+     spot-check files that were not routine, and then the notes the notes panel shows (as "Copy notes" copies them). */
+  var VD=obj('verdicts'),VR=[],VDEC=[],VSP=[],vdReady=false,VDV={risk:['ok','fix','q'],spot:['ok','no']};
+  var vdProgEl=document.getElementById('vd-prog'),vdCopyEl=document.getElementById('vd-copy'),vdTimer=null;
+  function vdLabel(k,v){return k==='spot'?(v==='ok'?S.spotOk:S.spotNo):v==='ok'?S.verOk:v==='fix'?S.verFix:S.verQ;}
+  function vdOf(id){return VDEC.find(function(d){return d.id===id;});}
+  /* The stored verdict of an item, '' when none or when it no longer fits the page (an option that is gone). */
+  function vdVal(k,id){
+    var v=own(VD,id);if(typeof v!=='string')return '';
+    if(k==='dec'){var d=vdOf(id),m=/^o(\d+)$/.exec(v);return v==='q'||v==='d'&&d&&!d.opts.length||m&&d&&+m[1]<d.opts.length?v:'';}
+    return VDV[k]&&VDV[k].indexOf(v)>=0?v:'';
+  }
+  /* A verdict as a short word (the queue row's, the brief line's). */
+  function vdWord(k,v){
+    if(k!=='dec')return vdLabel(k,v);
+    return v==='q'?S.verQ:v==='d'?S.verDecided:'';
+  }
+  function vdOptLabel(d,v){var m=/^o(\d+)$/.exec(v),o=m&&d.opts[+m[1]];return o?o.label:'';}
+  function vdSet(k,id,v,tog){
+    if(tog&&vdVal(k,id)===v)v='';
+    if(v)VD[id]=v;else delete VD[id];
+    save('verdicts',JSON.stringify(VD));vdSync();
+    var it=k==='dec'?vdOf(id):null,w=v?(k==='dec'&&v[0]==='o'?fmt(S.verChosen,{o:vdOptLabel(it,v)}):vdWord(k,v)):'';
+    if(w)say(w);
+  }
+  function vdPaintGroup(g){
+    var v=g.dataset.id?vdVal(g.dataset.k,g.dataset.id):'';
+    [].forEach.call(g.children,function(b){b.setAttribute('aria-pressed',v&&b.dataset.vd===v?'true':'false');});
+  }
+  function vdGroup(k,id,items){
+    var g=document.createElement('span');g.className='vd';g.setAttribute('role','group');g.dataset.k=k;if(id)g.dataset.id=id;g.setAttribute('aria-label',S.verLabel);
+    items.forEach(function(x){var b=document.createElement('button');b.type='button';b.className='vd-b v-'+x[2];b.dataset.vd=x[0];b.textContent=x[1];b.setAttribute('aria-pressed','false');if(x[3])b.title=x[3];g.appendChild(b);});
+    return g;
+  }
+  function vdRiskGroup(id){return vdGroup('risk',id,[['ok',S.verOk,'ok'],['fix',S.verFix,'fix'],['q',S.verQ,'q']]);}
+  function vdSpotGroup(id){return vdGroup('spot',id,[['ok',S.spotOk,'ok'],['no',S.spotNo,'fix']]);}
+  /* The item's text without its chips, code links, and controls. */
+  function vdText(li){
+    var x=li.cloneNode(true);[].forEach.call(x.querySelectorAll('.g-rm,.g-ref,.who,.sev,.g-radd,.vd,.vd-row,.vd-ch'),function(e){e.parentNode.removeChild(e);});
+    return x.textContent.replace(/\(\s*\)/g,'').replace(/\s+/g,' ').trim();
+  }
+  function vdRefs(li){
+    var seen={},out=[];
+    REFS.forEach(function(r){var t=r.path+':'+(r.a===r.b?r.a:r.a+'-'+r.b)+(r.side==='old'?' '+S.ovOld:'');if(r.li===li&&!seen[t]){seen[t]=1;out.push(t);}});
+    return out;
+  }
+  /* Everything the viewer counts, from the DOM and the verdicts. */
+  function vdStats(){
+    var st={r:{n:VR.length,ok:0,fix:0,q:0},d:{n:VDEC.length,set:0,q:0},s:{n:VSP.length,ok:0,no:0},m:{n:0,read:0}};
+    VR.forEach(function(li){var v=vdVal('risk',li.id);if(v)st.r[v]++;});
+    VDEC.forEach(function(d){var v=vdVal('dec',d.id);if(v==='q')st.d.q++;else if(v)st.d.set++;});
+    VSP.forEach(function(x){var v=vdVal('spot',x.key);if(v)st.s[v]++;});
+    [].forEach.call(document.querySelectorAll('#budget .b-group[data-b="must"] .b-list>li'),function(li){st.m.n++;if(li.classList.contains('r-read'))st.m.read++;});
+    st.r.open=st.r.n-st.r.ok-st.r.fix-st.r.q;st.d.open=st.d.n-st.d.set-st.d.q;st.s.open=st.s.n-st.s.ok-st.s.no;
+    st.q=st.r.q+st.d.q;
+    st.ready=st.r.n+st.d.n+st.s.n>0&&st.r.ok===st.r.n&&st.d.set===st.d.n&&st.s.ok===st.s.n;
+    return st;
+  }
+  function vdJump(j){
+    var el=null;
+    if(j==='fix'||j==='openRisk'||j==='question')el=VR.find(function(li){var v=vdVal('risk',li.id);return j==='fix'?v==='fix':j==='question'?v==='q':!v;});
+    if(!el&&j==='question'){var d=VDEC.find(function(x){return vdVal('dec',x.id)==='q';});el=d&&d.li;}
+    if(j==='openDec'){var o=VDEC.find(function(x){return !vdVal('dec',x.id);});el=o&&o.li;}
+    if(j==='openSpot'||j==='notRoutine'){var sp=VSP.find(function(x){var v=vdVal('spot',x.key);return j==='openSpot'?!v:v==='no';});el=sp&&sp.li;}
+    if(!el)return;
+    el.scrollIntoView({block:'center'});
+    var b=el.querySelector('.vd-b[aria-pressed="true"],.vd-b');if(b)b.focus({preventScroll:true});
+  }
+  function vdPlus(parts,key,n,j){if(n)parts.push([j,(typeof S[key]==='string'?S[key]:plw(S[key],n)).replace('{n}',n)]);}
+  /* The progress line, the spot-check warning, and the marks on the rows, from the verdicts. */
+  function vdSync(){
+    if(!vdReady)return;
+    [].forEach.call(document.querySelectorAll('.vd'),vdPaintGroup);
+    VR.forEach(function(li){li.dataset.vd=vdVal('risk',li.id);});
+    VSP.forEach(function(x){x.li.dataset.vd=vdVal('spot',x.key);});
+    VDEC.forEach(function(d){
+      var v=vdVal('dec',d.id),m=/^o(\d+)$/.exec(v),i=m?+m[1]:-1;
+      d.li.dataset.vd=v?v[0]==='o'?'o':v:'';
+      d.opts.forEach(function(o,j){o.el.classList.toggle('vd-picked',j===i);});
+      if(d.line){
+        d.line.hidden=!v;d.line.textContent=v?'→ '+(i>=0?vdOptLabel(d,v):vdWord('dec',v)):'';
+      }
+    });
+    var st=vdStats(),P=vdProgEl;
+    if(P){
+      var n=P.querySelector('#pg-n'),box=P.querySelector('#pg-state');
+      if(n)n.textContent=[['progRisks',st.r.n,st.r.n-st.r.open],['progDecisions',st.d.n,st.d.n-st.d.open],['progMust',st.m.n,st.m.read],['progSpot',st.s.n,st.s.ok+st.s.no]]
+        .filter(function(x){return x[1];}).map(function(x){return S[x[0]].replace('{n}',x[2]).replace('{m}',x[1]);}).join(' · ');
+      if(box){
+        box.textContent='';box.className='pg-state '+(st.ready?'ready':'not');
+        var lead=document.createElement('strong');lead.textContent=st.ready?S.progReady:S.progNot;box.appendChild(lead);
+        if(!st.ready){
+          var parts=[];
+          vdPlus(parts,'progFix',st.r.fix,'fix');vdPlus(parts,'progQuestion',st.q,'question');vdPlus(parts,'progOpenRisk',st.r.open,'openRisk');
+          vdPlus(parts,'progOpenDec',st.d.open,'openDec');vdPlus(parts,'progOpenSpot',st.s.open,'openSpot');
+          if(st.s.no)parts.push(['notRoutine',S.progNotRoutine.replace('{n}',st.s.no)]);
+          parts.forEach(function(x,i){
+            box.appendChild(document.createTextNode(i?', ':' '));
+            var b=document.createElement('button');b.type='button';b.className='nt-b lnk pg-j';b.dataset.j=x[0];b.textContent=x[1];box.appendChild(b);
+          });
+        }
+      }
+    }
+    var warn=document.querySelector('#budget .b-spotwarn');
+    if(warn){
+      var no=VSP.filter(function(x){return vdVal('spot',x.key)==='no';}),prs=[];
+      no.forEach(function(x){if(prs.indexOf(x.pr)<0)prs.push(x.pr);});
+      warn.hidden=!no.length;warn.textContent=no.length?fmt(plw(S.spotWarn,no.length),{n:no.length,m:VSP.length,pr:prs.join(', ')}):'';
+    }
+    vdCopyState();vdHead();
+    if(ovOn&&OV)ovPaint();
+  }
+  /* The overlay's header shows the verdict controls of the current entry: a risk's or a spot-check file's. */
+  var vdOvBox=null,vdOvR=null,vdOvS=null;
+  function vdHead(){
+    if(!vdOvBox)return;
+    var it=ovOn&&OV?OV.items[OV.i]:null;
+    vdOvR.hidden=!it||it.vk!=='risk';vdOvS.hidden=!it||it.vk!=='spot';
+    if(it&&it.vk){var g=it.vk==='risk'?vdOvR:vdOvS;g.dataset.id=it.vid;vdPaintGroup(g);}
+    vdOvBox.hidden=vdOvR.hidden&&vdOvS.hidden;
+  }
+  /* o, n, ? in the overlay: the verdict of a risk or spot-check entry. Reports whether the key meant anything here. */
+  function ovVerdict(key){
+    var it=ovOn&&OV?OV.items[OV.i]:null;if(!it||!it.vk)return false;
+    var v=it.vk==='risk'?{o:'ok',n:'fix','?':'q'}[key]:{o:'ok',n:'no'}[key];
+    if(!v)return false;
+    vdSet(it.vk,it.vid,v,false);return true;
+  }
+  /* Fix brief: Markdown for an agent or for PR comments; '' when there is nothing to say. */
+  function fixBrief(){
+    var out=[],title=CFG.title||document.title||'',fix=[],qs=[],choice=[],ask=[],no=[];
+    VR.forEach(function(li){var v=vdVal('risk',li.id);if(v==='fix')fix.push(li);else if(v==='q')qs.push(li);});
+    VDEC.forEach(function(d){
+      var v=vdVal('dec',d.id),q=d.li.querySelector('.q'),t=(q?q.textContent:vdText(d.li)).replace(/\s+/g,' ').trim(),w=whoOf(d.li);
+      if(v==='q')ask.push('- '+t+(w?' ('+prName(w)+')':''));
+      else if(v)choice.push('- '+t+(w?' ('+prName(w)+')':'')+' → **'+(v[0]==='o'?vdOptLabel(d,v):S.verDecided)+'**');
+    });
+    VSP.forEach(function(x){
+      if(vdVal('spot',x.key)!=='no')return;
+      no.push('- '+prName(x.pr)+' · '+mdCode(x.r.path+':'+(x.r.a===x.r.b?x.r.a:x.r.a+'-'+x.r.b)));
+    });
+    function risks(list,head){
+      if(!list.length)return;
+      out.push('','## '+fmt(head,{n:list.length}),'');
+      list.forEach(function(li,i){
+        var sev=li.querySelector('.sev'),w=whoOf(li);
+        out.push((i+1)+'. '+(sev?'**'+sev.textContent.trim()+'**'+(w?' · ':' '):'')+(w?prName(w)+' ':'')+(sev||w?'— ':'')+vdText(li));
+        vdRefs(li).forEach(function(r){out.push('   - '+mdCode(r));});
+      });
+    }
+    risks(fix,S.fixNeedsFix);risks(qs,S.fixQuestions);
+    [[choice,S.fixDecisions],[ask,S.fixOpenDecisions],[no,S.fixNotRoutine]].forEach(function(x){if(x[0].length)out.push('','## '+fmt(x[1],{n:x[0].length}),'',x[0].join('\n'));});
+    var md=out.length?['# '+S.fixTitle+(title?': '+title:''),'',S.fixIntro].concat(out).join('\n')+'\n':'',list=shownNotes();
+    if(list.length)md=(md?md+'\n---\n\n':'')+notesMarkdown(list);
+    return md;
+  }
+  function vdCopyState(){if(vdCopyEl)vdCopyEl.disabled=!fixBrief();}
+  if(vdCopyEl)vdCopyEl.addEventListener('click',function(){
+    var text=fixBrief();if(!text)return;nManual.hidden=true;
+    copyText(text,function(ok){
+      if(ok){say(S.fixCopiedMsg);status(S.fixCopiedMsg);vdCopyEl.textContent=S.fixCopied;clearTimeout(vdTimer);vdTimer=setTimeout(function(){vdCopyEl.textContent=S.fixCopy;},2000);return;}
+      var ta=document.getElementById('nt-manual-text');document.getElementById('nt-panel').open=true;ta.value=text;nManual.hidden=false;ta.focus();ta.select();
+    });
+  });
+  if(vdProgEl)vdProgEl.addEventListener('click',function(ev){var b=ev.target.closest?ev.target.closest('.pg-j'):null;if(b)vdJump(b.dataset.j);});
+  document.addEventListener('click',function(ev){
+    var b=ev.target.closest?ev.target.closest('.vd-b'):null,g=b&&b.parentNode;
+    if(g&&g.classList.contains('vd')&&g.dataset.id)vdSet(g.dataset.k,g.dataset.id,b.dataset.vd,true);
+  });
+  /* The controls: on each risk row, each decision card, each spot-check row, and in the overlay's header. */
+  [].forEach.call(document.querySelectorAll('#brief .brief-risks>li'),function(li){
+    if(!RISK_ID.test(li.id)||gEl.contains(li))return;
+    VR.push(li);li.appendChild(vdRiskGroup(li.id));
+  });
+  [].forEach.call(document.querySelectorAll('.decisions>li'),function(li){
+    if(!DEC_ID.test(li.id)||gEl.contains(li))return;
+    var d={li:li,id:li.id,opts:[],line:null},row=document.createElement('div'),items=[];
+    [].forEach.call(li.querySelectorAll('[data-option]'),function(el){
+      var l=el.getAttribute('data-option').trim()||trunc(vdText(el).replace(/^[^:]*:\s*/,''),40),rec=el.classList.contains('rec');
+      d.opts.push({el:el,label:l});items.push(['o'+(d.opts.length-1),rec?fmt(S.verOptRec,{o:l}):l,'pick']);
+    });
+    if(!items.length)items.push(['d',S.verDecided,'pick']);
+    items.push(['q',S.verQ,'q']);
+    row.className='vd-row';row.appendChild(vdGroup('dec',li.id,items));
+    var add=li.querySelector('.g-radd');if(add)li.insertBefore(row,add);else li.appendChild(row);
+    var a=document.querySelector('#brief .brief-decisions a[href="#'+li.id+'"]');
+    if(a&&a.closest('li')){d.line=document.createElement('span');d.line.className='vd-ch';d.line.hidden=true;a.closest('li').appendChild(document.createTextNode(' '));a.closest('li').appendChild(d.line);}
+    VDEC.push(d);
+  });
+  REFS.forEach(function(r){
+    var li=r.li;if(!li||!li.closest||!li.closest('.b-group[data-b="spot"]')||VSP.some(function(x){return x.li===li;}))return;
+    var n=refNode(r);if(!n)return;
+    var x={li:li,r:r,pr:n.pr,key:n.pr+':'+r.path};VSP.push(x);li.appendChild(vdSpotGroup(x.key));
+  });
+  (function(){
+    var h=document.getElementById('ov-head');if(!h)return;
+    vdOvBox=document.createElement('div');vdOvBox.id='ov-vd';vdOvBox.className='ov-vd';vdOvBox.hidden=true;
+    vdOvR=vdRiskGroup('');vdOvS=vdSpotGroup('');vdOvR.hidden=vdOvS.hidden=true;vdOvBox.append(vdOvR,vdOvS);h.appendChild(vdOvBox);
+  })();
+  vdReady=true;vdSync();
   /* The map (or its overview of areas) where the reader shows it: under the toolbar with the Map view, in the
      workspace's left column with "Map" picked there, else in its right pane with "Map" picked there. In the left
      column it opens centred on the selected file, with that file's area open. */
@@ -4058,6 +4361,186 @@ table.dt td.ovr{background-image:linear-gradient(var(--d-rng),var(--d-rng))}
   if(location.hash==='#ws')wsEnter('');
   if(window.ResizeObserver){new ResizeObserver(function(){drawLane();}).observe(stepOl);new ResizeObserver(function(){drawNb();}).observe(detEl);new ResizeObserver(function(){dvMeasure();}).observe(dvEl);}
   else window.addEventListener('resize',function(){drawLane();drawNb();dvMeasure();});
+})();
+</script>
+<script>
+/* Screens (assemble.py --screens; references/screenshots.md). The `screens-data` block holds each pair (title, PR, before and
+   after as image data URIs, a note, `stale`). The brief gets a "Screens" block right after "What changes for users" (else at its
+   top, else before the first generated section): a card per pair with its title, PR chip, a "New" or "Removed" badge when one side
+   is missing, and the Before and After thumbnails side by side (stacked below 700 px). A thumbnail opens a full-window dialog
+   (role dialog, aria-modal, a focus trap, the page behind inert and keeping its scroll position): the image at its own size,
+   fitted to the window, a Before/After toggle (button or b), "Side by side" on windows of 900 px or more (button or s), the
+   arrow keys and the buttons between pairs ("3 / 8"), Esc or Back closes it and the focus returns to the thumbnail. A data URI
+   only gets in when it is a PNG, JPEG, or WebP one; the text goes in through textContent. */
+(function(){
+  var node=document.getElementById('screens-data'),cfgNode=document.getElementById('review-config');
+  if(!node||!cfgNode)return;
+  var S,D;try{S=JSON.parse(cfgNode.textContent).strings||{};D=JSON.parse(node.textContent);}catch(e){return;}
+  var OKURI=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/]*={0,2}$/,KEYRE=/^[A-Za-z0-9_-]+$/;
+  function uri(v){return typeof v==='string'&&OKURI.test(v)?v:null;}
+  function str(v){return typeof v==='string'?v:'';}
+  var list=(D&&Array.isArray(D.screens)?D.screens:[]).filter(function(x){return x&&typeof x==='object'&&typeof x.id==='string';}).map(function(x){
+    return {id:x.id,title:str(x.title)||x.id,pr:str(x.pr),prName:str(x.prName)||str(x.pr),before:uri(x.before),after:uri(x.after),note:str(x.note),
+      viewport:x.viewport==='mobile'||x.viewport==='desktop'?x.viewport:'',source:/^(pr-body|preview|local)$/.test(x.source)?x.source:'',tip:str(x.tip).slice(0,7),stale:x.stale===true};
+  }).filter(function(x){return x.before||x.after;});
+  if(!list.length)return;
+  function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+  function fmt(s,o){return String(s).replace(/\{(\w+)\}/g,function(m,k){return o[k]!=null?o[k]:m;});}
+  var SIDE={before:S.screensBefore,after:S.screensAfter},NONE={before:S.screensNoBefore,after:S.screensNoAfter};
+  var VP={desktop:S.screensDesktop,mobile:S.screensMobile},SRC={'pr-body':S.screensSrcPr,preview:S.screensSrcPreview,local:S.screensSrcLocal};
+  function chip(x){var c=el('span','who tag'+(KEYRE.test(x.pr)?' c-'+x.pr:''),x.pr);c.title=x.prName;return c;}
+  function staleText(x){return fmt(S.screensStale,{sha:x.tip||'?'});}
+
+  /* The block in the brief. */
+  var box=el('div','scr'),h=el('h3',null,S.screensTitle),ul=el('ul','scr-list');
+  box.id='screens';box.setAttribute('role','region');h.id='screens-h';box.setAttribute('aria-labelledby','screens-h');box.append(h,ul);
+  list.forEach(function(x,i){
+    var li=el('li','scr-pair'+(x.viewport==='mobile'?' mobile':'')),head=el('div','scr-h'),pics=el('div','scr-pics');
+    li.dataset.i=i;
+    head.append(el('strong','scr-t',x.title),chip(x));
+    if(!x.before)head.append(el('span','scr-bd new',S.screensNew));
+    if(!x.after)head.append(el('span','scr-bd rem',S.screensRemoved));
+    if(x.viewport)head.append(el('span','scr-vp',VP[x.viewport]));
+    ['before','after'].forEach(function(side){
+      var f=el('figure','scr-f'),cap=el('figcaption',null,SIDE[side]);f.dataset.s=side;f.append(cap);
+      if(x[side]){
+        var b=el('button','scr-th'),img=new Image();
+        b.type='button';b.dataset.s=side;b.setAttribute('aria-label',fmt(S.screensOpen,{title:x.title,side:SIDE[side]}));
+        img.loading='lazy';img.alt=fmt(S.screensAlt,{title:x.title,side:SIDE[side]});img.src=x[side];
+        b.appendChild(img);f.appendChild(b);
+        b.addEventListener('click',function(){openAt(i,side,b);});
+      }else f.appendChild(el('div','scr-none',NONE[side]));
+      pics.appendChild(f);
+    });
+    li.append(head,pics);
+    if(x.note)li.appendChild(el('p','scr-note',x.note));
+    if(x.stale)li.appendChild(el('p','scr-stale',staleText(x)));
+    ul.appendChild(li);
+  });
+  var brief=document.getElementById('brief'),users=brief&&brief.querySelector('ul.brief-users');
+  if(users)users.parentNode.insertBefore(box,users.nextSibling);
+  else if(brief){var after=document.getElementById('vd-prog')||brief.querySelector('h2');if(after&&after.parentNode===brief)brief.insertBefore(box,after.nextSibling);else brief.insertBefore(box,brief.firstChild);}
+  else{var first=document.querySelector('main>section');if(first)first.parentNode.insertBefore(box,first);else document.body.appendChild(box);}
+
+  /* The dialog. */
+  var dlg=null,figs={},tog={},DOM={},st={on:false,i:0,side:'after',sbs:false,opener:null,at:null,inert:[],skip:false};
+  var WIDE=window.matchMedia?window.matchMedia('(min-width:900px)'):null;
+  function wide(){return !WIDE||WIDE.matches;}
+  function button(c,text,label){var b=el('button',c,text);b.type='button';if(label)b.setAttribute('aria-label',label);return b;}
+  function build(){
+    dlg=el('div','scd');dlg.id='scd';dlg.hidden=true;dlg.setAttribute('role','dialog');dlg.setAttribute('aria-modal','true');dlg.setAttribute('aria-labelledby','scd-t');dlg.tabIndex=-1;
+    var head=el('div','scd-head'),title=el('span','scd-t'),pr=el('span','who tag'),bd=el('span','scr-bd'),pos=el('span','scd-pos'),x=button('scd-b',S.screensClose);
+    title.id='scd-t';x.id='scd-x';x.addEventListener('click',function(){close();});
+    head.append(title,pr,bd,pos,x);
+    var bar=el('div','scd-bar'),group=el('span','scd-tog'),sbs=button('scd-b',S.screensSide);
+    group.setAttribute('role','group');group.setAttribute('aria-label',S.screensToggle);
+    ['before','after'].forEach(function(side){
+      var b=button('scd-b',SIDE[side]);b.dataset.s=side;b.setAttribute('aria-pressed','false');tog[side]=b;group.appendChild(b);
+      b.addEventListener('click',function(){show(side);});
+    });
+    sbs.id='scd-sbs';sbs.setAttribute('aria-pressed','false');sbs.addEventListener('click',function(){side_by_side();});
+    var meta=el('span','scd-meta');
+    bar.append(group,sbs,meta);
+    var note=el('p','scd-note'),stage=el('div','scd-stage');
+    ['before','after'].forEach(function(side){
+      var f=el('figure','scd-fig'),cap=el('figcaption',null,SIDE[side]),b=el('div','scd-box'),img=new Image(),none=el('div','scr-none',NONE[side]);
+      f.dataset.s=side;b.append(img,none);f.append(b,cap);stage.appendChild(f);figs[side]={f:f,img:img,none:none};
+    });
+    var foot=el('div','scd-foot'),prev=button('scd-b',S.screensPrev),next=button('scd-b',S.screensNext),keys=el('span','scd-keys',S.screensKeys),live=el('div','sr');
+    prev.id='scd-prev';next.id='scd-next';live.setAttribute('aria-live','polite');live.setAttribute('role','status');
+    prev.addEventListener('click',function(){step(-1);});next.addEventListener('click',function(){step(1);});
+    foot.append(prev,keys,next);
+    dlg.append(head,bar,note,stage,foot,live);
+    DOM={title:title,pr:pr,bd:bd,pos:pos,sbs:sbs,meta:meta,note:note,prev:prev,next:next,live:live};
+    document.body.appendChild(dlg);
+  }
+  function say(t){DOM.live.textContent='';if(t)setTimeout(function(){DOM.live.textContent=t;},30);}
+  function paint(){
+    var x=list[st.i],sbs=st.sbs&&wide();
+    if(!x[st.side])st.side=x.after?'after':'before';
+    dlg.classList.toggle('sbs',sbs);
+    DOM.title.textContent=x.title;
+    DOM.pr.textContent=x.pr;DOM.pr.className='who tag'+(KEYRE.test(x.pr)?' c-'+x.pr:'');DOM.pr.title=x.prName;
+    DOM.bd.hidden=!!(x.before&&x.after);DOM.bd.className='scr-bd '+(!x.before?'new':'rem');DOM.bd.textContent=!x.before?S.screensNew:S.screensRemoved;
+    DOM.pos.textContent=fmt(S.screensCount,{i:st.i+1,n:list.length});
+    ['before','after'].forEach(function(side){
+      var F=figs[side],has=!!x[side];
+      F.f.hidden=!(sbs||side===st.side);
+      F.img.hidden=!has;F.none.hidden=has;
+      if(has){F.img.alt=fmt(S.screensAlt,{title:x.title,side:SIDE[side]});if(F.img.getAttribute('src')!==x[side])F.img.src=x[side];}else F.img.removeAttribute('src');
+      tog[side].setAttribute('aria-pressed',!sbs&&side===st.side?'true':'false');
+      tog[side].setAttribute('aria-disabled',has?'false':'true');
+    });
+    DOM.sbs.hidden=!wide();DOM.sbs.setAttribute('aria-pressed',sbs?'true':'false');
+    DOM.meta.textContent='';
+    var bits=[x.viewport?VP[x.viewport]:'',x.source?SRC[x.source]:''].filter(Boolean);
+    if(bits.length)DOM.meta.appendChild(document.createTextNode(bits.join(' · ')+(x.stale?' · ':'')));
+    if(x.stale)DOM.meta.appendChild(el('span','stale',staleText(x)));
+    DOM.note.textContent=x.note;
+    DOM.prev.setAttribute('aria-disabled',st.i<=0?'true':'false');DOM.next.setAttribute('aria-disabled',st.i>=list.length-1?'true':'false');
+  }
+  function show(side){
+    var x=list[st.i];
+    if(!x[side]){say(side==='before'?S.screensNoBefore:S.screensNoAfter);return;}
+    st.side=side;st.sbs=false;paint();say(SIDE[side]);
+  }
+  function toggleSide(){
+    var x=list[st.i],to=st.side==='before'?'after':'before';
+    if(st.sbs&&wide()){st.sbs=false;if(x[to])st.side=to;paint();say(SIDE[st.side]);return;}
+    show(to);
+  }
+  function side_by_side(){
+    if(!wide())return;
+    st.sbs=!st.sbs;paint();say(st.sbs?S.screensSide:SIDE[st.side]);
+  }
+  function step(d){
+    var j=st.i+d;if(j<0||j>=list.length)return;
+    st.i=j;paint();say(list[j].title+' · '+fmt(S.screensCount,{i:j+1,n:list.length}));
+  }
+  function openAt(i,side,opener){
+    if(st.on)return;
+    if(!dlg)build();
+    st.on=true;st.i=i;st.side=side;st.sbs=false;st.opener=opener;st.at={x:window.pageXOffset,y:window.pageYOffset};
+    dlg.hidden=false;
+    /* The page behind is inert; a sibling that already was stays as it was. */
+    [].forEach.call(document.body.children,function(e){if(e!==dlg&&!/^(SCRIPT|STYLE|LINK)$/.test(e.tagName)&&!e.hasAttribute('inert')){e.setAttribute('inert','');st.inert.push(e);}});
+    document.documentElement.classList.add('scd-lock');
+    try{history.pushState({prmSc:1},'');}catch(e){}
+    paint();
+    document.getElementById('scd-x').focus({preventScroll:true});
+    say(fmt(S.screensOn,{title:list[i].title}));
+  }
+  function close(pop){
+    if(!st.on)return;
+    st.on=false;dlg.hidden=true;
+    st.inert.forEach(function(e){e.removeAttribute('inert');});st.inert=[];
+    document.documentElement.classList.remove('scd-lock');
+    if(st.at)window.scrollTo(st.at.x,st.at.y);
+    if(st.opener&&document.contains(st.opener))st.opener.focus({preventScroll:true});
+    st.opener=null;
+    if(!pop&&history.state&&history.state.prmSc){st.skip=true;try{history.back();}catch(e){st.skip=false;}}
+  }
+  window.addEventListener('popstate',function(){if(st.skip){st.skip=false;return;}if(st.on)close(true);});
+  if(WIDE&&WIDE.addEventListener)WIDE.addEventListener('change',function(){if(st.on)paint();});
+  /* Keys, while the dialog is open and before anything else on the page sees them: Tab stays inside, Esc closes, the arrows move
+     between pairs, b flips Before/After, s toggles side by side; every other plain key is kept from the page's own shortcuts. */
+  window.addEventListener('keydown',function(ev){
+    if(!st.on||ev.ctrlKey||ev.metaKey||ev.altKey)return;
+    var k=ev.key;
+    ev.stopPropagation();
+    if(k==='Tab'){
+      var f=[].filter.call(dlg.querySelectorAll('button'),function(e){return !e.hidden&&e.getClientRects().length;});
+      if(!f.length)return;
+      var a=document.activeElement;
+      if(!dlg.contains(a)){ev.preventDefault();f[0].focus();}
+      else if(ev.shiftKey&&a===f[0]){ev.preventDefault();f[f.length-1].focus();}
+      else if(!ev.shiftKey&&a===f[f.length-1]){ev.preventDefault();f[0].focus();}
+    }else if(k==='Escape'){ev.preventDefault();close();}
+    else if(k==='ArrowLeft'){ev.preventDefault();step(-1);}
+    else if(k==='ArrowRight'){ev.preventDefault();step(1);}
+    else if(k==='b'||k==='B'){ev.preventDefault();toggleSide();}
+    else if(k==='s'||k==='S'){ev.preventDefault();side_by_side();}
+  },true);
 })();
 </script>
 <script>

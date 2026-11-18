@@ -40,6 +40,15 @@ Focus ranges (the overlay's `focus` on a risky or novel file, scripts/attention.
 numbers are the overlay's as written. A file that carries them and whose change differs from the previous build's is flagged
 with a warning ("focus ranges may be stale"); update the ranges in the overlay.
 
+The spot-check's size (assemble.py --spot-check N) is replayed from the manifest; the sample itself is seeded from the new tips,
+so it changes with them. Reader verdicts live in the browser under the same storage key, keyed by risk and decision id and by
+PR and path, so they survive a refresh; the narrative's ids are what keeps them attached.
+
+Screenshots (assemble.py --screens, scripts/screens.py, references/screenshots.md) are replayed from the manifest; a
+`screens.json` in SCRATCH_DIR that the manifest does not name yet is picked up too, so adding screenshots to an existing page
+is: write screens.json, run `--assemble-only`, republish. When a PR's tip is no longer the one a pair was taken at, refresh.py
+warns and the page marks that pair ("taken at <sha>, code changed since"); retake it and update its `tip`.
+
 The narrative is never rewritten. The merge-order header (tip, files, +/- per PR, and the
 parts of a split PR) is not part of it: assemble.py generates it from graphs.json, so it is
 right after every refresh. When a tip moved, refresh.py warns that the narrative's claims
@@ -69,6 +78,7 @@ sys.dont_write_bytecode = True  # importing sibling scripts must not leave a __p
 import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import screens  # noqa: E402
 from gen_diffs import fingerprint  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -140,8 +150,46 @@ def assemble_args(here: Path, section: dict, previous: Path | None) -> list[str]
               "lang": text(section, "lang", "en"), "target": text(section, "target", "artifact"),
               "storage-key": text(section, "storageKey"), "out": manifest.resolve(here, section["out"]),
               "strings": manifest.resolve(here, section.get("strings")), "template": manifest.resolve(here, section.get("template")),
-              "previous": previous}
+              "previous": previous, "spot-check": spot_check(section), "screens": screens_file(here, section)}
     return [f"--{name}={value}" for name, value in values.items() if value is not None]
+
+
+def screens_file(here: Path, section: dict) -> Path | None:
+    """The screens.json assemble.py was given, else the one beside review-map.json (added after the first build), else None."""
+    recorded = section.get("screens")
+    if recorded is not None and not isinstance(recorded, str):
+        raise SystemExit(f"{manifest.NAME}: screens must be a path, not {recorded!r}")
+    if recorded:
+        return manifest.resolve(here, recorded)
+    beside = here / "screens.json"
+    return beside if beside.is_file() else None
+
+
+def screens_warnings(here: Path, asm: dict, graph: dict | None) -> list[str]:
+    """One warning per PR whose tip moved since pairs of screenshots were taken (their `tip` differs from the PR's now)."""
+    path = screens_file(here, asm)
+    if path is None or graph is None or not path.is_file():
+        return []
+    try:
+        items = screens.load(path)
+    except SystemExit:
+        return []
+    stale = screens.stale_ids(items, screens.tips_of(graph))
+    by_pr: dict[str, list[str]] = {}
+    tips = screens.tips_of(graph)
+    for item in items:
+        if isinstance(item, dict) and str(item.get("id")) in stale:
+            by_pr.setdefault(str(item.get("pr")), []).append(f"{item.get('id')} ({str(item.get('tip'))[:7]})")
+    return [f"PR {key}: tip is now {tips[key][:7]}, so the screenshots {', '.join(ids)} predate the code; retake them and update their tip "
+            "in screens.json (the page marks them \"code changed since\")" for key, ids in by_pr.items()]
+
+
+def spot_check(section: dict) -> int | None:
+    """The spot-check size the manifest recorded for assemble.py (None for a manifest from before it: the default)."""
+    value = section.get("spotCheck")
+    if value is not None and not (isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= attention.SPOT_MAX):
+        raise SystemExit(f"{manifest.NAME}: spotCheck must be an integer from 0 to {attention.SPOT_MAX}, not {value!r}")
+    return value
 
 
 def text(section: dict, name: str, default: str | None = None) -> str:
@@ -244,6 +292,8 @@ def main() -> int:
     if args.assemble_only:
         step("assemble.py", assemble_args(here, asm, previous_file(here, asm)))
         step("validate.py", ["--", str(out)])
+        for line in screens_warnings(here, asm, load_json(manifest.resolve(here, asm["graph"]))):
+            print(f"warning: {line}")
         return 0
 
     graph_path, diffs_path = manifest.resolve(here, build["out"]), manifest.resolve(here, gen["out"])
@@ -382,6 +432,7 @@ def main() -> int:
               f"checks) may be outdated; update it, then run: python3 {Path(__file__).resolve()} {here} --assemble-only")
         for line in narrative_warnings(narrative, moved, ends):
             print(f"warning: {line}")
+    warnings += screens_warnings(here, asm, new_graph)
     for line in warnings:
         print(f"warning: {line}")
     print(f"refreshed {out}")

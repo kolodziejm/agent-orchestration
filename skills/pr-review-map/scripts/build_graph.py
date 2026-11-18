@@ -67,7 +67,9 @@ so re-running after the branches move keeps it. See references/graph-schema.md.
 Attention: a node's overlay entry may set `attention` (mechanical, pattern, novel, or risky) and `focus`, `[{"start": 12,
 "end": 30, "why": "…", "side": "old"}]` (lines on the new side, or the old with `side`), the ranges of a risky or novel file
 that matter; the top-level overlay key `size` (small, medium, or large) overrides the computed tier. A malformed value stops
-the build. A `focus` on a mechanical or pattern file is ignored with a warning.
+the build. A `focus` on a mechanical or pattern file is ignored with a warning. The top-level overlay key `spotCheck`
+(["KEY:path", …]) names the skim files of the spot-check sample (graphs.json `spotCheck`: [{"pr", "id"}], which replaces
+assemble.py's seeded pick); a path no PR changes, or a file that is not a pattern file, is skipped with a warning.
 
 Summaries: the overlay's `summaries` ({PR key: one or two sentences}, a split PR's parent key too) become each PR's
 `summary` (and the parent's), which the merge-order header shows under the PR's line. A PR without one has none, and a
@@ -193,7 +195,7 @@ BLOB_CAP = 1 << 20      # a tsconfig, a barrel, or a file checked for import-onl
 MODE_ENTRIES, MODE_RATIO = 3, 3
 OVERVIEW_CORE = 40  # above this many core files the viewer opens the map on its overview of areas
 # First guess of a node's `attention` (see guess_attention()): a path that is generated, or a migration.
-GENERATED = re.compile(r"(^|/)(__generated__|generated)/|[._-](generated|gen)\.[^/]+$|\.snap$|\.min\.(js|css)$|\.pb\.go$|_pb2(_grpc)?\.pyi?$|\.g\.dart$")
+GENERATED = attention.GENERATED
 MIGRATION = re.compile(r"(^|/)(migrations?|alembic/versions|db/migrate)/|(^|/)V\d+__[^/]+\.sql$")
 DEPLOY = next(rule["pattern"] for rule in DEFAULT_GROUPS if rule["id"] == "deploy")
 REMERGE_GIT = (2, 36)  # first git with `show --remerge-diff`
@@ -1659,6 +1661,11 @@ def main() -> int:
 
     out = {"prs": [], "crossEdges": []}
     missing_roles = 0
+    spot_want = overlay.get("spotCheck")
+    if spot_want is not None and not (isinstance(spot_want, list) and all(isinstance(t, str) for t in spot_want)):
+        raise SystemExit('overlay spotCheck must be a list of "KEY:path" references')
+    spot_refs = [(text, refs(text)) for text in spot_want or []]
+    spot_attention: dict[tuple[int, str], str] = {}
     for index, pr in enumerate(prs):
         nodes = pr["nodes"]
         counts: dict[str, int] = {}
@@ -1701,6 +1708,7 @@ def main() -> int:
                 item["hub"] = True
             if not node.get("unchanged"):
                 item["attention"] = node.get("forced_attention") or guess_attention(nk, node)
+                spot_attention[(index, nk)] = item["attention"]
                 if node.get("focus"):
                     if item["attention"] in attention.READ:
                         item["focus"] = node["focus"]
@@ -1739,6 +1747,15 @@ def main() -> int:
             out["parents"].append(item)
     if tour_out:
         out["tours"] = tour_out
+    spot_out = []
+    for text, pairs in spot_refs:
+        for i, nk in pairs:
+            if nk.startswith("#") or spot_attention.get((i, nk)) != "pattern":
+                warnings.append(f"overlay spotCheck {text!r}: not a skim (pattern) file; skipped")
+            elif {"pr": prs[i]["key"], "id": ids[(i, nk)]} not in spot_out:
+                spot_out.append({"pr": prs[i]["key"], "id": ids[(i, nk)]})
+    if spot_out:
+        out["spotCheck"] = spot_out
     totals = attention.size_totals(out)
     computed = attention.size_of(*totals)
     forced = overlay.get("size")

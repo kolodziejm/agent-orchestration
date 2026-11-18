@@ -32,7 +32,12 @@ Checks, each an error unless noted:
   * `size` (small, medium, or large) and each node's `attention` (mechanical, pattern, novel, or risky) and `focus`
     ([{"start", "end", "why", "side"?}], 1 <= start <= end, side new or old) within their values; a focus range outside
     every hunk of the node's diff is a warning (scripts/attention.py)
+  * `spotCheck` (graph, the spot-check override: [{"pr", "id"}]): each entry names a changed node of that PR whose
+    attention is `pattern` (scripts/attention.py)
   * the page's `<section id="brief">` (warning when missing: a page from before the brief still passes)
+  * the optional `screens-data` block (assemble.py --screens): {"screens": [...]} entries with an id, a title, a PR key of the
+    graph, and before/after each null or an image data URI of type image/png, image/jpeg, or image/webp whose bytes begin with
+    that format's magic number (not both null); a pair marked `stale` (taken at a tip the PR has left) is a warning
   * the previous version's data (review-config "previous", from refresh.py), when
     present: {"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fingerprint}}};
     review-config "generation", when present, an integer from 0 to 2**31
@@ -44,6 +49,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import base64
+import binascii
 import shutil
 import subprocess
 import sys
@@ -55,6 +62,7 @@ sys.dont_write_bytecode = True  # importing chunks.py must not leave a __pycache
 import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import screens  # noqa: E402
 import tours  # noqa: E402
 
 SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
@@ -126,6 +134,57 @@ def cluster_problems(pr: dict) -> tuple[list[str], list[str]]:
         warnings.append(f"PR {key}: clusters with no file of their own (only tests or hubs): {empty}")
     if not ids and len(core) > OVERVIEW_CORE:
         warnings.append(f"PR {key}: {len(core)} core nodes and no clusters; the map overview groups them by folder")
+    return errors, warnings
+
+
+DATA_URI = re.compile(r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})")
+MIME_KIND = {"image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp"}
+
+
+def screens_problems(block, graph) -> tuple[list[str], list[str]]:
+    """Errors and warnings about the `screens-data` block: its shape, each image's MIME type (png, jpeg, or webp only; an SVG
+    can carry script) and magic bytes, the PR each pair names, and the pairs marked stale."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    items = block.get("screens") if isinstance(block, dict) else None
+    if not isinstance(items, list) or not items:
+        return ['screens-data must be {"screens": [one or more entries]}'], []
+    keys = {pr.get("key") for pr in graph["prs"] if isinstance(pr, dict)} if isinstance(graph, dict) and isinstance(graph.get("prs"), list) else None
+    ids: set[str] = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            errors.append(f"screens: entry #{index + 1} is not an object")
+            continue
+        name = item.get("id") if isinstance(item.get("id"), str) else f"#{index + 1}"
+        if name in ids:
+            errors.append(f"screens: id {name!r} is used twice")
+        ids.add(name)
+        if not (isinstance(item.get("title"), str) and item["title"].strip()):
+            errors.append(f"screens: {name} has no title")
+        if not isinstance(item.get("pr"), str) or (keys is not None and item["pr"] not in keys and not any(
+                p.get("key") == item["pr"] for p in graph.get("parents") or [] if isinstance(p, dict))):
+            errors.append(f"screens: {name} names PR {item.get('pr')!r}, which the map does not have")
+        for side in ("before", "after"):
+            value = item.get(side)
+            if value is None:
+                continue
+            found = DATA_URI.fullmatch(value) if isinstance(value, str) else None
+            if not found:
+                errors.append(f"screens: {name}.{side} is not an image data URI (data:image/png, image/jpeg, or image/webp; base64)")
+            elif found.group(1) not in MIME_KIND:
+                errors.append(f"screens: {name}.{side} has MIME type {found.group(1)}; only image/png, image/jpeg, and image/webp are allowed")
+            else:
+                try:
+                    kind = screens.sniff(base64.b64decode(found.group(2), validate=True))
+                except (binascii.Error, ValueError):
+                    kind = None
+                if kind != MIME_KIND[found.group(1)]:
+                    errors.append(f"screens: {name}.{side} claims {found.group(1)} but its bytes are not that format")
+        if "before" in item and "after" in item and item["before"] is None and item["after"] is None:
+            errors.append(f"screens: {name} has neither a before nor an after image")
+        if item.get("stale") is True:
+            tip = str(item.get("tip") or "")[:7]
+            warnings.append(f"screens: {name} was taken at {tip or 'an earlier tip'}, but PR {item.get('pr')} has moved on; retake it (the page says its code changed since)")
     return errors, warnings
 
 
@@ -260,6 +319,11 @@ def main() -> int:
     else:
         warnings.append("no graph-data block found; graph checks skipped")
 
+    if "screens-data" in data:
+        found, notes = screens_problems(data["screens-data"], graph)
+        errors.extend(found)
+        warnings.extend(notes)
+
     config = data.get("review-config")
     previous = config.get("previous") if isinstance(config, dict) else None
     if previous is not None:
@@ -276,8 +340,11 @@ def main() -> int:
 
     size = len(page.encode("utf-8"))
     print(f"{args.page}: {size // 1024} KB, {len(blocks)} inline scripts checked")
-    if size > 3 * 1024 * 1024:
+    images = sum(len(m.group(0)) for m in re.finditer(r'<script type="application/json" id="screens-data">.*?</script>', page, re.DOTALL))
+    if size - images > 3 * 1024 * 1024:
         warnings.append("page is over 3 MB; consider --max-lines in gen_diffs.py or collapsing more files into groups")
+    if size > 15 * 1024 * 1024:
+        errors.append(f"page is {size // 1024 // 1024} MB; the artifact limit is 16 MB, so drop screenshots or save them smaller")
     for warning in warnings:
         print(f"warning: {warning}")
     for error in errors:

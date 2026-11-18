@@ -23,8 +23,10 @@ import json
 import os
 import random
 import shutil
+import struct
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,7 +99,7 @@ def validate(page: Path, *, rejects: tuple[str, ...] = ()) -> None:
 
 def page(
     d: Path, repo: Path, prs: list[tuple[str, str, str]], title: str, *, lang: str = "en", overlay: Path | None = None,
-    extra: tuple = (), narrative: str | None = None,
+    extra: tuple = (), narrative: str | None = None, assemble_extra: tuple = (),
 ) -> Path:
     """graphs.json, diffs.json, narrative.html, and review.html in `d` for `prs` [(key, range, name)]."""
     graph, diffs, narr, out = d / "graphs.json", d / "diffs.json", d / "narrative.html", d / "review.html"
@@ -112,14 +114,14 @@ def page(
         args += ["--pr", key, repo, rng]
     script("gen_diffs.py", *args, "--strict", "--no-manifest")
     narr.write_text(narrative or NARRATIVE.format(title=title, key=prs[-1][0]), encoding="utf-8")
-    assemble(graph, diffs, narr, title, out, lang=lang)
+    assemble(graph, diffs, narr, title, out, lang=lang, extra=assemble_extra)
     return out
 
 
 def assemble(graph: Path, diffs: Path, narr: Path, title: str, out: Path, *, lang: str = "en", previous: Path | None = None,
-             rejects: tuple[str, ...] = ()) -> None:
+             rejects: tuple[str, ...] = (), extra: tuple = ()) -> None:
     script("assemble.py", "--graph", graph, "--diffs", diffs, "--narrative", narr, "--title", title, "--lang", lang,
-           "--target", "local", "--out", out, "--no-manifest", *(["--previous", previous] if previous else []))
+           "--target", "local", "--out", out, "--no-manifest", *(["--previous", previous] if previous else []), *extra)
     validate(out, rejects=rejects)
 
 
@@ -960,7 +962,10 @@ def theme(d: Path) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------
 # brief: the page of a large change (four stacked PRs: a migration, a session file the overlay marks risky with focus
 # ranges, an old-side focus on a deleted file, a migration with a long name, tests, a lockfile, translations, docs) with its brief and generated budget,
-# and the page of a small change (one PR of three files) with a brief and no budget.
+# and the page of a small change (one PR of three files) with a brief and no budget. The risks carry ids (risk-N) and the decisions
+# options (data-option) for the verdicts; the first page has no spot-check (its queue is the one the overlay suite counts), and a
+# third page ("spot": the same brief over another repository whose skim files include source of 15 lines or more) has the default
+# three-file spot-check.
 
 BRIEF_NARRATIVE = """<header><h1>Brief sample</h1><p class="sub">Four PRs.</p></header>
 <section id="brief" data-toc="Brief">
@@ -976,21 +981,29 @@ BRIEF_NARRATIVE = """<header><h1>Brief sample</h1><p class="sub">Four PRs.</p></
   </table></div>
   <h3>Risks</h3>
   <ol class="brief-risks">
-    <li class="sev-h"><span class="sev">High</span> <span class="who tag c-A">A</span> The tenant check is gone, so a token of one clinic opens another's data <code>src/auth/session.ts:5-9</code></li>
-    <li class="sev-m"><span class="sev">Medium</span> <span class="who tag c-B">B</span> A retry after the timeout can list items twice <code>src/api/items.ts:3-6</code></li>
-    <li class="sev-l"><span class="sev">Low</span> <span class="who tag c-C">C</span> The list shows a blank row for an empty name <code>web/ItemList.tsx:2-3</code></li>
+    <li id="risk-1" class="sev-h"><span class="sev">High</span> <span class="who tag c-A">A</span> The tenant check is gone, so a token of one clinic opens another's data <code>src/auth/session.ts:5-9</code></li>
+    <li id="risk-2" class="sev-m"><span class="sev">Medium</span> <span class="who tag c-B">B</span> A retry after the timeout can list items twice <code>src/api/items.ts:3-6</code></li>
+    <li id="risk-3" class="sev-l"><span class="sev">Low</span> <span class="who tag c-C">C</span> The list shows a blank row for an empty name <code>web/ItemList.tsx:2-3</code></li>
   </ol>
   <h3>Never tested</h3>
   <ul class="gaps"><li>The four PRs were never run together.</li></ul>
   <h3>Decisions</h3>
-  <ol class="brief-decisions"><li><a href="#dec-1">Ship the 404 for an unknown clinic now, or behind a flag?</a></li></ol>
+  <ol class="brief-decisions"><li><a href="#dec-1">Ship the 404 for an unknown clinic now, or behind a flag?</a></li>
+    <li><a href="#dec-2">Keep the 3 s timeout?</a></li><li><a href="#dec-3">Rename the route?</a></li></ol>
 </section>
 <!-- review-map:graph -->
 <section id="pr-A"><h2>PR A</h2><p><button type="button" class="tag c-A" data-gopen="A"></button></p></section>
 <section id="before-merging" data-toc="Before merging"><h2>Before merging</h2>
   <h3>Decisions for you</h3>
   <ol class="decisions"><li id="dec-1"><span class="who tag c-B">B</span><p class="q">Ship the 404 for an unknown clinic now, or behind a flag?</p>
-    <p class="rec none"><strong>No recommendation:</strong> no data on callers.</p><p class="refs"><code>src/api/items.ts:3-6</code> <code>src/api/items.test.ts:1-2</code></p></li></ol>
+    <p class="rec none"><strong>No recommendation:</strong> no data on callers.</p>
+    <ul class="alts"><li data-option="Now">Now: callers see the 404 at once.</li><li data-option="Behind a flag">Behind a flag: the 404 path stays untested.</li></ul>
+    <p class="refs"><code>src/api/items.ts:3-6</code> <code>src/api/items.test.ts:1-2</code></p></li>
+    <li id="dec-2"><span class="who tag c-B">B</span><p class="q">Keep the 3 s timeout?</p>
+    <p class="rec" data-option="Keep 3 s"><strong>Recommended:</strong> keep it; the upstream answers in 400 ms.</p>
+    <ul class="alts"><li data-option="6 s">6 s: the page waits longer.</li></ul></li>
+    <li id="dec-3"><span class="who tag c-C">C</span><p class="q">Rename the route?</p>
+    <p class="rec none"><strong>No recommendation:</strong> a matter of taste.</p></li></ol>
 </section>
 <footer>As of today.</footer>
 """
@@ -1029,7 +1042,7 @@ def brief(d: Path) -> dict:
         "A:src/auth/session.ts": {"role": "Session check", "attention": "risky", "focus": [{"start": 5, "end": 9, "why": "Tenant check dropped"}]},
         "D:src/auth/legacy.ts": {"attention": "risky", "focus": [{"start": 2, "end": 4, "why": "Removed check", "side": "old"}]}}}), encoding="utf-8")
     prs = [("A", "main...feat/a", "A #1"), ("B", "feat/a...feat/b", "B #2"), ("C", "feat/b...feat/c", "C #3"), ("D", "feat/c...feat/d", "D #4")]
-    large = page(d, repo, prs, "Brief sample", overlay=overlay, narrative=BRIEF_NARRATIVE)
+    large = page(d, repo, prs, "Brief sample", overlay=overlay, narrative=BRIEF_NARRATIVE, assemble_extra=("--spot-check", "0"))
     small_dir = d / "small"
     small_dir.mkdir()
     repo = new_repo(small_dir / "repo")
@@ -1039,10 +1052,98 @@ def brief(d: Path) -> dict:
                   "src/sort.test.ts": "import { sort } from './sort';\ntest('sort', () => expect(sort(['b', 'a'])).toEqual(['a', 'b']));\n",
                   "src/index.ts": "export { sort } from './sort';\n"}, "S")
     small = page(small_dir, repo, [("S", "main...feat/s", "S #5")], "Small sample", narrative=SMALL_NARRATIVE)
-    return {"page": str(large), "small": str(small)}
+    spot_dir = d / "spot"
+    spot_dir.mkdir()
+    repo = new_repo(spot_dir / "repo")
+    commit(repo, {"README.md": "# x\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/a")
+    commit(repo, {
+        "db/migrations/0042_slot.sql": "".join(f"ALTER TABLE visits ADD COLUMN c{i} text;\n" for i in range(8)),
+        "src/auth/session.ts": "".join(f"export const s{i} = {i};\n" for i in range(20)),
+        "src/auth/session.test.ts": "import { s1 } from './session';\ntest('s', () => expect(s1).toBe(1));\n",
+        "src/util/format.ts": "".join(f"export const f{i} = (x: string) => x + {i};\n" for i in range(20)),
+    }, "A")
+    git(repo, "checkout", "-q", "-b", "feat/b")
+    commit(repo, {
+        "src/api/items.ts": "import { s1 } from '../auth/session';\n" + "".join(f"export const i{i} = s1 + {i};\n" for i in range(11)),
+        "src/api/items.test.ts": "import { i1 } from './items';\n" + "".join(f"test('i{i}', () => expect(i1).toBe(2));\n" for i in range(15)),
+        "src/api/routes.ts": "".join(f"export const r{i} = '/r{i}';\n" for i in range(15)),
+    }, "B")
+    git(repo, "checkout", "-q", "-b", "feat/c")
+    commit(repo, {"web/ItemList.tsx": "import { i1 } from '../src/api/items';\nexport const ItemList = () => i1;\n" + "".join(f"// row {i}\n" for i in range(4)),
+                  "web/ItemList.test.tsx": "import { ItemList } from './ItemList';\ntest('l', () => ItemList());\ntest('m', () => 1);\n"}, "C")
+    overlay = spot_dir / "overlay.json"
+    overlay.write_text(json.dumps({"size": "large", "nodes": {
+        "A:src/auth/session.ts": {"role": "Session check", "attention": "risky", "focus": [{"start": 5, "end": 9, "why": "Tenant check dropped"}]},
+        "A:src/util/format.ts": {"attention": "pattern"}, "B:src/api/routes.ts": {"attention": "pattern"}}}), encoding="utf-8")
+    spot = page(spot_dir, repo, [("A", "main...feat/a", "A #1"), ("B", "feat/a...feat/b", "B #2"), ("C", "feat/b...feat/c", "C #3")], "Spot sample",
+                overlay=overlay, narrative=BRIEF_NARRATIVE)
+    return {"page": str(large), "small": str(small), "spot": str(spot)}
 
 
-FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan, "theme": theme, "brief": brief}
+# ---------------------------------------------------------------------------------------------------------------------
+# screens: one PR with a brief and before/after screenshots (assemble.py --screens). The images are small PNGs written here
+# (bars of two colours, a different pair of colours for each side). "page" has three pairs (a desktop pair, a mobile pair with
+# a note, a new screen with no before) after the brief's "What changes for users"; "plain" has a brief with no such list and a
+# removed screen (no after); "stale" has a pair whose tip is not the PR's.
+
+def png(width: int, height: int, one: tuple[int, int, int], two: tuple[int, int, int], bars: int = 8) -> bytes:
+    """A valid PNG of horizontal bars alternating between two colours (a few hundred bytes)."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+    rows = b"".join(b"\x00" + bytes((one if (y * bars // height) % 2 == 0 else two)) * width for y in range(height))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
+
+
+SCREENS_NARRATIVE = """<header><h1>Screens sample</h1><p class="sub">One PR.</p></header>
+<section id="brief" data-toc="Brief"><h2>Brief</h2>
+  {users}
+  <h3>Risks</h3><ol class="brief-risks"><li id="risk-1" class="sev-m"><span class="sev">Medium</span> <span class="who tag c-O">O</span> The welcome text is not translated <code>web/welcome.ts:1-2</code></li></ol>
+  <h3>Decisions</h3><ol class="brief-decisions"><li><a href="#dec-1">Keep the welcome text?</a></li></ol></section>
+<!-- review-map:graph -->
+<section id="before-merging"><h2>Before merging</h2><h3>Decisions for you</h3>
+  <ol class="decisions"><li id="dec-1"><span class="who tag c-O">O</span><p class="q">Keep the welcome text?</p><p class="rec none"><strong>No recommendation:</strong> taste.</p></li></ol></section>
+"""
+USERS = '<ul class="brief-users"><li>New users see a welcome screen.</li><li>Settings get a billing tab.</li></ul>'
+
+
+def screens(d: Path) -> dict:
+    repo = new_repo(d / "repo")
+    commit(repo, {"README.md": "# x\n"}, "base")
+    git(repo, "checkout", "-q", "-b", "feat/o")
+    commit(repo, {"web/welcome.ts": "export const welcome = 'Hello';\nexport const next = 'Go';\n",
+                  "web/settings.ts": "export const settings = ['profile', 'billing'];\n"}, "O")
+    tip = git(repo, "rev-parse", "HEAD").strip()
+
+    def write_set(folder: Path, pairs: list[dict]) -> Path:
+        (folder / "screens").mkdir(parents=True)
+        for name, size, colours in (("welcome-before", (640, 400), ((200, 120, 40), (240, 220, 200))), ("welcome-after", (640, 400), ((30, 120, 200), (200, 220, 240))),
+                                    ("settings-before", (390, 780), ((90, 90, 120), (210, 210, 225))), ("settings-after", (390, 780), ((20, 150, 100), (200, 235, 220))),
+                                    ("billing-after", (640, 400), ((150, 60, 160), (230, 210, 235))), ("old-before", (640, 400), ((160, 60, 60), (235, 205, 205)))):
+            (folder / "screens" / f"{name}.png").write_bytes(png(*size, *colours))
+        path = folder / "screens.json"
+        path.write_text(json.dumps({"screens": pairs}, indent=1), encoding="utf-8")
+        return path
+
+    welcome = {"id": "welcome", "title": "First-run welcome", "pr": "O", "before": "screens/welcome-before.png", "after": "screens/welcome-after.png",
+               "viewport": "desktop", "source": "preview", "tip": tip}
+    settings = {"id": "settings", "title": "Settings on a phone", "pr": "O", "before": "screens/settings-before.png", "after": "screens/settings-after.png",
+                "note": "The billing tab sits under Profile.", "viewport": "mobile", "source": "local", "tip": tip}
+    billing = {"id": "billing", "title": "Billing tab", "pr": "O", "before": None, "after": "screens/billing-after.png", "viewport": "desktop", "source": "pr-body", "tip": tip}
+    removed = {"id": "legacy", "title": "Legacy banner", "pr": "O", "before": "screens/old-before.png", "after": None, "tip": tip}
+    out = {}
+    for name, pairs, users in (("page", [welcome, settings, billing], USERS), ("plain", [welcome, removed], ""),
+                               ("stale", [{**welcome, "tip": "1234567"}, settings], USERS)):
+        folder = d / name
+        folder.mkdir()
+        screens_json = write_set(folder, pairs)
+        out[name] = str(page(folder, repo, [("O", "main...feat/o", "O #7")], "Screens sample", narrative=SCREENS_NARRATIVE.format(users=users),
+                             assemble_extra=("--screens", screens_json)))
+    return out
+
+
+FIXTURES = {"stack": stack, "big": big, "hub": hub, "sfc": sfc, "addon": addon, "sec": sec, "plan": plan, "theme": theme, "brief": brief, "screens": screens}
 
 
 def main(argv: list[str]) -> None:

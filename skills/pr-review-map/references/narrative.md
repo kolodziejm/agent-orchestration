@@ -10,8 +10,8 @@ graph owns the reading order, the file list, the per-file notes, and the sizes; 
 narrative says only what neither shows: what changed in behaviour and structure, where the
 risk is, and what to decide before merging.
 
-Page order: header, **brief** (section 2: what a reviewer must know first), reading budget
-(generated, large changes only), merge order (generated), the graph, diagrams, changes per PR,
+Page order: header, **brief** (section 2: what a reviewer must know first, with its generated progress line), reading budget
+(generated, large changes only, with its spot-check of skim files), merge order (generated), the graph, diagrams, changes per PR,
 before merging. The brief comes first because the reader should not have to find the risks in
 per-PR sections.
 
@@ -21,7 +21,7 @@ By size (`size` in `graphs.json`, set by `build_graph.py`; `references/graph-sch
 | --- | --- |
 | small (one PR, at most 10 files and 400 lines) | header, brief, Before merging. No diagrams, no "Changes per PR" (the merge-order line links to the graph) |
 | medium | everything below |
-| large (over 60 files, 3000 lines, or 3 PRs) | everything below; assemble.py adds the reading budget |
+| large (over 60 files, 3000 lines, or 3 PRs) | everything below; assemble.py adds the reading budget and its spot-check |
 
 Colour per PR: class `c-<KEY>` sets `--c` to that PR's palette colour (the same
 colour as its graph tab). Use it on `.tag` and `ol.steps`.
@@ -83,10 +83,10 @@ the whole change, never per PR, every part a one-liner, a part with nothing in i
 
   <h3>Risks</h3>
   <ol class="brief-risks">
-    <li class="sev-h"><span class="sev">High</span> <span class="who tag c-S">S</span>
+    <li id="risk-1" class="sev-h"><span class="sev">High</span> <span class="who tag c-S">S</span>
       Sessions are no longer checked against the tenant, so a token of one clinic opens another's data
       (<code>libs/auth/session.ts:40-62</code>)</li>
-    <li class="sev-m"><span class="sev">Medium</span> <span class="who tag c-A">A</span>
+    <li id="risk-2" class="sev-m"><span class="sev">Medium</span> <span class="who tag c-A">A</span>
       A retry after the 3 s timeout can duplicate the command (<code>packages/client/commands.ts:181</code>)</li>
   </ol>
 
@@ -96,6 +96,7 @@ the whole change, never per PR, every part a one-liner, a part with nothing in i
   <h3>Decisions</h3>
   <ol class="brief-decisions">
     <li><a href="#dec-1">Ship the new 404 for an unknown facility now, or behind a flag?</a></li>
+    <li><a href="#dec-2">Is a 3-second timeout acceptable for the item loader?</a></li>
   </ol>
 </section>
 ```
@@ -117,12 +118,31 @@ the whole change, never per PR, every part a one-liner, a part with nothing in i
   - **Medium**: one group of users or one flow, or reversible by a deploy but costly to undo.
   - **Low**: local to one component, reversible, behind a flag, or cosmetic.
   What does not make the list stays in its PR's "Look closely" (section 6); an item is never in both.
+  Give each risk a stable `id="risk-N"` (N from 1, in rank order at the time of writing; keep an id with its risk when you
+  re-rank or edit, because the reader's verdicts are stored by id). A risk without an id still renders but has no verdict
+  controls and is not counted.
 - **Never tested**: the gaps that could cause harm, moved here from "Before merging": the stack was never run
   together, a platform or surface a PR touches that nobody ran. One line each, in `ul.gaps`. The verification
   table stays in "Before merging".
 - **Decisions**: one line per decision, in the order of "Before merging", linking to its card
   (`<a href="#dec-N">`, the card is `<li id="dec-N">` there). The question only; the recommendation and the
-  alternatives stay in the card.
+  alternatives stay in the card. The viewer appends the chosen option to the line ("→ Behind a flag").
+- **Screens (generated, only when the user asked for screenshots)**: `assemble.py --screens` puts a "Screens" block right after
+  this list (at the top of the brief when there is no `ul.brief-users`): one card per before/after pair. Write nothing for it;
+  the workflow and `screens.json` are in `references/screenshots.md`.
+- **Verdicts and the progress line (generated, nothing to write)**: every risk with an id takes OK, Needs fix, or
+  Question, and every decision card takes one of its options or Question (a card with no `data-option` takes "Decided"
+  or Question); clicking the chosen button again clears it. They live in the reader's localStorage under the page's storage
+  key, keyed by `risk-N` / `dec-N` (and `PR:path` for a spot-check file), so they survive `assemble.py` and `refresh.py`
+  as long as the ids stay. `assemble.py` writes one progress line at the top of the brief and the viewer keeps it current:
+  `Risks 5/7 · Decisions 3/5 · Must read 12/17 · Spot-check 2/3` (a part with nothing to count is left out), then
+  **Ready to merge** (every risk OK, every decision has an option, every spot-check file Routine, no question open) or
+  **Not ready:** with counts ("2 need a fix, 1 question, 2 risks open"), each a button that jumps to the first such item. A page
+  with no risk ids, no decision cards, and no budget has no line. Beside it, **Copy fix brief** copies Markdown for an agent
+  or for PR comments: the risks to fix and the questions (text, PR, and the `path:start-end` of each code link), the chosen
+  decision options, the open decision questions, the spot-check files that were not routine, then the review notes the
+  notes panel shows (as "Copy notes" writes them); a section with nothing in it is left out. In the overlay, `o`, `n`, and `?`
+  set OK, Needs fix, and Question on a risk entry (`o` and `n`: Routine and Not routine on a spot-check entry).
 
 ## 3. Architecture (optional)
 
@@ -252,15 +272,15 @@ One section, three groups in this order. Leave out a group with nothing in it, e
   <ol class="decisions">
     <li id="dec-1"><span class="who tag c-S">S</span>
       <p class="q">Ship the new 404 for an unknown facility now, or behind a flag?</p>
-      <p class="rec"><strong>Recommended:</strong> now. Only the web loader calls it and it already hides the section on 404.</p>
+      <p class="rec" data-option="Now"><strong>Recommended:</strong> now. Only the web loader calls it and it already hides the section on 404.</p>
       <ul class="alts">
-        <li>Behind a flag: no change for callers, but the loader's 404 path stays untested in production.</li>
+        <li data-option="Behind a flag">Behind a flag: no change for callers, but the loader's 404 path stays untested in production.</li>
       </ul>
       <p class="refs"><code>libs/x/infra/monolith.client.ts:12</code></p></li>
     <li id="dec-2"><span class="who tag c-A">A</span>
       <p class="q">Is a 3-second timeout acceptable for the item loader?</p>
       <p class="rec none"><strong>No recommendation:</strong> the change map has no latency data for the upstream; it is missing.</p>
-      <ul class="alts"><li>3 s: a slow upstream hides the section.</li><li>6 s: the page waits longer.</li></ul></li>
+      <ul class="alts"><li data-option="3 s">3 s: a slow upstream hides the section.</li><li data-option="6 s">6 s: the page waits longer.</li></ul></li>
   </ol>
 
   <h3>Verification</h3>
@@ -290,6 +310,11 @@ One section, three groups in this order. Leave out a group with nothing in it, e
     in `p.rec.none` and name what is missing; never invent a recommendation;
   - the alternatives with their consequence, one line each (`ul.alts`);
   - small code links at the end (`p.refs`).
+  Mark the options so the reader can choose one: `data-option="short label"` on the `p.rec` of a recommendation (not on a
+  `p.rec.none`) and on each `ul.alts > li`. The label (a word or two) is the button's text, the option the chosen one is
+  highlighted as, and the text in the brief's line and the fix brief; without a value the viewer takes the start of the
+  element's text. A card without any `data-option` still works: it gets Decided and Question. Keep the order of the options
+  stable, since a choice is stored as its position in the card.
   The "Add as note" button appears on these cards only. Each card is an `li` with `id="dec-N"`, which the
   brief's "Decisions" line links to.
 - **Verification**: one row per PR with the tested short SHA (the PR's tip, as the merge
@@ -326,8 +351,8 @@ decision, or a risk of the brief already says.
 ## Available classes
 
 `panel`, `tag`, `callout warn|risk|ok`, `details > summary + .body`, `steps`,
-`brief-users`, `contracts` (+ `td.kind`), `brief-risks` + `sev-h|sev-m|sev-l` + `sev`, `brief-decisions`,
-`decisions` (`q`, `rec`, `rec none`, `alts`, `refs`), `verif` + `v-ran|v-not|v-na`, `gaps`, `after`,
+`brief-users`, `contracts` (+ `td.kind`), `brief-risks` + `sev-h|sev-m|sev-l` + `sev` (the `li` has `id="risk-N"`), `brief-decisions`,
+`decisions` (`q`, `rec`, `rec none`, `alts`, `refs`; `data-option` on `rec` and the `alts` items), `verif` + `v-ran|v-not|v-na`, `gaps`, `after`,
 `look`, `risk-list` + `sev-h|sev-m|sev-l` + `who` (older reports), `changes`, `diagram` + `pre.mermaid`,
 `pre.code`, `pill ok|warn|risk`, `sub`.
 Theme tokens: `--bg --surface --fg --muted --line --soft --accent --accent-ink`,

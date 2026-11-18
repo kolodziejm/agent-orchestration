@@ -357,6 +357,27 @@ The overlay's top-level `"size": "large"` overrides it. `small` has no budget se
 default, a saved choice still wins), `medium` adds the map and the attention chips and an "Only what to read" filter in
 View, `large` adds the budget section; narrative scope per tier: `references/narrative.md`.
 
+#### Spot-check
+
+The skim class (`pattern`) is most of the lines the reader skips, so a large change samples it. `assemble.py` picks
+`--spot-check N` skim files (default 3, at most 20, 0 off; large changes only; recorded in `review-map.json` and replayed
+by `refresh.py`) and lists them under "Spot-check (n)" after the Read list, each a code link at the file's first changed line
+with a plain line under the heading ("Routine files picked at random. If any is not routine, the skim class can't be
+trusted."). The reader marks each Routine or Not routine; one Not routine shows a warning naming its PR and keeps the progress
+line from reading "Ready to merge".
+
+The pick is deterministic: seeded from every PR's key and tip, so reassembling the same branches gives the same files and a
+branch that moved can give others. A candidate is a changed `pattern` node of its own (not a group, not generated, not
+`unchanged`). Each pick takes the PR (or part) with the fewest picks so far, so the sample spreads over the stack; within
+that, non-test source files of at least 15 changed lines first, then smaller non-test files, then tests, then the smallest
+SHA-256 of the seed with the PR key and path.
+
+The overlay's top-level `"spotCheck": ["A:src/util/format.ts", …]` (the `KEY:path` references of `nodes`) replaces the pick
+with exactly those files, in that order: `build_graph.py` writes it as graphs.json `spotCheck`, `[{"pr": "A", "id": "A7"}]`
+(node ids), skips with a warning a path no PR changes or a file that is not a skim file, and `validate.py` fails a
+`spotCheck` that is no list of `{pr, id}` or names an unknown node or one whose `attention` is not `pattern`.
+`--spot-check 0` turns the sample off even with an override.
+
 `refresh.py` does not move `focus` ranges: it warns for each file that carries them and whose change differs from the
 previous build's, so they can be checked in the overlay.
 
@@ -486,7 +507,7 @@ or an individual node path) or `KEY:#group` (`#lockfiles`, `#catalogs`,
 language (see `summary` above).
 `nodes` may set `role`, `note`, `layer`, `label`, `hub` (`true` or `false`, see
 Shared dependencies), `cluster` (an id from the overlay's `clusters`, see Areas), `attention` and `focus` (see Attention
-and size). The top-level `size` overrides the computed tier.
+and size). The top-level `size` overrides the computed tier, and `spotCheck` names the skim files to sample (see Spot-check).
 `tours` are described under Tours.
 An `extraNodes` entry is an
 unchanged reference file (`unchanged: true` is implied). For a PR split into parts,
@@ -561,8 +582,8 @@ file after the first when a node has more than four.
 (`gen_diffs`, beside `--graph`), and `assemble.py` (`assemble`, beside `--graph`)
 record the inputs of their last run in `review-map.json`: PR keys, repositories
 (absolute), ranges, names, titles, labels, aliases, groups, overlay, context, line
-cap, strictness, narrative, title, language, strings, target, template (when not the
-default), output, the storage key as resolved, the previous-version file, and each
+cap, strictness, narrative, title, language, strings, target, the screenshots file (`screens`, see
+`references/screenshots.md` for `screens.json`), template (when not the default), output, the storage key as resolved, the previous-version file, and each
 PR's full tip SHA. With `--chunks`, build_graph's section also has `"chunks": [{"path":
 "chunks.json", "parent": "M", "tip": "<full sha of the branch tip>"}]` and gen_diffs's
 `"chunks": ["chunks.json"]`. Paths inside the directory are relative to it.

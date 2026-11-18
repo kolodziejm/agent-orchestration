@@ -12,12 +12,22 @@ removes), the way tour steps and notes address lines.
 The budget counts the changed lines of risky and novel nodes; a node with `focus` counts the lines of its ranges (the
 union, never more than the node changes). The rest of such a node counts as skim.
 
+The spot-check (large changes) samples the skim class so the reader can trust it: `spot_pick` takes N `pattern` nodes
+(default 3, `assemble.py --spot-check N`, 0 off), deterministically, seeded from the PR tips. A candidate is a changed file
+of its own (not a group), not generated, classed `pattern`. Each pick takes, among the candidates, the one in the PR with
+the fewest picks so far (PRs and parts are spread), then the non-test source files of at least SPOT_LINES changed lines,
+then smaller non-test files, then tests, then the smallest hash of the seed with its PR and path. graphs.json `spotCheck`
+(`[{"pr", "id"}]`, written by build_graph.py from the overlay's `spotCheck`) replaces the pick with exactly those nodes.
+
 Size (graphs.json `size`): `small` is one PR, no parts, at most SMALL_FILES changed files and SMALL_LINES changed lines;
 `large` is more than LARGE_FILES files, more than LARGE_LINES lines, or more than LARGE_PRS PRs (a split PR counts once);
 else `medium`. The overlay's `size` overrides it.
 """
 
 from __future__ import annotations
+
+import hashlib
+import re
 
 import tours
 
@@ -28,6 +38,10 @@ SIZES = ("small", "medium", "large")
 SMALL_FILES, SMALL_LINES = 10, 400
 LARGE_FILES, LARGE_LINES, LARGE_PRS = 60, 3000, 3
 WHY_MAX = 200                  # characters of a focus range's reason
+SPOT_DEFAULT, SPOT_MAX = 3, 20  # the spot-check sample: how many skim files by default, at most
+SPOT_LINES = 15                 # a skim file worth sampling changes at least this many lines
+# A path that is generated output (a snapshot, a minified or protobuf file): never sampled, though an overlay may class it as skim.
+GENERATED = re.compile(r"(^|/)(__generated__|generated)/|[._-](generated|gen)\.[^/]+$|\.snap$|\.min\.(js|css)$|\.pb\.go$|_pb2(_grpc)?\.pyi?$|\.g\.dart$")
 
 
 def count(value: object) -> int:
@@ -112,6 +126,42 @@ def budget(graph: dict) -> dict:
     return {"read": lines["risky"] + lines["novel"], "total": sum(lines.values()), "lines": lines}
 
 
+def spot_seed(graph: dict) -> str:
+    """What the sample is seeded with: every PR's key and tip, so the same branches give the same pick."""
+    return "\n".join(f"{pr.get('key')}:{pr.get('tip', '')}" for pr in graph.get("prs", []))
+
+
+def spot_candidates(graph: dict) -> list[tuple[dict, dict]]:
+    """(pr, node) of the skim files the sample may take: changed files of their own, classed `pattern`, not generated."""
+    return [(pr, node) for pr, node in changed(graph)
+            if attention_of(node) == "pattern" and not node.get("files") and node_lines(node) > 0 and not GENERATED.search(str(node.get("path")))]
+
+
+def spot_pick(graph: dict, n: int = SPOT_DEFAULT) -> list[tuple[dict, dict]]:
+    """(pr, node) of the spot-check sample, in pick order: `n` skim files, or the nodes graphs.json `spotCheck` names when it
+    has any (never for n = 0, which turns the sample off). See the module docstring for the rule; nothing here is random."""
+    if n <= 0:
+        return []
+    pool = spot_candidates(graph)
+    forced = graph.get("spotCheck")
+    if isinstance(forced, list) and forced:
+        by_id = {(pr.get("key"), node.get("id")): (pr, node) for pr, node in pool}
+        return [by_id[(e.get("pr"), e.get("id"))] for e in forced if isinstance(e, dict) and (e.get("pr"), e.get("id")) in by_id]
+    seed, picked, taken = spot_seed(graph), [], {}
+
+    def rank(pair: tuple[dict, dict]) -> tuple[int, int, str]:
+        pr, node = pair
+        tier = (2 if node.get("layer") == "test" else 0) + (0 if node_lines(node) >= SPOT_LINES else 1)
+        return taken.get(pr.get("key"), 0), tier, hashlib.sha256(f"{seed}\n{pr.get('key')}\n{node.get('path')}".encode("utf-8")).hexdigest()
+
+    while pool and len(picked) < min(n, SPOT_MAX):
+        best = min(pool, key=rank)
+        pool.remove(best)
+        picked.append(best)
+        taken[best[0].get("key")] = taken.get(best[0].get("key"), 0) + 1
+    return picked
+
+
 def size_of(files: int, lines: int, prs: int, parts: bool) -> str:
     """The tier for a change of `files` files and `lines` lines over `prs` PRs (a split PR once), `parts` when one is split."""
     if files > LARGE_FILES or lines > LARGE_LINES or prs > LARGE_PRS:
@@ -171,6 +221,18 @@ def problems(graph: dict, diffs: object) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     if "size" in graph and graph["size"] not in SIZES:
         errors.append(f"size must be one of {list(SIZES)}, not {graph['size']!r}")
+    if "spotCheck" in graph:
+        forced = graph["spotCheck"]
+        if not isinstance(forced, list) or not all(isinstance(e, dict) and set(e) == {"pr", "id"} for e in forced):
+            errors.append('spotCheck must be a list of {"pr", "id"} entries')
+        else:
+            nodes = {(pr.get("key"), node.get("id")): node for pr in graph.get("prs", []) for node in pr.get("nodes", []) if not node.get("unchanged")}
+            for entry in forced:
+                found = nodes.get((entry["pr"], entry["id"]))
+                if found is None:
+                    errors.append(f"spotCheck names node {entry['id']!r} of PR {entry['pr']!r}, which is no changed node")
+                elif attention_of(found) != "pattern":
+                    errors.append(f"spotCheck names node {entry['id']!r} of PR {entry['pr']!r}, which is {attention_of(found)}, not a skim (pattern) file")
     for pr in graph.get("prs", []):
         for node in pr.get("nodes", []):
             where = f"node {node.get('id')} in PR {pr.get('key')}"

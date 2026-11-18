@@ -331,7 +331,7 @@ class SkillPackageTests(unittest.TestCase):
         literal = re.compile(r"#[0-9A-Fa-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|(?<![\w-])(?:white|black|red|green|blue|gray|grey|orange|yellow|purple|pink|silver)(?![\w-])")
         self.assertEqual(literal.findall(re.sub(r"/\*.*?\*/", "", rest, flags=re.DOTALL)), [])
         scripts = [body for attrs, body in re.findall(r"<script\b([^>]*)>(.*?)</script>", template, re.DOTALL) if "src=" not in attrs and "type=" not in attrs]
-        self.assertEqual(len(scripts), 3)  # the theme in the head, the viewer, the diagrams
+        self.assertEqual(len(scripts), 4)  # the theme in the head, the viewer, the screens dialog, the diagrams
         in_js = re.compile(r"""['"]#[0-9A-Fa-f]{3,8}['"]|\b(?:rgba?|hsla?)\(|['"](?:white|black)['"]|(?<![\w-])(?:fill|stroke|color|background)\s*:\s*['"]?\s*(?:#|rgb|hsl|white|black)|getPropertyValue\(['"]--(?!lc\b|c\b)""")
         for index, body in enumerate(scripts):
             with self.subTest(script=index):
@@ -1273,7 +1273,7 @@ class ReviewMapRefreshTests(unittest.TestCase):
                                           "context": 3, "maxLines": 500, "strict": True})
         self.assertEqual(m["assemble"], {"graph": "graphs.json", "diffs": "diffs.json", "narrative": "narrative.html", "title": "Refresh Test",
                                          "lang": "pl", "strings": "strings.json", "storageKey": "items-review", "target": "local",
-                                         "template": None, "out": "review.html", "previous": None})
+                                         "spotCheck": 3, "screens": None, "template": None, "out": "review.html", "previous": None})
         other = self.root / "no-manifest"
         other.mkdir()
         run_script("build_graph.py", "--out", str(other / "g.json"), "--pr", "A", str(self.repo), "main...feat", "--no-manifest")
@@ -1281,6 +1281,27 @@ class ReviewMapRefreshTests(unittest.TestCase):
         result = run_script("refresh.py", str(other), check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no review-map.json", result.stderr)
+
+    def test_the_manifest_records_the_spot_check_size_and_refresh_replays_it(self):
+        """This test will fail when assemble.py stops recording --spot-check in review-map.json (the default 3 when not given), refresh.py does not hand the recorded size back to assemble.py, or it accepts a size that is not an integer from 0 to 20."""
+        d = self.root / "spot-manifest"
+        shutil.copytree(self.scratch, d, ignore=shutil.ignore_patterns("review.html", "previous.json"))
+        assemble_args = ["--graph", str(d / "graphs.json"), "--diffs", str(d / "diffs.json"), "--narrative", str(d / "narrative.html"), "--title", "Refresh Test",
+                         "--lang", "pl", "--strings", str(d / "strings.json"), "--storage-key", "items-review", "--target", "local", "--out", str(d / "review.html")]
+        run_script("assemble.py", *assemble_args, "--spot-check", "0")
+        manifest = d / "review-map.json"
+        self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["assemble"]["spotCheck"], 0)
+        result = run_script("refresh.py", str(d), "--assemble-only")
+        self.assertIn("OK", result.stdout)
+        self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["assemble"]["spotCheck"], 0)  # replayed, not reset to the default
+        for bad in (99, -1, "3", True):
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["assemble"]["spotCheck"] = bad
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            refused = run_script("refresh.py", str(d), "--assemble-only", check=False)
+            with self.subTest(bad=bad):
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("spotCheck must be an integer from 0 to 20", refused.stdout + refused.stderr)
 
     def test_refresh_rebuilds_from_the_directory_and_reports_what_moved(self):
         """This test will fail when refresh.py does not resolve the branch to its new tip, print old -> new tips and the change counts, carry over the inputs (title, language, strings, storage key, target), warn about the narrative's old tip (a "Verified" bullet bound to it) with its line, show the new tip in the generated merge-order header, skip an overlay entry for a removed file instead of failing, update the manifest's tips, or writes to the repository."""
@@ -3543,6 +3564,179 @@ class AttentionTests(unittest.TestCase):
                 "print(json.dumps(attention.stale_focus(g, before, after)))")
         result = subprocess.run([sys.executable, "-c", code, str(SCRIPTS)], capture_output=True, text=True, env=ENV, check=True)
         self.assertEqual(json.loads(result.stdout), [["A", "a.ts"]])
+
+
+SPOT_PICK = (
+    "import sys, json; sys.dont_write_bytecode = True; sys.path.insert(0, sys.argv[1]); import attention\n"
+    "g = json.load(open(sys.argv[2])); n = int(sys.argv[3])\n"
+    "print(json.dumps([[pr['key'], node['path']] for pr, node in attention.spot_pick(g, n)]))")
+
+
+class SpotCheckTests(unittest.TestCase):
+    """The spot-check sample of the skim class: its pick (scripts/attention.py), the overlay override, the budget section, and the checks."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    @staticmethod
+    def node(ident: str, path: str, lines: int, attention: str = "pattern", layer: str = "logic", **extra) -> dict:
+        return {"id": ident, "path": path, "label": path, "layer": layer, "role": "", "added": lines, "removed": 0, "order": 1, "attention": attention, **extra}
+
+    def graph(self, tips: dict[str, str] | None = None) -> dict:
+        node = self.node
+        tips = tips or {"A": "aaa1111", "B": "bbb2222", "C": "ccc3333"}
+        return {"size": "large", "prs": [
+            {"key": "A", "name": "A", "tip": tips["A"], "nodes": [
+                node("A1", "src/big.ts", 30), node("A2", "src/small.ts", 5), node("A3", "src/big.test.ts", 40, layer="test"), node("A4", "src/second.ts", 22),
+                node("A5", "src/x.generated.ts", 50), node("A6", "locales/*.json", 60, files=["locales/en.json", "locales/pl.json"]),
+                node("A7", "src/novel.ts", 80, attention="novel"), node("A8", "package-lock.json", 90, attention="mechanical"),
+                node("A9", "src/ref.ts", 70, unchanged=True)]},
+            {"key": "B", "name": "B", "tip": tips["B"], "nodes": [node("B1", "api/route.ts", 16), node("B2", "api/route.test.ts", 3, layer="test")]},
+            {"key": "C", "name": "C", "tip": tips["C"], "nodes": [node("C1", "web/page.test.tsx", 18, layer="test")]},
+        ]}
+
+    def pick(self, graph: dict, n: int = 3) -> list[list[str]]:
+        path = self.root / f"graph-{len(list(self.root.glob('graph-*')))}.json"
+        path.write_text(json.dumps(graph), encoding="utf-8")
+        result = subprocess.run([sys.executable, "-c", SPOT_PICK, str(SCRIPTS), str(path), str(n)], capture_output=True, text=True, env=ENV, check=True)
+        return json.loads(result.stdout)
+
+    def test_the_pick_is_deterministic_spread_over_prs_and_prefers_source_files_of_some_size(self):
+        """This test will fail when the same branches give a different pick (it must come from the PR tips, nothing random), a different set of tips never changes it, a group, a generated file, a mechanical, novel, or unchanged node is ever picked, a test comes before a non-test source file in its PR, a source file under 15 lines comes before one of 15 or more, a PR gets a second pick before every PR with a candidate has one, or N does not cap the pick."""
+        graph = self.graph()
+        first = self.pick(graph)
+        self.assertEqual(first, self.pick(json.loads(json.dumps(graph))))
+        self.assertEqual(sorted(pr for pr, _ in first), ["A", "B", "C"])  # one from each PR before any has two
+        taken = dict(first)
+        self.assertIn(taken["A"], ("src/big.ts", "src/second.ts"))        # source of 15 lines or more, not the 5-line file or the test
+        self.assertEqual(taken["B"], "api/route.ts")
+        self.assertEqual(taken["C"], "web/page.test.tsx")                 # the only candidate of its PR, a test
+        everything = self.pick(graph, 20)
+        self.assertEqual([path for pr, path in everything if pr == "A"], sorted(
+            (path for pr, path in everything if pr == "A"), key=lambda p: {"src/big.ts": 0, "src/second.ts": 0, "src/small.ts": 1, "src/big.test.ts": 2}[p]))
+        self.assertEqual(len(everything), 7)
+        for never in ("src/x.generated.ts", "locales/*.json", "src/novel.ts", "package-lock.json", "src/ref.ts"):
+            self.assertNotIn(never, [path for _pr, path in everything])
+        self.assertEqual(len(self.pick(graph, 2)), 2)
+        self.assertEqual(self.pick(graph, 0), [])
+        seen = {tuple(map(tuple, self.pick(self.graph({"A": f"{i:07x}", "B": "b", "C": "c"})))) for i in range(12)}
+        self.assertGreater(len(seen), 1)  # the tips seed the pick
+
+    def test_the_overlay_override_replaces_the_pick_and_zero_turns_the_sample_off(self):
+        """This test will fail when graphs.json spotCheck does not decide the pick exactly (its nodes, in its order), a node of it that is not a skim file is picked, an override that names nothing usable falls back to the seeded pick, or N = 0 does not win over it."""
+        graph = self.graph()
+        graph["spotCheck"] = [{"pr": "B", "id": "B2"}, {"pr": "A", "id": "A2"}]
+        self.assertEqual(self.pick(graph), [["B", "api/route.test.ts"], ["A", "src/small.ts"]])
+        graph["spotCheck"] = [{"pr": "A", "id": "A7"}, {"pr": "A", "id": "A5"}, {"pr": "Z", "id": "A1"}]  # novel, generated, unknown PR
+        self.assertEqual(self.pick(graph), [])
+        self.assertEqual(self.pick(graph, 0), [])
+        graph["spotCheck"] = [{"pr": "A", "id": "A2"}]
+        self.assertEqual(self.pick(graph, 0), [])
+
+    def test_the_overlay_names_skim_files_and_the_page_shows_the_sample_after_read(self):
+        """This test will fail when build_graph.py does not turn the overlay's spotCheck into graphs.json {pr, id} entries (one per file, a file twice once), keeps a file that is no skim file or no changed file of the PR (it must be skipped with a warning), assemble.py does not put "Spot-check (n)" with its plain line and a code link per file after the Read list, honours --spot-check (0 off, N the size), counts the must-read files in the progress line, or leaves the sample out of a small or medium change."""
+        repo = self.root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit_files(repo, {"README.md": "# x\n"}, "base")
+        git(repo, "checkout", "-q", "-b", "feat")
+        commit_files(repo, {
+            "src/a.ts": "".join(f"export const a{i} = {i};\n" for i in range(20)), "src/a.test.ts": "".join(f"test('t{i}', () => 1);\n" for i in range(18)),
+            "src/b.ts": "".join(f"export const b{i} = {i};\n" for i in range(9)), "src/c.test.ts": "test('c', () => 1);\ntest('d', () => 2);\ntest('e', () => 3);\n"}, "feat")
+        overlay = self.root / "overlay.json"
+        overlay.write_text(json.dumps({"size": "large", "nodes": {"A:src/a.ts": {"attention": "pattern"}},
+                                       "spotCheck": ["A:src/c.test.ts", "A:src/b.ts", "A:src/nope.ts", "A:src/c.test.ts"]}), encoding="utf-8")
+        graph, diffs = self.root / "graphs.json", self.root / "diffs.json"
+        out = run_script("build_graph.py", "--out", str(graph), "--pr", "A", str(repo), "main...feat", "--name", "A", "A #1", "--overlay", str(overlay), "--no-manifest").stdout
+        run_script("gen_diffs.py", "--graph", str(graph), "--out", str(diffs), "--pr", "A", str(repo), "main...feat", "--no-manifest")
+        data = json.loads(graph.read_text(encoding="utf-8"))
+        ids = {n["path"]: n["id"] for n in data["prs"][0]["nodes"]}
+        self.assertEqual(data["spotCheck"], [{"pr": "A", "id": ids["src/c.test.ts"]}])
+        self.assertIn("overlay spotCheck 'A:src/b.ts': not a skim (pattern) file; skipped", out)
+        self.assertIn("overlay reference 'A:src/nope.ts': no node or changed file with that path in PR A; skipped", out)
+        narrative = self.root / "narrative.html"
+        narrative.write_text('<header><h1>T</h1></header>\n<section id="brief"><h2>Brief</h2><ol class="brief-risks"><li id="risk-1" class="sev-h">R <code>src/b.ts:1</code></li></ol></section>\n'
+                             '<!-- review-map:graph -->\n<section id="before-merging"><h2>Before merging</h2><ol class="decisions"><li id="dec-1"><p class="q">Q?</p></li></ol></section>\n', encoding="utf-8")
+
+        def page(*extra: str, source: Path = graph) -> str:
+            out_file = self.root / "page.html"
+            run_script("assemble.py", "--graph", str(source), "--diffs", str(diffs), "--narrative", str(narrative), "--title", "T", "--out", str(out_file), "--no-manifest", *extra)
+            return out_file.read_text(encoding="utf-8")
+
+        text = page()
+        section = text.split('<section id="budget"')[1].split("</section>")[0]
+        spot = section.split('<div class="b-spot">')[1]
+        self.assertLess(section.index("</details>") if "</details>" in section else section.index('data-b="read"'), section.index('<div class="b-spot">'))
+        self.assertIn("Spot-check (1)", spot)
+        self.assertIn("Routine files picked at random. If any is not routine, the skim class can&#x27;t be trusted.", spot)
+        self.assertEqual(re.findall(r"<code>([^<]*)</code>", spot), ["src/c.test.ts:1"])
+        self.assertIn('class="callout warn b-spotwarn"', section)
+        self.assertIn('<span class="pg-n" id="pg-n">Risks 0/1 · Decisions 0/1 · Spot-check 0/1</span>', text)
+        self.assertEqual(text.count('id="vd-prog"'), 1)
+        self.assertLess(text.index('id="vd-prog"'), text.index("<code>src/b.ts:1</code>"))  # at the top of the brief
+        self.assertIn("1 spot-check unmarked", text)
+        off = page("--spot-check", "0")
+        self.assertNotIn("b-spot", off.split('<section id="stack"')[0].split('<section id="budget"')[1])
+        self.assertNotIn("Spot-check 0/", off)
+        auto = json.loads(json.dumps(data))
+        del auto["spotCheck"]
+        auto_path = self.root / "auto-graph.json"
+        auto_path.write_text(json.dumps(auto), encoding="utf-8")
+        two = page("--spot-check", "2", source=auto_path)
+        self.assertIn("Spot-check (2)", two)
+        self.assertEqual(page("--spot-check", "2", source=auto_path), two)  # the same data gives the same page
+        self.assertEqual(re.findall(r"<code>([^<]*)</code>", two.split('<div class="b-spot">')[1].split("</section>")[0]),
+                         ["src/a.ts:1", "src/a.test.ts:1"])  # source of 15 lines or more, then the test of 15 or more
+        for tier in ("medium", "small"):
+            graph_tier = json.loads(json.dumps(data))
+            graph_tier["size"] = tier
+            tier_path = self.root / f"tier-{tier}.json"
+            tier_path.write_text(json.dumps(graph_tier), encoding="utf-8")
+            with self.subTest(tier=tier):
+                text = page(source=tier_path)
+                self.assertNotIn("b-spot", text.split('<main')[1].split('id="graph"')[0])
+                self.assertNotIn("Spot-check", text.split('<main')[1].split('id="graph"')[0])
+        self.assertEqual(run_script("assemble.py", "--graph", str(graph), "--diffs", str(diffs), "--narrative", str(narrative), "--title", "T", "--out", str(self.root / "bad.html"),
+                                    "--no-manifest", "--spot-check", "21", check=False).returncode, 2)
+
+    @unittest.skipUnless(NODE, "node is required to validate the assembled page")
+    def test_validate_rejects_a_spot_check_override_naming_an_unknown_or_non_skim_node(self):
+        """This test will fail when validate.py accepts a graphs.json spotCheck that is no list of {pr, id}, names a node or PR the graph lacks, an unchanged reference node, or a node that is not a skim (pattern) file, or rejects a valid override."""
+        narrative = self.root / "v-narrative.html"
+        narrative.write_text('<header><h1>T</h1></header>\n<section id="brief"><h2>Brief</h2></section>\n<!-- review-map:graph -->\n', encoding="utf-8")
+        diffs = self.root / "v-diffs.json"
+        diffs.write_text("{}", encoding="utf-8")
+
+        def check(spot: object, name: str) -> subprocess.CompletedProcess:
+            graph = self.graph()
+            graph["spotCheck"] = spot
+            path, out = self.root / f"{name}.json", self.root / f"{name}.html"
+            path.write_text(json.dumps(graph), encoding="utf-8")
+            run_script("assemble.py", "--graph", str(path), "--diffs", str(diffs), "--narrative", str(narrative), "--title", "T", "--out", str(out), "--no-manifest")
+            return run_script("validate.py", str(out), check=False)
+
+        good = check([{"pr": "A", "id": "A1"}, {"pr": "C", "id": "C1"}], "v-good")
+        self.assertEqual(good.returncode, 0, good.stdout)
+        for name, spot, message in (
+            ("unknown", [{"pr": "A", "id": "A99"}], "names node 'A99' of PR 'A', which is no changed node"),
+            ("pr", [{"pr": "Z", "id": "A1"}], "names node 'A1' of PR 'Z', which is no changed node"),
+            ("wrong-pr", [{"pr": "B", "id": "A1"}], "names node 'A1' of PR 'B', which is no changed node"),
+            ("unchanged", [{"pr": "A", "id": "A9"}], "names node 'A9' of PR 'A', which is no changed node"),
+            ("novel", [{"pr": "A", "id": "A7"}], "which is novel, not a skim (pattern) file"),
+            ("mechanical", [{"pr": "A", "id": "A8"}], "which is mechanical, not a skim (pattern) file"),
+            ("shape", ["A1"], "spotCheck must be a list of"),
+            ("shape-object", {"A": "A1"}, "spotCheck must be a list of"),
+        ):
+            with self.subTest(case=name):
+                result = check(spot, f"v-{name}")
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(message, result.stdout)
 
 
 if __name__ == "__main__":

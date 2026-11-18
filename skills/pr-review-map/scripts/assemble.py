@@ -5,7 +5,7 @@ Usage:
   python3 assemble.py --graph graphs.json --diffs diffs.json --narrative narrative.html \\
       --title "Review: …" --lang pl --out report.html \\
       [--strings overrides.json] [--storage-key my-review] [--target artifact|local] \\
-      [--template ../assets/viewer.html] [--previous previous.json]
+      [--template ../assets/viewer.html] [--previous previous.json] [--spot-check N] [--screens screens.json]
 
 The narrative is HTML for <main>, split by one line `<!-- review-map:graph -->`:
 everything before it (the title header and the brief) renders above the reading graph,
@@ -13,7 +13,8 @@ everything after it (architecture, request flow, changes per PR, before merging,
 below. assemble.py itself adds two sections to the end of the part above the line: for a
 large change (graphs.json `size`, scripts/attention.py) the reading budget (lines to read
 of those changed, a bar of the four attention classes, the files to read grouped by PR,
-each opening at its focus), then the merge order: one
+each opening at its focus, then a spot-check of --spot-check N (default 3, 0 off) skim files picked by attention.spot_pick,
+seeded from the PR tips), then the merge order: one
 line per PR with its key, name, title, tip SHA, file count, and +/-, all taken from
 graphs.json (a PR split into parts gets one line with its parts under it), so the
 numbers are never typed by hand and stay right after refresh.py. The table of contents
@@ -31,6 +32,17 @@ UI strings come from assets/strings.json for --lang, overridden key by key by
 --strings. JSON data is embedded in <script type="application/json"> blocks with
 `</` written as `<\\/` and `<!--` as `<\\u0021--`, both valid JSON escapes that keep
 the HTML parser out of the data.
+
+The brief gets one generated progress line at its top (verdicts on the risks `id="risk-N"` and the decisions `id="dec-N"` of the
+narrative, the must-read files, the spot-check; "Ready to merge" or "Not ready:" with counts) and a "Copy fix brief" button; the
+viewer keeps it up to date from the reader's verdicts, which live in localStorage beside the notes.
+
+--screens names a screens.json (scripts/screens.py, references/screenshots.md): the before/after screenshots, taken only
+when the user asked for them. It is checked as `screens.py check` does (a failure stops the build), each image is embedded as a
+data URI in a `screens-data` JSON block written like the others, and the viewer shows them in the brief after "What changes for
+users". A pair whose `tip` differs from its PR's tip in graphs.json is marked stale (`taken at <sha>, code changed since`).
+The path goes in review-map.json, which refresh.py replays (a `screens.json` beside review-map.json is picked up by refresh.py
+even when it was added later).
 
 --previous names the previous build's generation, tips, and file fingerprints
 ({"generation": n, "tips": {KEY: sha}, "files": {KEY: {path: fp}}}, written by
@@ -52,7 +64,7 @@ must have contiguous parts numbered 1..n, each starting where the one before end
 with keys that end in a letter; the parent's narrative class `c-<KEY>` takes its
 first part's colour. Tours (graphs.json `tours`) must name known nodes and their files
 (scripts/tours.py); a narrative button with `data-tour="<id>"` starts one.
-The arguments, with the storage key as resolved, go in the `assemble` section of
+The arguments, with the storage key and the spot-check size as resolved, go in the `assemble` section of
 review-map.json beside --graph (scripts/manifest.py), which refresh.py replays;
 --no-manifest skips that. Python 3 standard library only.
 """
@@ -70,6 +82,7 @@ sys.dont_write_bytecode = True  # importing manifest.py must not leave a __pycac
 import attention  # noqa: E402
 import chunks  # noqa: E402
 import manifest  # noqa: E402
+import screens  # noqa: E402
 import tours  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -175,9 +188,10 @@ def budget_entry(node: dict, diffs: dict, show_why: bool, strings: dict) -> str:
     return f'<li>{text}{note} <span class="b-n">{html.escape(count)}</span></li>'
 
 
-def budget_section(graph: dict, diffs: dict, strings: dict) -> str:
+def budget_section(graph: dict, diffs: dict, strings: dict, spot: int = 0) -> str:
     """The generated "Reading budget" (large changes): lines to read of those changed, a stacked bar of the four classes, then
-    the files to read, risky ones first with why, grouped by PR. Empty when nothing changed."""
+    the files to read, risky ones first with why, grouped by PR, then the spot-check of `spot` skim files (none when 0 or when
+    the change has no skim file to sample). Empty when nothing changed."""
     figures = attention.budget(graph)
     total, read = figures["total"], figures["read"]
     if not total:
@@ -198,15 +212,56 @@ def budget_section(graph: dict, diffs: dict, strings: dict) -> str:
             nodes = [n for n in pr["nodes"] if not n.get("unchanged") and attention.attention_of(n) == name and attention.read_lines(n)]
             if nodes:
                 items = "".join(budget_entry(n, diffs, name == "risky" or bool(n.get("focus")), strings) for n in nodes)
-                groups.append(f'<div class="b-group"><span class="who tag c-{html.escape(pr["key"])}">{html.escape(pr["key"])}</span> '
+                groups.append(f'<div class="b-group" data-b="{"must" if name == "risky" else "read"}"><span class="who tag c-{html.escape(pr["key"])}">{html.escape(pr["key"])}</span> '
                               f'<ul class="b-list">{items}</ul></div>')
         if groups:
             count = sum(g.count("<li>") for g in groups)
             heading = f"{html.escape(words[name])} ({count})"
             blocks.append(f'<h3 class="b-{name}">{heading}</h3>\n' + "\n".join(groups) if name == "risky" else
                           f'<details class="b-more"{" open" if count <= 12 else ""}><summary>{heading}</summary><div class="body">' + "\n".join(groups) + "</div></details>")
-    return (f'<section id="budget" data-toc="{title}">\n<h2>{title}</h2>\n<p class="b-sum"><strong>{html.escape(summary)}</strong></p>\n'
+    picks = attention.spot_pick(graph, spot)
+    warn = ""
+    if picks:
+        groups = []
+        for pr in graph["prs"]:
+            mine = [node for owner, node in picks if owner is pr]
+            if mine:
+                groups.append(f'<div class="b-group" data-b="spot"><span class="who tag c-{html.escape(pr["key"])}">{html.escape(pr["key"])}</span> '
+                              f'<ul class="b-list">{"".join(budget_entry(n, diffs, False, strings) for n in mine)}</ul></div>')
+        blocks.append(f'<div class="b-spot"><h3 class="b-pattern">{html.escape(strings["spotTitle"])} ({len(picks)})</h3>\n'
+                      f'<p class="b-spotnote">{html.escape(strings["spotNote"])}</p>\n' + "\n".join(groups) + "</div>")
+        warn = '\n<div class="callout warn b-spotwarn" role="status" hidden></div>'
+    return (f'<section id="budget" data-toc="{title}">\n<h2>{title}</h2>\n<p class="b-sum"><strong>{html.escape(summary)}</strong></p>{warn}\n'
             f'<div class="b-bar" role="img" aria-label="{label}">{bar}</div>\n<ul class="b-key">{key}</ul>\n' + "\n".join(blocks) + "\n</section>")
+
+
+def count_text(strings: dict, key: str, n: int) -> str:
+    return plural_form(strings[key], n).replace("{n}", str(n))
+
+
+def progress_html(strings: dict, risks: int, decisions: int, must: int, spot: int) -> str:
+    """The brief's progress line as the page starts out, with no verdict given: counters ("Risks 0/7 · Decisions 0/5 ·
+    Must read 0/17 · Spot-check 0/3"), then "Not ready:" with what is open, and the "Copy fix brief" button (off until there
+    is something to copy). The viewer rewrites the counters and the state from the reader's verdicts, so a page read without
+    script shows this. Empty when the change has nothing to track."""
+    if not (risks or decisions or must or spot):
+        return ""
+    counters = " · ".join(strings[key].replace("{n}", "0").replace("{m}", str(total)) for key, total in
+                          (("progRisks", risks), ("progDecisions", decisions), ("progMust", must), ("progSpot", spot)) if total)
+    state = ""
+    if risks or decisions or spot:
+        parts = [f'<button type="button" class="nt-b lnk pg-j" data-j="{jump}">{html.escape(count_text(strings, key, total))}</button>'
+                 for jump, key, total in (("openRisk", "progOpenRisk", risks), ("openDec", "progOpenDec", decisions), ("openSpot", "progOpenSpot", spot)) if total]
+        state = f'<span class="pg-state not" id="pg-state" aria-live="polite"><strong>{html.escape(strings["progNot"])}</strong> ' + ", ".join(parts) + "</span>"
+    return (f'<div class="vd-prog" id="vd-prog" role="group" aria-label="{html.escape(strings["progLabel"], quote=True)}">'
+            f'<span class="pg-n" id="pg-n">{html.escape(counters)}</span>{state}'
+            f'<button type="button" class="nt-b" id="vd-copy" disabled>{html.escape(strings["fixCopy"])}</button></div>')
+
+
+def with_progress(head: str, block: str) -> str:
+    """`head` with the progress line right after the brief's heading (or its opening tag when it has none)."""
+    found = re.search(r'<section\b[^>]*\bid="brief"[^>]*>(\s*<h2\b.*?</h2>)?', head, re.IGNORECASE | re.DOTALL)
+    return head if not (found and block) else head[:found.end()] + "\n" + block + head[found.end():]
 
 
 def merge_order(graph: dict, strings: dict, small: bool = False) -> str:
@@ -312,6 +367,24 @@ def check_graph(graph: dict, diffs: dict) -> None:
         raise SystemExit("graphs.json tours: " + "; ".join(problems[:5]))
 
 
+def screens_block(path: Path, graph: dict) -> str:
+    """The `screens-data` JSON block for a screens.json (empty text without one): every entry with its images as data URIs, its
+    PR's name, and `stale` when the PR's tip is no longer the one the pair was taken at. SystemExit on a problem."""
+    entries, warnings = screens.embed(path)
+    for warning in warnings:
+        print(f"warning: {warning}")
+    tips = screens.tips_of(graph)
+    names = {item["key"]: str(item.get("name") or item["key"]) for item in [*graph["prs"], *(graph.get("parents") or [])]}
+    unknown = sorted({e["pr"] for e in entries if e["pr"] not in tips})
+    if unknown:
+        raise SystemExit(f"{path}: pr {unknown} is not a PR of graphs.json ({', '.join(sorted(tips))})")
+    stale = set(screens.stale_ids(entries, tips))
+    for entry in entries:
+        entry["prName"] = names[entry["pr"]]
+        entry["stale"] = entry["id"] in stale
+    return f'<script type="application/json" id="screens-data">{embed_json({"screens": entries})}</script>\n'
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--graph", required=True, type=Path)
@@ -325,9 +398,14 @@ def main() -> int:
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--previous", type=Path, help="the previous build's tips and fingerprints (written by refresh.py)")
+    parser.add_argument("--spot-check", type=int, default=attention.SPOT_DEFAULT, metavar="N",
+                        help=f"skim files of the spot-check sample, large changes only (default {attention.SPOT_DEFAULT}, 0 off, at most {attention.SPOT_MAX})")
+    parser.add_argument("--screens", type=Path, help="screens.json: before/after screenshots to show in the brief (only when the user asked for them)")
     parser.add_argument("--no-manifest", action="store_true", help="do not record this run in review-map.json")
     args = parser.parse_args()
 
+    if not 0 <= args.spot_check <= attention.SPOT_MAX:
+        parser.error(f"--spot-check must be from 0 to {attention.SPOT_MAX}")
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     diffs = json.loads(args.diffs.read_text(encoding="utf-8"))
     check_graph(graph, diffs)
@@ -338,8 +416,11 @@ def main() -> int:
     head, body = (part.strip("\n") for part in narrative.split(MARKER))
     strings = load_strings(args.lang, args.strings)
     size = attention.size_for(graph)
-    head = "\n\n".join(part for part in (head, budget_section(graph, diffs, strings) if size == "large" else "",
-                                          merge_order(graph, strings, size == "small")) if part)
+    budget = budget_section(graph, diffs, strings, args.spot_check) if size == "large" else ""
+    must, spot = (len(re.findall(r"<li>", "".join(re.findall(rf'<div class="b-group" data-b="{name}">.*?</div>', budget, re.DOTALL)))) for name in ("must", "spot"))
+    head = with_progress(head, progress_html(strings, len(re.findall(r'<li\b[^>]*\bid="risk-[^"]*"', head)),
+                                             len(re.findall(r'<li\b[^>]*\bid="dec-[^"]*"', head + body)), must, spot))
+    head = "\n\n".join(part for part in (head, budget, merge_order(graph, strings, size == "small")) if part)
 
     prs = []
     pr_css = []
@@ -397,6 +478,7 @@ def main() -> int:
         "CONFIG_JSON": embed_json(config),
         "GRAPH_JSON": embed_json(graph),
         "DIFF_JSON": embed_json(diffs),
+        "SCREENS_BLOCK": screens_block(args.screens, graph) if args.screens else "",
     }
 
     def fill(match: re.Match) -> str:
@@ -411,6 +493,8 @@ def main() -> int:
         return values[name]
 
     template = args.template.read_text(encoding="utf-8")
+    if args.screens and "{{SCREENS_BLOCK}}" not in template:
+        raise SystemExit(f"--screens needs a template with a {{{{SCREENS_BLOCK}}}} placeholder; {args.template} has none")
     page = PLACEHOLDER.sub(fill, template)
     args.out.write_text(page, encoding="utf-8")
     if not args.no_manifest:
@@ -418,6 +502,7 @@ def main() -> int:
             "graph": manifest.stored(here, args.graph), "diffs": manifest.stored(here, args.diffs),
             "narrative": manifest.stored(here, args.narrative), "title": args.title, "lang": args.lang,
             "strings": manifest.stored(here, args.strings), "storageKey": storage_key, "target": args.target,
+            "spotCheck": args.spot_check, "screens": manifest.stored(here, args.screens),
             "template": None if args.template.resolve() == DEFAULT_TEMPLATE else manifest.stored(here, args.template),
             "out": manifest.stored(here, args.out), "previous": manifest.stored(here, args.previous),
         })
