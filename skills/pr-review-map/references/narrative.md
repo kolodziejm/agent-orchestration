@@ -211,7 +211,7 @@ holds the PR's graph button and nested bullets, then an optional "Look closely" 
     <li><strong>Behaviour change:</strong> the default page size drops from 50 to 20
       <ul><li>The BFF asks for 20 as well, so no caller sees a difference</li></ul>
     </li>
-    <li>Price per service is one price when all variants are equal (<code>200 zł</code>), else "from 180 zł" (<code>libs/x/query.ts:26-95</code>)</li>
+    <li>Price per service is one price when all variants are equal (<code>200 EUR</code>), else "from 180 EUR" (<code>libs/x/query.ts:26-95</code>)</li>
   </ul>
 </section>
 ```

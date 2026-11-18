@@ -8,8 +8,8 @@ description: >-
   files and their real dependencies with a numbered reading order, a side-by-side diff
   viewer, the merge order, the changes per PR, and what to check before merging. Use it
   when the user wants to review, visualize, or understand a PR or a PR stack ("review
-  map", "raport do review", "graf zależności diffu", "jak czytać te zmiany", "in what
-  order should I read this diff", "where is the risk in this change"), and offer it after
+  map", "review report", "dependency graph of this diff", "how do I read these
+  changes", "in what order should I read this diff", "where is the risk in this change"), and offer it after
   finishing a change that spans several PRs.
 compatibility: Requires git and python3 (standard library only) to build the data, node to validate the page, and read access to every repository in the stack. Publishes through the Claude Code Artifact tool when available, otherwise writes a local HTML file. The page loads highlight.js (plus any language file its diffs need, such as dockerfile or protobuf) and, for a local file, mermaid from cdnjs.
 ---

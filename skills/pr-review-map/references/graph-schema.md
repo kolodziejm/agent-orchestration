@@ -210,8 +210,8 @@ none. A `trivial` change (above) can be a hub, since its many links would otherw
 its users together, but it reads after the hubs with something to read: a one-line
 provider change that 28 files use is no first step.
 
-The viewer pins the hubs, each with its tests indented under it, in a "Wspólne
-zależności" / "Shared dependencies" group at the top of the step list, numbered as
+The viewer pins the hubs, each with its tests indented under it, in a "Shared
+dependencies" group at the top of the step list, numbered as
 the first steps in both reading modes. The arc lane draws an arc into a hub only
 while that hub is the selected or hovered file; another selected file that uses hubs
 gets a "◆" chip on its row and a blue ring on the hubs' dots instead, and its
@@ -221,7 +221,7 @@ edge into the band only for the selected file.
 
 ### Reading order
 
-`order` is dependency-first ("Od zależności" / "From dependencies"). build_graph.py
+`order` is dependency-first ("From dependencies"). build_graph.py
 reads the hubs first (those with something to read, then the `trivial` or unchanged
 ones), then the other core nodes, and an edge between two of these parts counts in
 neither: a node linked only to hubs reads with the isolated ones, and hubs do not pull
@@ -259,18 +259,18 @@ change), else `"entry"`. A note under the order buttons says why and marks the
 recommended button; a pick of the other mode is kept per PR (localStorage `omodes`,
 `{prKey: "top"|"bottom"}`) and dropped when the reader picks the recommended one again,
 so a rebuilt PR follows its new recommendation; a narrative button's `data-order` picks
-one for the visit only. (An earlier report-wide `omode` key is not read.) "Od punktu
-wejścia" / "From the entry point" reverses only the connected nodes of each part: the hubs still come first (read the shared
+one for the visit only. (An earlier report-wide `omode` key is not read.) "From the
+entry point" reverses only the connected nodes of each part: the hubs still come first (read the shared
 pieces before the files that use them), and isolated nodes, the placement of tests,
 and the late layers stay as in the stored order, so an unrelated file (a collapsed
 import change, say) never opens either mode. Reversing keeps every adjacent pair
 adjacent, so the flow rule holds in both modes. The viewer numbers the steps on
 the whole PR, tests included; the test filter hides tests without renumbering the
-rest, and prev/next skip hidden steps. "Grupuj według folderów" / "Group by folder"
+rest, and prev/next skip hidden steps. "Group by folder"
 (off by default, kept in localStorage) splits the rows after the hub group into
 collapsible sections by folder (a test goes with its subject's folder), keeps
 reading order inside each, orders the sections by their first step, and leaves the
-step numbers and prev/next as they are. "Grupuj według obszarów" / "Group by area"
+step numbers and prev/next as they are. "Group by area"
 (off by default, kept under `lgroup`; it and the folder grouping exclude each other)
 does the same with one section per area (below). Do not author a second reading order
 anywhere else.

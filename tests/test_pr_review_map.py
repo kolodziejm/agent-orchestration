@@ -283,7 +283,7 @@ class SkillPackageTests(unittest.TestCase):
         self.assertIn("name: pr-review-map\n", front)
         self.assertIn("compatibility:", front)
         description = " ".join(front.split("compatibility:")[0].split())
-        for phrase in ("raport do review", "graf zależności diffu", "jak czytać te zmiany", "stack", "offer it"):
+        for phrase in ("review report", "dependency graph of this diff", "how do I read these changes", "stack", "offer it"):
             self.assertIn(phrase, description)
         self.assertLess(len(text.splitlines()), 250)
         referenced = set(re.findall(r"`((?:scripts|references|assets)/[\w./-]+)`", text))
